@@ -14,7 +14,8 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
-ENV NODE_ENV=production
+# NODE_ENV=production Railway Variables üzerinden verin; imajda sabitlemek bazen
+# dashboard’daki JWT_SECRET ile zamanlama/merge sorunlarını zorlaştırabiliyor.
 EXPOSE 8080
 
 CMD ["node", "dist/index.js"]
