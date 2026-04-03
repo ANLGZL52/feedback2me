@@ -1,0 +1,103 @@
+// FeedbackToMe — Railway Postgres şeması (Firestore koleksiyonlarıyla hizalı)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String?   @unique
+  displayName  String?   @map("display_name")
+  photoUrl     String?   @map("photo_url")
+  handle       String?
+  isPremium    Boolean   @default(false) @map("is_premium")
+  premiumUntil DateTime? @map("premium_until")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  links     Link[]
+  snapshots AudienceScoreSnapshot[]
+  oauth     OAuthAccount[]
+}
+
+/// Google / Apple hesap eşlemesi (Firebase uid yerine provider + subject)
+model OAuthAccount {
+  id               String @id @default(cuid())
+  provider         String // "google" | "apple"
+  providerUserId   String @map("provider_user_id")
+  userId           String @map("user_id")
+  user             User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@map("oauth_accounts")
+}
+
+model Link {
+  id        String   @id @default(cuid())
+  ownerId   String   @map("owner_id")
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  code      String   @unique
+  title     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  feedbacks Feedback[]
+
+  @@index([ownerId, isActive])
+  @@map("links")
+}
+
+model Feedback {
+  id              String   @id @default(cuid())
+  linkId          String   @map("link_id")
+  link            Link     @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  responderName   String?  @map("responder_name")
+  relation        String?
+  mood            Int?
+  textRaw         String   @map("text_raw") @db.Text
+  textClean       String?  @map("text_clean") @db.Text
+  creatorSurvey   Json?    @map("creator_survey")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([linkId, createdAt(sort: Desc)])
+  @@map("feedbacks")
+}
+
+model AudienceScoreSnapshot {
+  id                   String   @id @default(cuid())
+  userId               String   @map("user_id")
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt            DateTime @default(now()) @map("created_at")
+  overallScore         Int      @map("overall_score")
+  positiveMomentum     Int      @map("positive_momentum")
+  riskControl          Int      @map("risk_control")
+  dataDepth            Int      @map("data_depth")
+  feedbackCount        Int      @map("feedback_count")
+  positiveCount        Int      @map("positive_count")
+  neutralCount         Int      @map("neutral_count")
+  negativeCount        Int      @map("negative_count")
+  communityPerception  Int?     @map("community_perception")
+  trust                Int?
+  contentClarity       Int?     @map("content_clarity")
+  executiveSummary     String?  @map("executive_summary") @db.Text
+
+  reportBody AudienceReportBody?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("audience_score_snapshots")
+}
+
+/// Büyük creator JSON (Firestore reportBody/full karşılığı)
+model AudienceReportBody {
+  id          String @id @default(cuid())
+  snapshotId  String @unique @map("snapshot_id")
+  snapshot    AudienceScoreSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  creatorReport Json @map("creator_report") @db.JsonB
+
+  @@map("audience_report_bodies")
+}
