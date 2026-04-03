@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feedback Gönder — FeedbackToMe</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #141210;
+      color: #fff;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .container { max-width: 480px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; color: #D4AF37; margin-bottom: 8px; }
+    .sub { color: rgba(255,255,255,0.7); font-size: 0.95rem; margin-bottom: 24px; }
+    label { display: block; margin-bottom: 6px; font-size: 0.9rem; }
+    input, textarea, select {
+      width: 100%; padding: 12px; margin-bottom: 16px;
+      background: #1C1917; border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px; color: #fff; font-size: 1rem;
+    }
+    textarea { min-height: 120px; resize: vertical; }
+    .mood { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .mood label { display: flex; align-items: center; margin: 0; }
+    .mood input { width: auto; margin: 0 6px 0 0; }
+    button {
+      background: #D4AF37; color: #000; border: none; padding: 14px 24px;
+      border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer;
+      width: 100%;
+    }
+    button:hover { background: #E8C547; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .msg { padding: 16px; border-radius: 12px; margin-bottom: 16px; }
+    .msg.ok { background: rgba(76,175,80,0.2); border: 1px solid #4CAF50; }
+    .msg.err { background: rgba(244,67,54,0.2); border: 1px solid #f44336; }
+    .msg.load { background: rgba(255,255,255,0.05); }
+    .note { font-size: 0.85rem; color: rgba(255,255,255,0.5); margin-top: 24px; }
+    .footer-cta {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(255,255,255,0.12);
+      text-align: center;
+    }
+    .footer-cta p { font-size: 0.85rem; color: rgba(255,255,255,0.55); margin-bottom: 12px; line-height: 1.4; }
+    .footer-row { font-size: 0.9rem; line-height: 1.6; }
+    .footer-row a { color: #E8C547; text-decoration: none; font-weight: 600; }
+    .footer-row a:hover { text-decoration: underline; }
+    .footer-row .sep { color: rgba(255,255,255,0.35); margin: 0 6px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>FeedbackToMe</h1>
+    <p class="sub" id="subtitle">Düşüncelerini paylaş</p>
+    <div id="msg"></div>
+    <form id="form" style="display:none">
+      <label>Adın (isteğe bağlı)</label>
+      <input type="text" id="name" placeholder="Boş bırakabilirsin">
+      <label>Kişiyle ilişkin</label>
+      <input type="text" id="relation" placeholder="Arkadaş, iş arkadaşı, müşteri...">
+      <label>Genel hissin</label>
+      <div class="mood">
+        <label><input type="radio" name="mood" value="-1"> Olumsuz</label>
+        <label><input type="radio" name="mood" value="0" checked> Nötr</label>
+        <label><input type="radio" name="mood" value="1"> Olumlu</label>
+      </div>
+      <label>Düşüncelerini yaz *</label>
+      <textarea id="feedback" placeholder="En az 10 karakter yaz..." required minlength="10"></textarea>
+      <button type="submit" id="btn">Gönder</button>
+    </form>
+    <div class="footer-cta" id="footerCta" style="display:none">
+      <p>Kendi feedback linkin ve AI raporların mı olsun?</p>
+      <div class="footer-row">
+        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">FeedbackToMe uygulamasını aç</a>
+        <span class="sep">·</span>
+        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Premium ol ve sen de dene</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  <script>
+    const cfg = {
+      apiKey: "AIzaSyCRflC9vEs78jUte24z4mzGU2AXtaVKV_M",
+      authDomain: "feedbacktome-79655.firebaseapp.com",
+      projectId: "feedbacktome-79655",
+      storageBucket: "feedbacktome-79655.firebasestorage.app",
+      messagingSenderId: "16565078393",
+      appId: "1:16565078393:web:552d6701140bbca3e747a8"
+    };
+    firebase.initializeApp(cfg);
+    const db = firebase.firestore();
+
+    function getCode() {
+      const p = location.pathname;
+      const m = p.match(/\/f\/([a-zA-Z0-9]+)/);
+      if (m) return m[1];
+      const q = new URLSearchParams(location.search);
+      return q.get('code') || q.get('c') || '';
+    }
+
+    function show(id, html, cls) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = html;
+      el.className = cls ? 'msg ' + cls : '';
+      el.style.display = html ? 'block' : 'none';
+    }
+
+    const code = getCode();
+    if (!code) {
+      document.getElementById('subtitle').textContent = 'Geçersiz link. Doğru feedback linkini kullan.';
+      show('msg', 'Linkte kod bulunamadı. Örnek: feedbacktome-79655.web.app/f/abc12345', 'err');
+    } else {
+      show('msg', 'Link kontrol ediliyor...', 'load');
+      db.collection('links')
+        .where('code', '==', code)
+        .where('isActive', '==', true)
+        .limit(1)
+        .get()
+        .then(snap => {
+          if (snap.empty) {
+            show('msg', 'Bu link bulunamadı veya artık geçerli değil.', 'err');
+            return;
+          }
+          const link = snap.docs[0];
+          window._linkId = link.id;
+          show('msg', '');
+          document.getElementById('form').style.display = 'block';
+          const ft = document.getElementById('footerCta');
+          if (ft) ft.style.display = 'block';
+        })
+        .catch(e => {
+          show('msg', 'Bağlantı hatası: ' + e.message, 'err');
+        });
+    }
+
+    document.getElementById('form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const text = document.getElementById('feedback').value.trim();
+      if (text.length < 10) {
+        show('msg', 'En az 10 karakter yaz.', 'err');
+        return;
+      }
+      if (!window._linkId) return;
+      const btn = document.getElementById('btn');
+      btn.disabled = true;
+      show('msg', 'Gönderiliyor...', 'load');
+      try {
+        const mood = parseInt(document.querySelector('input[name="mood"]:checked')?.value || '0', 10);
+        await db.collection('feedbacks').add({
+          linkId: window._linkId,
+          responderName: document.getElementById('name').value.trim() || null,
+          relation: document.getElementById('relation').value.trim() || null,
+          mood: mood,
+          textRaw: text,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        document.getElementById('form').style.display = 'none';
+        show('msg', 'Teşekkürler! Feedback\'in gönderildi. Link sahibine iletilecek.', 'ok');
+      } catch (e) {
+        show('msg', 'Gönderilemedi: ' + e.message, 'err');
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

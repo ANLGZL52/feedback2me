@@ -1,0 +1,25 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Kullanıcı kök dokümanı + tüm alt koleksiyonlar (audienceScoreSnapshots dahil).
+    // Not: Değişiklikten sonra mutlaka `firebase deploy --only firestore:rules` çalıştırın.
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+    match /links/{linkId} {
+      allow read: if resource.data.isActive == true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.ownerId;
+    }
+    match /feedbacks/{feedbackId} {
+      allow create: if request.resource.data.keys().hasAll(['linkId', 'textRaw'])
+        && request.resource.data.textRaw is string
+        && request.resource.data.textRaw.size() >= 10;
+      allow read, update, delete: if request.auth != null;
+    }
+  }
+}
