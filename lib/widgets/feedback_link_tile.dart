@@ -22,7 +22,7 @@ class FeedbackLinkTile extends StatefulWidget {
 
 class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
   late final Future<int> _countFuture =
-      firestoreService.feedbackCountForLink(widget.link.id);
+      appData.feedbackCountForLink(widget.link.id);
 
   Future<void> _openDetail() async {
     if (!mounted) return;
@@ -79,7 +79,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
                 },
               ),
               FutureBuilder<DateTime?>(
-                future: firestoreService.lastFeedbackAtForLink(widget.link.id),
+                future: appData.lastFeedbackAtForLink(widget.link.id),
                 builder: (context, snap) {
                   return _DetailRow(
                     label: L10n.get(ctx, 'lastFeedbackAt'),
@@ -136,7 +136,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
     );
     if (ok != true || !mounted) return;
     try {
-      await firestoreService.deactivateLink(widget.link.id);
+      await appData.deactivateLink(widget.link.id);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(L10n.get(context, 'linkDeleted'))),

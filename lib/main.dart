@@ -16,6 +16,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
+import 'config/backend_config.dart';
+import 'services/api_session.dart' show ApiSession;
+import 'services/railway_backend_sync.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
 import 'models/feedback_entry.dart';
@@ -51,6 +54,7 @@ void main() async {
     final prefs = await SharedPreferences.getInstance();
     L10n.setPrefs(prefs);
     await L10n.loadSavedLocale();
+    await ApiSession.instance.loadFromPrefs();
     runApp(_withDevicePreview(const FeedbackToMeApp()));
   } catch (e, st) {
     runApp(_withDevicePreview(MaterialApp(
@@ -358,7 +362,18 @@ class _AuthGateState extends State<_AuthGate> {
   @override
   void initState() {
     super.initState();
-    _sub = authService.authStateChanges.listen((user) {
+    Future<void>(() async {
+      await ApiSession.instance.loadFromPrefs();
+      final u = authService.currentUser;
+      if (u != null) await ensureRailwayBackendSession(u);
+      if (mounted) setState(() {});
+    });
+    _sub = authService.authStateChanges.listen((user) async {
+      if (user != null) {
+        await ensureRailwayBackendSession(user);
+      } else {
+        await ApiSession.instance.clear();
+      }
       if (mounted) setState(() => _user = user);
     });
     // Web'de 1 sn, mobilde 3 sn sonra beklemeden aç
@@ -652,8 +667,33 @@ class _LandingScreenState extends State<LandingScreen> {
     if (!isLoggedIn) {
       return _buildLandingBody(context, isLoggedIn: false, profile: null, uid: null);
     }
+    final dataOwner = effectiveDataOwnerId(uid);
+    if (BackendConfig.isRailwayBackendConfigured && dataOwner == null) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        body: _DarkMysticalBackground(
+          child: SafeArea(
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(color: AppTheme.gold),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Sunucu oturumu açılıyor…',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return StreamBuilder(
-      stream: firestoreService.userProfileStream(uid!),
+      stream: appData.userProfileStream(dataOwner!),
       builder: (context, profileSnap) {
         return _buildLandingBody(context, isLoggedIn: true, profile: profileSnap.data, uid: uid);
       },
@@ -1030,12 +1070,12 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
         ? null
         : _handleController.text.trim();
     final profile = UserProfile(
-      uid: uid,
+      uid: effectiveDataOwnerId(uid) ?? uid,
       displayName: name,
       handle: handle,
       createdAt: DateTime.now(),
     );
-    await firestoreService.setUserProfile(uid, profile);
+    await appData.setUserProfile(uid, profile);
 
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
@@ -1122,8 +1162,18 @@ String _formatDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 
 Future<void> _createLink(BuildContext context, String uid) async {
+  final owner = effectiveDataOwnerId(uid);
+  if (owner == null) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(L10n.get(context, 'linkCreateFailed')),
+      ),
+    );
+    return;
+  }
   try {
-    final link = await firestoreService.createLink(uid);
+    final link = await appData.createLink(owner);
     if (!context.mounted || link == null) return;
     await Clipboard.setData(ClipboardData(text: link.shareUrl));
     if (!context.mounted) return;
@@ -1339,6 +1389,18 @@ class DashboardScreen extends StatelessWidget {
     final theme = Theme.of(context);
     final nameText = displayName ?? L10n.get(context, 'premiumUser');
     final handleText = handle;
+    final dataOwner = effectiveDataOwnerId(uid);
+    if (BackendConfig.isRailwayBackendConfigured && dataOwner == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(L10n.get(context, 'dashboardTitle')),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(color: AppTheme.gold),
+        ),
+      );
+    }
+    final oid = dataOwner!;
 
     return Scaffold(
       appBar: AppBar(
@@ -1410,7 +1472,7 @@ class DashboardScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     StreamBuilder<List<FeedbackLink>>(
-                      stream: firestoreService.linksForOwnerStream(uid),
+                      stream: appData.linksForOwnerStream(oid),
                       builder: (context, snap) {
                         final links = snap.data ?? [];
                         final firstLink = links.isNotEmpty ? links.first : null;
@@ -1559,7 +1621,7 @@ class _ProfileTabState extends State<_ProfileTab> {
     setState(() => _refreshTick++);
   }
 
-  Future<void> _runBulkSeed(BuildContext context, String uid) async {
+  Future<void> _runBulkSeed(BuildContext context, String ownerId) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1597,8 +1659,8 @@ class _ProfileTabState extends State<_ProfileTab> {
     );
 
     try {
-      final written = await firestoreService.seedBulkDemoFeedbacksForOwner(
-        uid,
+      final written = await appData.seedBulkDemoFeedbacksForOwner(
+        ownerId,
         count: _bulkTarget,
       );
       if (!context.mounted) return;
@@ -1627,6 +1689,7 @@ class _ProfileTabState extends State<_ProfileTab> {
   Widget build(BuildContext context) {
     final profile = widget.profile;
     final uid = widget.uid;
+    final oid = uid != null ? effectiveDataOwnerId(uid) : null;
     final theme = Theme.of(context);
     final name = profile?.displayName ?? 'Premium kullanıcı';
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'F';
@@ -1655,7 +1718,7 @@ class _ProfileTabState extends State<_ProfileTab> {
               ?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 12),
-        if (kDebugMode && uid != null)
+        if (kDebugMode && uid != null && oid != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Card(
@@ -1680,7 +1743,7 @@ class _ProfileTabState extends State<_ProfileTab> {
                     FilledButton.tonalIcon(
                       onPressed: () async {
                         try {
-                          final n = await firestoreService.seedDemoFeedbacksForOwner(uid);
+                          final n = await appData.seedDemoFeedbacksForOwner(oid);
                           if (!context.mounted) return;
                           if (n == 0) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -1732,7 +1795,7 @@ class _ProfileTabState extends State<_ProfileTab> {
                     ),
                     const SizedBox(height: 8),
                     OutlinedButton.icon(
-                      onPressed: () => _runBulkSeed(context, uid),
+                      onPressed: () => _runBulkSeed(context, oid!),
                       icon: const Icon(Icons.smart_toy_outlined),
                       label: Text('$_bulkTarget bot yorumu üret (batch)'),
                     ),
@@ -1751,9 +1814,16 @@ class _ProfileTabState extends State<_ProfileTab> {
               ),
             ),
           )
+        else if (BackendConfig.isRailwayBackendConfigured && oid == null)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          )
         else
           _FeedbackPoolCard(
-            ownerId: uid,
+            ownerId: oid!,
             refreshTick: _refreshTick,
             onRefresh: _refreshPool,
           ),
@@ -1772,9 +1842,16 @@ class _ProfileTabState extends State<_ProfileTab> {
               subtitle: Text(L10n.get(context, 'firstReportNote')),
             ),
           )
+        else if (BackendConfig.isRailwayBackendConfigured && oid == null)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          )
         else
           StreamBuilder<List<AudienceScoreSnapshot>>(
-            stream: firestoreService.audienceScoreHistoryStream(uid, limit: 12),
+            stream: appData.audienceScoreHistoryStream(oid!, limit: 12),
             builder: (context, snap) {
               if (snap.hasError) {
                 return Card(
@@ -1834,7 +1911,7 @@ class _ProfileTabState extends State<_ProfileTab> {
                       onPressed: () {
                         Navigator.of(context).push(
                           MaterialPageRoute<void>(
-                            builder: (_) => AudienceAnalysisScreen(ownerId: uid),
+                            builder: (_) => AudienceAnalysisScreen(ownerId: oid!),
                           ),
                         );
                       },
@@ -1890,7 +1967,7 @@ class _ProfileTabState extends State<_ProfileTab> {
                           Navigator.of(context).push(
                             MaterialPageRoute<void>(
                               builder: (_) => SavedAudienceReportScreen(
-                                ownerId: uid,
+                                ownerId: oid!,
                                 snapshot: s,
                                 previousSnapshot: prev,
                               ),
@@ -1962,9 +2039,16 @@ class _ProfileTabState extends State<_ProfileTab> {
               ),
             ),
           )
+        else if (BackendConfig.isRailwayBackendConfigured && oid == null)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          )
         else
           StreamBuilder<List<FeedbackLink>>(
-            stream: firestoreService.linksForOwnerStream(uid),
+            stream: appData.linksForOwnerStream(oid!),
             builder: (context, snap) {
               final links = snap.data ?? [];
               return Card(
@@ -1985,7 +2069,7 @@ class _ProfileTabState extends State<_ProfileTab> {
                             ),
                           ),
                           FilledButton.tonalIcon(
-                            onPressed: () => _createLink(context, uid),
+                            onPressed: () => _createLink(context, uid!),
                             icon: const Icon(Icons.add_link),
                             label: Text(L10n.get(context, 'newLink')),
                           ),
@@ -2029,8 +2113,8 @@ class _FeedbackPoolCard extends StatelessWidget {
       key: ValueKey('pool_${ownerId}_$refreshTick'),
       future: () async {
         final entries =
-            await firestoreService.getFeedbackPoolForOwner(ownerId, limit: 80);
-        final total = await firestoreService.countAllFeedbacksForOwner(ownerId);
+            await appData.getFeedbackPoolForOwner(ownerId, limit: 80);
+        final total = await appData.countAllFeedbacksForOwner(ownerId);
         return (entries, total);
       }(),
       builder: (context, snap) {
@@ -2309,7 +2393,7 @@ class SavedAudienceReportScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Kayıtlı takipçi raporu')),
       body: SafeArea(
         child: FutureBuilder<AudienceScoreSnapshot>(
-          future: firestoreService
+          future: appData
               .loadAudienceScoreSnapshotWithBody(ownerId, snapshot.id)
               .then((v) => v ?? snapshot),
           builder: (context, asyncSnap) {
@@ -2626,7 +2710,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
               fontWeight: FontWeight.w700,
             );
         return StreamBuilder<List<AudienceScoreSnapshot>>(
-          stream: firestoreService.audienceScoreHistoryStream(widget.ownerId),
+          stream: appData.audienceScoreHistoryStream(widget.ownerId),
           builder: (context, histSnap) {
             final history = histSnap.hasError
                 ? const <AudienceScoreSnapshot>[]
@@ -2868,6 +2952,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final uid = FirebaseAuth.instance.currentUser?.uid;
+    final oid = uid != null ? effectiveDataOwnerId(uid) : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -2894,7 +2979,9 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                         ),
                       ],
                     )
-                  : ListView(
+                  : BackendConfig.isRailwayBackendConfigured && oid == null
+                      ? const Center(child: CircularProgressIndicator())
+                      : ListView(
                       children: [
                         Text(
                           L10n.get(context, 'comparePeriods'),
@@ -2910,7 +2997,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                         ),
                         const SizedBox(height: 20),
                         StreamBuilder<List<AudienceScoreSnapshot>>(
-                          stream: firestoreService.audienceScoreHistoryStream(uid),
+                          stream: appData.audienceScoreHistoryStream(oid!),
                           builder: (context, snap) {
                             if (snap.hasError) {
                               return Padding(
@@ -2962,7 +3049,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                                     Navigator.of(context).push(
                                       MaterialPageRoute<void>(
                                         builder: (_) => SavedAudienceReportScreen(
-                                          ownerId: uid,
+                                          ownerId: oid!,
                                           snapshot: s,
                                           previousSnapshot: prev,
                                         ),
@@ -2979,7 +3066,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                           onPressed: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) => AudienceAnalysisScreen(ownerId: uid),
+                                builder: (_) => AudienceAnalysisScreen(ownerId: oid!),
                               ),
                             );
                           },
@@ -3098,7 +3185,7 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
       return;
     }
     try {
-      final link = await firestoreService.getLinkByCode(code);
+      final link = await appData.getLinkByCode(code);
       if (link == null || !context.mounted) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -3107,7 +3194,7 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
         }
         return;
       }
-      await firestoreService.addFeedback(
+      await appData.addFeedback(
         linkId: link.id,
         responderName: _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
         relation: _relationController.text.trim().isEmpty ? null : _relationController.text.trim(),

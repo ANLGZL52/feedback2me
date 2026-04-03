@@ -259,11 +259,11 @@ class _PremiumScreenState extends State<PremiumScreen> {
                           ? null
                           : () async {
                               final profile =
-                                  await firestoreService.getUserProfile(uid);
+                                  await appData.getUserProfile(uid);
                               if (profile == null) return;
                               final until =
                                   DateTime.now().add(const Duration(days: 30));
-                              await firestoreService.setUserProfile(
+                              await appData.setUserProfile(
                                 uid,
                                 UserProfile(
                                   uid: uid,

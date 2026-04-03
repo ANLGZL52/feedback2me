@@ -5,7 +5,7 @@ import '../models/audience_score.dart';
 import '../models/creator_intelligence_report.dart';
 import 'creator_intelligence_heuristic.dart';
 import 'creator_survey_aggregate.dart';
-import 'firestore_service.dart';
+import 'app_data_backend.dart';
 import 'openai_audience_client.dart';
 
 /// Rapor sonucu: tek link için toplanan yorumların analizi.
@@ -250,8 +250,9 @@ const List<String> _kSocialPersonalityHints = [
 ];
 
 class ReportService {
-  ReportService() : _firestore = firestoreService;
-  final FirestoreService _firestore;
+  ReportService({AppDataBackend? backend}) : _data = backend ?? appData;
+
+  final AppDataBackend _data;
 
   int _moodBucket(int? mood) {
     if (mood == 1) return 1;
@@ -260,7 +261,7 @@ class ReportService {
   }
 
   Future<ReportResult> generateReport(String linkId) async {
-    final entries = await _firestore.getFeedbacksForLink(linkId);
+    final entries = await _data.getFeedbacksForLink(linkId);
     final count = entries.length;
 
     if (entries.isEmpty) {
@@ -357,7 +358,7 @@ class ReportService {
         subtitle: 'Sunucudan tüm geri bildirimler alınıyor…',
       ),
     );
-    final entries = await _firestore.getAllFeedbacksForOwner(ownerId);
+    final entries = await _data.getAllFeedbacksForOwner(ownerId);
     if (entries.isEmpty) {
       return AudienceAnalysisResult(
         feedbackCount: 0,
@@ -545,7 +546,7 @@ class ReportService {
     ];
 
     try {
-      await _firestore.saveAudienceScoreSnapshot(
+      await _data.saveAudienceScoreSnapshot(
         ownerId: ownerId,
         scores: scores,
         feedbackCount: total,

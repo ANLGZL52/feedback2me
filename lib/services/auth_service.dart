@@ -1,4 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
+
+import 'api_session.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
@@ -65,6 +67,7 @@ class AuthService {
 
   Future<void> signOut() async {
     if (!kIsWeb) await _googleSignIn!.signOut();
+    await ApiSession.instance.clear();
     await _auth.signOut();
   }
 }

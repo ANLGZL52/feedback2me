@@ -10,6 +10,7 @@ import '../models/feedback_entry.dart';
 import 'demo_feedback_generator.dart';
 import '../models/feedback_link.dart';
 import '../models/user_profile.dart';
+import 'app_data_backend.dart';
 
 const _usersCol = 'users';
 const _linksCol = 'links';
@@ -23,7 +24,7 @@ final _uuid = const Uuid();
 // Rapor/AI: Gelen yorum sayısına göre rapor kapsamı artacak (az yorum → kısa özet,
 // çok yorum → daha uzun, tema/yüzdeli, madde madde detaylı analiz).
 
-class FirestoreService {
+class FirestoreService implements AppDataBackend {
   FirestoreService() : _db = FirebaseFirestore.instance;
   final FirebaseFirestore _db;
 

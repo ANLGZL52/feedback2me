@@ -167,4 +167,76 @@ class AudienceScoreSnapshot {
       creatorReport: cr,
     );
   }
+
+  /// Railway REST liste öğesi (`overallScore` düz alanlar).
+  factory AudienceScoreSnapshot.fromApiLite(Map<String, dynamic> m) {
+    final at = DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now();
+    return AudienceScoreSnapshot(
+      id: m['id'] as String? ?? '',
+      createdAt: at,
+      scores: AudienceScoreBreakdown(
+        overall: (m['overallScore'] as num?)?.round() ?? 0,
+        positiveMomentum: (m['positiveMomentum'] as num?)?.round() ?? 0,
+        riskControl: (m['riskControl'] as num?)?.round() ?? 0,
+        dataDepth: (m['dataDepth'] as num?)?.round() ?? 0,
+      ),
+      feedbackCount: (m['feedbackCount'] as num?)?.round() ?? 0,
+      positiveCount: (m['positiveCount'] as num?)?.round() ?? 0,
+      neutralCount: (m['neutralCount'] as num?)?.round() ?? 0,
+      negativeCount: (m['negativeCount'] as num?)?.round() ?? 0,
+      communityPerception: (m['communityPerception'] as num?)?.round(),
+      trust: (m['trust'] as num?)?.round(),
+      contentClarity: (m['contentClarity'] as num?)?.round(),
+      executiveSummary: m['executiveSummary']?.toString(),
+      creatorReport: null,
+    );
+  }
+
+  /// Railway REST detay (`scores` iç içe + `creatorReport`).
+  factory AudienceScoreSnapshot.fromApiDetail(Map<String, dynamic> m) {
+    final at = DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now();
+    final scoresRaw = m['scores'];
+    AudienceScoreBreakdown scores;
+    if (scoresRaw is Map) {
+      final sm = Map<String, dynamic>.from(scoresRaw);
+      scores = AudienceScoreBreakdown(
+        overall: (sm['overall'] as num?)?.round() ?? 0,
+        positiveMomentum: (sm['positiveMomentum'] as num?)?.round() ?? 0,
+        riskControl: (sm['riskControl'] as num?)?.round() ?? 0,
+        dataDepth: (sm['dataDepth'] as num?)?.round() ?? 0,
+      );
+    } else {
+      scores = AudienceScoreBreakdown(
+        overall: (m['overallScore'] as num?)?.round() ?? 0,
+        positiveMomentum: (m['positiveMomentum'] as num?)?.round() ?? 0,
+        riskControl: (m['riskControl'] as num?)?.round() ?? 0,
+        dataDepth: (m['dataDepth'] as num?)?.round() ?? 0,
+      );
+    }
+    CreatorIntelligenceReport? cr;
+    final crRaw = m['creatorReport'];
+    if (crRaw is Map) {
+      try {
+        cr = CreatorIntelligenceReport.fromJson(
+          Map<String, dynamic>.from(crRaw),
+        );
+      } catch (_) {
+        cr = null;
+      }
+    }
+    return AudienceScoreSnapshot(
+      id: m['id'] as String? ?? '',
+      createdAt: at,
+      scores: scores,
+      feedbackCount: (m['feedbackCount'] as num?)?.round() ?? 0,
+      positiveCount: (m['positiveCount'] as num?)?.round() ?? 0,
+      neutralCount: (m['neutralCount'] as num?)?.round() ?? 0,
+      negativeCount: (m['negativeCount'] as num?)?.round() ?? 0,
+      communityPerception: (m['communityPerception'] as num?)?.round(),
+      trust: (m['trust'] as num?)?.round(),
+      contentClarity: (m['contentClarity'] as num?)?.round(),
+      executiveSummary: m['executiveSummary']?.toString(),
+      creatorReport: cr,
+    );
+  }
 }

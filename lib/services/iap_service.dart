@@ -71,10 +71,10 @@ class IapService {
   Future<void> _grantPremiumToCurrentUser() async {
     final uid = authService.uid;
     if (uid == null) return;
-    final profile = await firestoreService.getUserProfile(uid);
+    final profile = await appData.getUserProfile(uid);
     if (profile == null) return;
     final until = DateTime.now().add(const Duration(days: 30));
-    await firestoreService.setUserProfile(
+    await appData.setUserProfile(
       uid,
       UserProfile(
         uid: uid,
