@@ -548,6 +548,29 @@ class FeedbackToMeApp extends StatelessWidget {
   }
 }
 
+/// Railway modunda: Firebase girişinden hemen sonra dev-login bitmeden
+/// `Navigator.pop` yapılırsa link oluşturma `effectiveDataOwnerId == null` ile düşer.
+Future<void> _afterFirebaseLoginCloseSheet(BuildContext context, User? user) async {
+  if (!context.mounted || user == null) return;
+  final railwayOk = await ensureRailwayBackendSession(user);
+  if (!context.mounted) return;
+  if (BackendConfig.isRailwayBackendConfigured && !railwayOk) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          'Giriş tamamlandı ancak sunucu (Railway) oturumu açılamadı.\n'
+          '• Derlemede --dart-define=DEV_AUTH_SECRET, Railway’deki ile aynı olmalı\n'
+          '• Sunucuda ALLOW_DEV_AUTH=true olmalı\n'
+          '• Google hesabında e-posta olmalı (Apple gizli e-posta bu köprüde çalışmaz)',
+        ),
+        duration: const Duration(seconds: 10),
+      ),
+    );
+    return;
+  }
+  Navigator.of(context).pop(true);
+}
+
 /// Giriş: sadece Apple ve Google (ödeme App Store / Play Store'da).
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
@@ -577,9 +600,8 @@ class LoginScreen extends StatelessWidget {
                 onPressed: () async {
                   try {
                     final user = await authService.signInWithGoogle();
-                    if (context.mounted && user != null) {
-                      Navigator.of(context).pop(true);
-                    }
+                    if (!context.mounted) return;
+                    await _afterFirebaseLoginCloseSheet(context, user);
                   } catch (e) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -602,9 +624,8 @@ class LoginScreen extends StatelessWidget {
                 onPressed: () async {
                   try {
                     final user = await authService.signInWithApple();
-                    if (context.mounted && user != null) {
-                      Navigator.of(context).pop(true);
-                    }
+                    if (!context.mounted) return;
+                    await _afterFirebaseLoginCloseSheet(context, user);
                   } catch (e) {
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -1162,13 +1183,21 @@ String _formatDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 
 Future<void> _createLink(BuildContext context, String uid) async {
-  final owner = effectiveDataOwnerId(uid);
+  var owner = effectiveDataOwnerId(uid);
+  if (owner == null && BackendConfig.isRailwayBackendConfigured) {
+    final u = FirebaseAuth.instance.currentUser;
+    if (u != null) {
+      await ensureRailwayBackendSession(u);
+      owner = effectiveDataOwnerId(uid);
+    }
+  }
   if (owner == null) {
     if (!context.mounted) return;
+    final msg = BackendConfig.isRailwayBackendConfigured
+        ? '${L10n.get(context, 'linkCreateFailed')} (Sunucu oturumu yok: girişten sonra birkaç saniye bekleyip tekrar deneyin veya DEV_AUTH_SECRET / e-posta kontrol edin.)'
+        : L10n.get(context, 'linkCreateFailed');
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(L10n.get(context, 'linkCreateFailed')),
-      ),
+      SnackBar(content: Text(msg)),
     );
     return;
   }

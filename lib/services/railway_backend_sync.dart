@@ -8,14 +8,17 @@ import 'api_session.dart';
 import 'package:http/http.dart' as http;
 
 /// Firebase ile girişten sonra Railway dev-login ile JWT üretir (geçici köprü).
-Future<void> ensureRailwayBackendSession(User user) async {
-  if (!BackendConfig.isRailwayBackendConfigured) return;
+///
+/// Dönüş: Railway kullanılmıyorsa `true`. Kullanılıyorsa oturum gerçekten
+/// açıldıysa `true`, aksi halde `false` (çağıran SnackBar gösterebilir).
+Future<bool> ensureRailwayBackendSession(User user) async {
+  if (!BackendConfig.isRailwayBackendConfigured) return true;
   final secret = BackendConfig.devAuthSecret;
   if (secret.isEmpty) {
     debugPrint(
       'Railway: DEV_AUTH_SECRET tanımlı değil; dart-define ile verin.',
     );
-    return;
+    return false;
   }
 
   final base = BackendConfig.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
@@ -24,7 +27,7 @@ Future<void> ensureRailwayBackendSession(User user) async {
     debugPrint(
       'Railway: kullanıcı e-postası yok; dev login atlanıyor (Apple gizli e-posta?).',
     );
-    return;
+    return false;
   }
 
   final uri = Uri.parse('$base/auth/dev/login');
@@ -44,7 +47,7 @@ Future<void> ensureRailwayBackendSession(User user) async {
       debugPrint(
         'Railway dev login başarısız: ${res.statusCode} ${res.body}',
       );
-      return;
+      return false;
     }
     final data = jsonDecode(res.body) as Map<String, dynamic>;
     final token = data['accessToken'] as String?;
@@ -58,8 +61,11 @@ Future<void> ensureRailwayBackendSession(User user) async {
         accessToken: token,
         backendUserId: backendUid,
       );
+      return true;
     }
+    return false;
   } catch (e, st) {
     debugPrint('Railway dev login hata: $e\n$st');
+    return false;
   }
 }

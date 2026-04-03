@@ -30,7 +30,10 @@ class DefaultFirebaseOptions {
     measurementId: 'G-RHFSKYCS76',
   );
 
-  /// Android için aynı proje; Firebase Console'da Android uygulaması eklenirse appId burada güncellenir.
+  /// Android: Google ile giriş için Firebase Console’da **Android uygulaması** ekleyip
+  /// gerçek `appId` (mobilesdk) buraya yazın; paket adı `com.example.feedback_to_me` ile
+  /// eşleşmeli. Ayrıca Play Integrity / SHA-1 sertifikalarını Console’a ekleyin.
+  /// İsterseniz: `dart pub global activate flutterfire_cli` → `flutterfire configure`
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCRflC9vEs78jUte24z4mzGU2AXtaVKV_M',
     appId: '1:16565078393:web:552d6701140bbca3e747a8',
