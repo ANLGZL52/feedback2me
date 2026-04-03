@@ -56,7 +56,7 @@ GET /me
 
 1. Yeni servis → **GitHub repo** → root directory: **`server`** (veya monorepo kökünde Dockerfile path ayarla).
 2. **PostgreSQL** ekle; `DATABASE_URL` API servisine bağlanır (Reference variables).
-3. **Variables:** `JWT_SECRET`, isteğe bağlı `ALLOW_DEV_AUTH` / `DEV_AUTH_SECRET` (sadece test).
+3. **Variables** (bu **API servisinin** sekmesinde): `JWT_SECRET` (boş olamaz; sadece ASCII önerilir), `NODE_ENV`=`production`, isteğe bağlı `ALLOW_DEV_AUTH` / `DEV_AUTH_SECRET`. Değişken yalnızca proje düzeyindeyse konteynere gelmeyebilir — servise ekleyin ve **Redeploy** yapın.
 4. **Build:** `npm ci && npm run build` veya Dockerfile kullan.
 5. **Start:** `node dist/index.js` — `PORT` Railway tarafından verilir.
 
