@@ -1,7 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- Google Play Billing (in_app_purchase); merged from library too, explicit for clarity -->
+    <uses-permission android:name="com.android.vending.BILLING" />
     <application
-        android:label="feedback_to_me"
+        android:label="Feedback2Me"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">
@@ -42,6 +44,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Play Billing: Android 11+ package visibility -->
+        <package android:name="com.android.vending" />
+        <intent>
+            <action android:name="com.android.vending.billing.InAppBillingService.BIND" />
         </intent>
     </queries>
 </manifest>

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
+import '../models/audience_score.dart';
 import '../models/creator_intelligence_report.dart';
 import '../services/report_service.dart';
 import 'audience_score_widgets.dart';
@@ -88,6 +90,37 @@ class CreatorIntelligenceReportView extends StatelessWidget {
   }
 }
 
+/// Profil / özet: kayıtlı [AudienceScoreSnapshot] üzerinden algı skorları + alt çipler (rapor gövdesi yokken).
+class CreatorPerceptionPreviewCard extends StatelessWidget {
+  const CreatorPerceptionPreviewCard({super.key, required this.snapshot});
+
+  final AudienceScoreSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final cr = snapshot.creatorReport;
+    final cp = snapshot.communityPerception ?? cr?.cover.communityPerception ?? 0;
+    final tr = snapshot.trust ?? cr?.cover.trust ?? 0;
+    final cl = snapshot.contentClarity ?? cr?.cover.contentClarity ?? 0;
+    final ex = snapshot.executiveSummary?.trim();
+    String oneLiner;
+    if (ex != null && ex.isNotEmpty) {
+      oneLiner = ex.length > 280 ? '${ex.substring(0, 280)}…' : ex;
+    } else {
+      oneLiner = cr?.cover.oneLiner.trim() ?? '';
+    }
+    final subScores = cr?.cover.subScores ?? const <String, int>{};
+    final cover = CreatorCoverScores(
+      communityPerception: cp.clamp(0, 100),
+      trust: tr.clamp(0, 100),
+      contentClarity: cl.clamp(0, 100),
+      oneLiner: oneLiner,
+      subScores: subScores,
+    );
+    return _CoverPillarCard(cover: cover);
+  }
+}
+
 class _CoverPillarCard extends StatelessWidget {
   const _CoverPillarCard({required this.cover});
 
@@ -102,7 +135,7 @@ class _CoverPillarCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Algı skorları',
+              L10n.get(context, 'perceptionScoresTitle'),
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     color: _kGold,
                     fontWeight: FontWeight.w800,
@@ -110,15 +143,21 @@ class _CoverPillarCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Takipçilerin seni nasıl okuduğuna dair üç ana gösterge.',
+              L10n.get(context, 'perceptionScoresSubtitle'),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54),
             ),
             const SizedBox(height: 14),
             Row(
               children: [
-                _PillarGauge(label: 'Topluluk algı', value: cover.communityPerception),
-                _PillarGauge(label: 'Güven', value: cover.trust),
-                _PillarGauge(label: 'İçerik netliği', value: cover.contentClarity),
+                _PillarGauge(
+                    label: L10n.get(context, 'growthPerceptionCommunity'),
+                    value: cover.communityPerception),
+                _PillarGauge(
+                    label: L10n.get(context, 'growthPerceptionTrust'),
+                    value: cover.trust),
+                _PillarGauge(
+                    label: L10n.get(context, 'growthPerceptionClarity'),
+                    value: cover.contentClarity),
               ],
             ),
             const SizedBox(height: 14),

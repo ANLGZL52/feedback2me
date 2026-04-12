@@ -1,12 +1,13 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../app_state.dart';
-import '../models/user_profile.dart';
+import '../config/iap_products.dart';
+import '../l10n/app_localizations.dart';
 
-/// Premium abonelik: App Store / Google Play üzerinden (IAP).
-/// Web'de satın alma yok; mobilde in_app_purchase ile satın alınır.
+/// Premium abonelik + tek link kredisi: App Store / Google Play (IAP).
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
 
@@ -15,16 +16,20 @@ class PremiumScreen extends StatefulWidget {
 }
 
 class _PremiumScreenState extends State<PremiumScreen> {
-  List<ProductDetails> _products = [];
   bool _loading = true;
   String? _error;
-  bool _purchasing = false;
+  bool _purchasingSub = false;
+  bool _purchasingCredit = false;
   bool _restoring = false;
 
   @override
   void initState() {
     super.initState();
-    if (!kIsWeb) _loadProducts();
+    if (!kIsWeb) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _loadProducts();
+      });
+    }
   }
 
   Future<void> _loadProducts() async {
@@ -33,19 +38,28 @@ class _PremiumScreenState extends State<PremiumScreen> {
       _error = null;
     });
     try {
-      final list = await iapService.loadProducts();
+      await iapService.loadProducts();
       final storeAvailable = await iapService.isStoreAvailable;
-      if (mounted) {
-        setState(() {
-          _products = list;
-          _loading = false;
-          if (list.isEmpty && !storeAvailable) {
-            _error = 'Mağaza kullanılamıyor.';
-          } else if (list.isEmpty) {
-            _error = 'Ürün henüz mağazada tanımlı değil (premium_monthly).';
-          }
-        });
-      }
+      if (!mounted) return;
+      final missing = iapService.notFoundProductIds;
+      final sub = iapService.productById(IapProducts.premiumMonthly);
+      final credit = iapService.productById(IapProducts.premiumLinkSingle);
+      setState(() {
+        _loading = false;
+        if (!storeAvailable) {
+          _error = 'Mağaza kullanılamıyor (Play Store / App Store).';
+        } else if (sub == null && credit == null) {
+          final hint = missing.isEmpty
+              ? ''
+              : ' Bulunamayan ID’ler: ${missing.join(', ')}.';
+          _error =
+              'Ürünler mağazada yok veya henüz yayında değil.$hint '
+              'App Store Connect ve Play Console’da ${IapProducts.premiumMonthly} '
+              've ${IapProducts.premiumLinkSingle} tanımlayın (bkz. iap_products.dart).';
+        } else {
+          _error = null;
+        }
+      });
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -56,36 +70,49 @@ class _PremiumScreenState extends State<PremiumScreen> {
     }
   }
 
-  Future<void> _purchase(ProductDetails product) async {
+  Future<void> _purchase(ProductDetails product, {required bool isCredit}) async {
     final uid = authService.uid;
     if (uid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Önce giriş yapmalısın.')),
+        SnackBar(content: Text(L10n.get(context, 'iapLoginRequired'))),
       );
       return;
     }
-    setState(() => _purchasing = true);
+    setState(() {
+      if (isCredit) {
+        _purchasingCredit = true;
+      } else {
+        _purchasingSub = true;
+      }
+    });
     try {
       final ok = await iapService.startPurchase(product);
-      if (mounted) {
-        setState(() => _purchasing = false);
-        if (ok) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Satın alma başlatıldı. Ödeme tamamlanınca premium açılacak.'),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Satın alma başlatılamadı.')),
-          );
-        }
+      if (!mounted) return;
+      setState(() {
+        _purchasingSub = false;
+        _purchasingCredit = false;
+      });
+      if (ok) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(L10n.get(context, 'iapPaymentOpened'))),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(L10n.get(context, 'iapPurchaseStartFailed'))),
+        );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _purchasing = false);
+        setState(() {
+          _purchasingSub = false;
+          _purchasingCredit = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
+          SnackBar(
+            content: Text(
+              L10n.get(context, 'errorGeneric').replaceAll('{e}', '$e'),
+            ),
+          ),
         );
       }
     }
@@ -98,16 +125,18 @@ class _PremiumScreenState extends State<PremiumScreen> {
       if (mounted) {
         setState(() => _restoring = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Satın alımlar kontrol edildi. Premium zaten varsa güncellenecek.'),
-          ),
+          SnackBar(content: Text(L10n.get(context, 'iapRestoreDone'))),
         );
       }
     } catch (e) {
       if (mounted) {
         setState(() => _restoring = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Geri yükleme hatası: $e')),
+          SnackBar(
+            content: Text(
+              L10n.get(context, 'iapRestoreError').replaceAll('{e}', '$e'),
+            ),
+          ),
         );
       }
     }
@@ -117,12 +146,12 @@ class _PremiumScreenState extends State<PremiumScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final uid = authService.uid;
-    final product = _products.isNotEmpty ? _products.first : null;
-    final priceLabel = product?.price ?? '99 ₺';
+    final sub = iapService.productById(IapProducts.premiumMonthly);
+    final credit = iapService.productById(IapProducts.premiumLinkSingle);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Premium'),
+        title: Text(L10n.get(context, 'iapScreenTitle')),
       ),
       body: SafeArea(
         child: Padding(
@@ -140,26 +169,14 @@ class _PremiumScreenState extends State<PremiumScreen> {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Aylık Premium',
+                    L10n.get(context, 'iapHeadline'),
                     style: theme.textTheme.headlineSmall
                         ?.copyWith(fontWeight: FontWeight.w700),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 12),
                   Text(
-                    '${product?.price ?? '99 ₺'} / ay',
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: theme.colorScheme.primary,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    '• Kişisel feedback linki oluştur\n'
-                    '• Sınırsız link (aylık)\n'
-                    '• AI ile rapor ve gelişim analizi\n'
-                    '• Raporu görsel olarak paylaş',
+                    L10n.get(context, 'iapBullets'),
                     style: theme.textTheme.bodyMedium
                         ?.copyWith(color: Colors.white70),
                   ),
@@ -169,9 +186,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Text(
-                          'Premium satın alma Apple App Store ve Google Play Store '
-                          'üzerinden yapılır. Lütfen uygulamayı telefonunda açıp '
-                          'bu ekrandan abonelik satın al.',
+                          L10n.get(context, 'iapPaymentsNote'),
                           style: theme.textTheme.bodySmall
                               ?.copyWith(color: Colors.white70),
                         ),
@@ -202,48 +217,50 @@ class _PremiumScreenState extends State<PremiumScreen> {
                               TextButton.icon(
                                 onPressed: _loadProducts,
                                 icon: const Icon(Icons.refresh, size: 18),
-                                label: const Text('Tekrar dene'),
+                                label: Text(L10n.get(context, 'retry')),
                               ),
                             ],
                           ),
                         ),
                       )
-                    else if (product != null)
-                      FilledButton(
-                        onPressed: _purchasing
-                            ? null
-                            : () => _purchase(product),
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                    else ...[
+                      if (sub != null)
+                        _PurchaseCard(
+                          title: L10n.get(context, 'iapMonthlyTitle'),
+                          subtitle: L10n.get(context, 'iapMonthlySubtitle'),
+                          price: sub.price,
+                          busy: _purchasingSub,
+                          onPressed: _purchasingSub
+                              ? null
+                              : () => _purchase(sub, isCredit: false),
                         ),
-                        child: _purchasing
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : Text('$priceLabel — Aylık premium satın al'),
-                      )
-                    else
-                      FilledButton(
-                        onPressed: _loadProducts,
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                      if (sub == null && _error == null)
+                        _MissingProductRow(
+                          label: IapProducts.premiumMonthly,
+                          theme: theme,
                         ),
-                        child: const Text('Ürünü yükle'),
-                      ),
-                    const SizedBox(height: 12),
-                    if (product != null)
+                      const SizedBox(height: 12),
+                      if (credit != null)
+                        _PurchaseCard(
+                          title: L10n.get(context, 'iapCreditTitle'),
+                          subtitle: L10n.get(context, 'iapCreditSubtitle'),
+                          price: credit.price,
+                          busy: _purchasingCredit,
+                          onPressed: _purchasingCredit
+                              ? null
+                              : () => _purchase(credit, isCredit: true),
+                        ),
+                      if (credit == null && _error == null)
+                        _MissingProductRow(
+                          label: IapProducts.premiumLinkSingle,
+                          theme: theme,
+                        ),
+                      const SizedBox(height: 12),
                       OutlinedButton(
                         onPressed: _restoring ? null : _restore,
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white54,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                         child: _restoring
                             ? const SizedBox(
@@ -251,52 +268,200 @@ class _PremiumScreenState extends State<PremiumScreen> {
                                 width: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Text('Satın alımı geri yükle'),
+                            : const Text('Satın alımları geri yükle (Apple / Google)'),
                       ),
-                    const SizedBox(height: 16),
-                    OutlinedButton(
-                      onPressed: uid == null
-                          ? null
-                          : () async {
-                              final profile =
-                                  await appData.getUserProfile(uid);
-                              if (profile == null) return;
-                              final until =
-                                  DateTime.now().add(const Duration(days: 30));
-                              await appData.setUserProfile(
-                                uid,
-                                UserProfile(
-                                  uid: uid,
-                                  displayName: profile.displayName,
-                                  email: profile.email,
-                                  photoUrl: profile.photoUrl,
-                                  handle: profile.handle,
-                                  isPremium: true,
-                                  premiumUntil: until,
-                                  createdAt: profile.createdAt,
-                                ),
-                              );
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                      content: Text(
-                                          'Premium test için açıldı (30 gün)')),
+                    ],
+                    if (!kIsWeb &&
+                        defaultTargetPlatform == TargetPlatform.iOS &&
+                        !_loading &&
+                        _error == null) ...[
+                      const SizedBox(height: 22),
+                      Text(
+                        L10n.get(context, 'iapAppleFootnote'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.white54,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                    if (!kIsWeb &&
+                        defaultTargetPlatform == TargetPlatform.android &&
+                        !_loading &&
+                        _error == null) ...[
+                      const SizedBox(height: 22),
+                      Text(
+                        L10n.get(context, 'iapAndroidFootnote'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.white54,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 20),
+                      const Divider(color: Colors.white24),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Geliştirici (yalnızca debug)',
+                        style: theme.textTheme.labelSmall
+                            ?.copyWith(color: Colors.white38),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        onPressed: uid == null
+                            ? null
+                            : () async {
+                                final profile =
+                                    await appData.getUserProfile(uid);
+                                if (profile == null) return;
+                                final until = DateTime.now()
+                                    .add(const Duration(days: 30));
+                                await appData.setUserProfile(
+                                  uid,
+                                  profile.copyWith(
+                                    isPremium: true,
+                                    premiumUntil: until,
+                                  ),
                                 );
-                                Navigator.of(context).pop();
-                              }
-                            },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white38,
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Test: Premium 30 gün',
+                                      ),
+                                    ),
+                                  );
+                                  Navigator.of(context).pop();
+                                }
+                              },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white38,
+                        ),
+                        child: const Text('Test: Premium 30 gün'),
                       ),
-                      child: const Text(
-                          'Test: Premium\'u 30 gün aç (geliştirme)'),
-                    ),
+                      const SizedBox(height: 8),
+                      OutlinedButton(
+                        onPressed: uid == null
+                            ? null
+                            : () async {
+                                final profile =
+                                    await appData.getUserProfile(uid);
+                                if (profile == null) return;
+                                await appData.setUserProfile(
+                                  uid,
+                                  profile.copyWith(
+                                    paidLinkCredits:
+                                        profile.paidLinkCredits + 1,
+                                  ),
+                                );
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Test: +1 link kredisi'),
+                                    ),
+                                  );
+                                }
+                              },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.white38,
+                        ),
+                        child: const Text('Test: +1 link kredisi'),
+                      ),
+                    ],
                   ],
                 ],
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PurchaseCard extends StatelessWidget {
+  const _PurchaseCard({
+    required this.title,
+    required this.subtitle,
+    required this.price,
+    required this.busy,
+    required this.onPressed,
+  });
+
+  final String title;
+  final String subtitle;
+  final String price;
+  final bool busy;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      color: Colors.white.withValues(alpha: 0.06),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              title,
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white60),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              price,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: onPressed,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              child: busy
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Text(L10n.get(context, 'iapBuy')),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MissingProductRow extends StatelessWidget {
+  const _MissingProductRow({
+    required this.label,
+    required this.theme,
+  });
+
+  final String label;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Text(
+        L10n.get(context, 'iapNotInStore').replaceAll('{label}', label),
+        style: theme.textTheme.bodySmall?.copyWith(color: Colors.orangeAccent),
       ),
     );
   }

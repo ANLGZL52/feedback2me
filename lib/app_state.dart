@@ -28,3 +28,14 @@ String? effectiveDataOwnerId(String? firebaseUid) {
   if (!BackendConfig.isRailwayBackendConfigured) return firebaseUid;
   return ApiSession.instance.backendUserId;
 }
+
+/// Takipçi analizi kayıtları (`audienceScoreSnapshots`): Firestore kuralları `users/{auth.uid}` ile hizalı olmalı.
+/// Railway’de liste/detay API oturumdan okunur; [dataOwnerId] yalnızca imza uyumu / yedek.
+String audienceRecordsOwnerKey(String firebaseAuthUid, String? dataOwnerId) {
+  if (!BackendConfig.isRailwayBackendConfigured) {
+    return firebaseAuthUid;
+  }
+  final o = dataOwnerId?.trim();
+  if (o != null && o.isNotEmpty) return o;
+  return firebaseAuthUid;
+}

@@ -90,6 +90,8 @@ class RailwayApiService implements AppDataBackend {
       createdAt: u['createdAt'] != null
           ? DateTime.tryParse(u['createdAt'] as String)
           : null,
+      freeDemoLinkUsed: u['freeDemoLinkUsed'] == true,
+      paidLinkCredits: (u['paidLinkCredits'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -114,10 +116,17 @@ class RailwayApiService implements AppDataBackend {
 
   @override
   Future<FeedbackLink?> createLink(String ownerId, {String? title}) async {
-    final j = await _postJson(
-      '/links',
-      body: title != null ? {'title': title} : {},
+    final res = await http.post(
+      Uri.parse('$_base/links'),
+      headers: _jsonHeaders,
+      body: jsonEncode(title != null ? {'title': title} : {}),
     );
+    if (res.statusCode == 401) throw StateError('unauthorized');
+    if (res.statusCode == 402) throw StateError('link_requires_credit');
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw StateError('POST /links → ${res.statusCode} ${res.body}');
+    }
+    final j = jsonDecode(res.body) as Map<String, dynamic>;
     final link = j['link'] as Map<String, dynamic>?;
     if (link == null) return null;
     return FeedbackLink.fromMap(link['id'] as String, link);
@@ -191,7 +200,17 @@ class RailwayApiService implements AppDataBackend {
       if (creatorSurvey != null && !creatorSurvey.isEffectivelyEmpty)
         'creatorSurvey': creatorSurvey.toMap(),
     };
-    await _postJson('/feedbacks', body: body);
+    final res = await http.post(
+      Uri.parse('$_base/feedbacks'),
+      headers: _jsonHeaders,
+      body: jsonEncode(body),
+    );
+    if (res.statusCode == 401) throw StateError('unauthorized');
+    if (res.statusCode == 404) throw StateError('link_not_found');
+    if (res.statusCode == 410) throw StateError('link_expired');
+    if (res.statusCode < 200 || res.statusCode >= 300) {
+      throw StateError('POST /feedbacks → ${res.statusCode} ${res.body}');
+    }
   }
 
   @override
@@ -269,6 +288,7 @@ class RailwayApiService implements AppDataBackend {
     required int positiveCount,
     required int neutralCount,
     required int negativeCount,
+    String? analyzedLinkId,
     int? communityPerception,
     int? trust,
     int? contentClarity,

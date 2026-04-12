@@ -9,6 +9,8 @@ const profileSchema = z.object({
   handle: z.string().nullable().optional(),
   isPremium: z.boolean().optional(),
   premiumUntil: z.string().datetime().nullable().optional(),
+  freeDemoLinkUsed: z.boolean().optional(),
+  paidLinkCredits: z.number().int().min(0).optional(),
 });
 
 export const usersRoutes: FastifyPluginAsync = async (app) => {
@@ -39,6 +41,8 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         ...(b.premiumUntil !== undefined && {
           premiumUntil: b.premiumUntil ? new Date(b.premiumUntil) : null,
         }),
+        ...(b.freeDemoLinkUsed !== undefined && { freeDemoLinkUsed: b.freeDemoLinkUsed }),
+        ...(b.paidLinkCredits !== undefined && { paidLinkCredits: b.paidLinkCredits }),
       },
     });
     return { user: userToProfile(user) };
@@ -53,6 +57,8 @@ function userToProfile(user: {
   handle: string | null;
   isPremium: boolean;
   premiumUntil: Date | null;
+  freeDemoLinkUsed: boolean;
+  paidLinkCredits: number;
   createdAt: Date;
 }) {
   return {
@@ -64,5 +70,7 @@ function userToProfile(user: {
     isPremium: user.isPremium,
     premiumUntil: user.premiumUntil?.toISOString() ?? null,
     createdAt: user.createdAt.toISOString(),
+    freeDemoLinkUsed: user.freeDemoLinkUsed,
+    paidLinkCredits: user.paidLinkCredits,
   };
 }

@@ -16,18 +16,21 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="FeedbackToMe - Kişisel feedback linki">
+  <meta name="description" content="Feedback2Me — Kişisel feedback linki">
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="feedback_to_me">
+  <meta name="apple-mobile-web-app-title" content="Feedback2Me">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png">
 
-  <title>feedback_to_me</title>
+  <title>Feedback2Me</title>
   <link rel="manifest" href="manifest.json">
+  
+  
+  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
   <style id="splash-screen-style">
     html {
       height: 100%
@@ -90,52 +93,44 @@
     function removeSplashFromWeb() {
       document.getElementById("splash")?.remove();
       document.getElementById("splash-branding")?.remove();
-      document.getElementById("loading-fallback")?.remove();
       document.body.style.background = "transparent";
     }
-
-    // Flutter view DOM'a düşünce HTML fallback katmanını temizle.
     function removeFallbackWhenFlutterReady() {
-      const hasFlutterView = () =>
-        !!document.querySelector("flutter-view, flt-glass-pane, flt-scene-host");
-
-      const tryRemove = () => {
-        if (hasFlutterView()) {
-          removeSplashFromWeb();
-          return true;
-        }
-        return false;
+      const clearFallback = () => {
+        document.getElementById("loading-fallback")?.remove();
+        removeSplashFromWeb();
       };
-
-      if (tryRemove()) return;
-
-      const observer = new MutationObserver(() => {
-        if (tryRemove()) observer.disconnect();
+      if (document.querySelector('flutter-view')) {
+        clearFallback();
+        return;
+      }
+      const obs = new MutationObserver(() => {
+        if (document.querySelector('flutter-view')) {
+          clearFallback();
+          obs.disconnect();
+        }
       });
-      observer.observe(document.documentElement, { childList: true, subtree: true });
-
-      // DOM mutasyonu kaçarsa diye kısa aralıkla da kontrol et.
-      const interval = setInterval(() => {
-        if (tryRemove()) clearInterval(interval);
-      }, 250);
-
-      // 15 sn sonra fallback hata mesajı gösteriliyorsa interval'ı bırak.
-      setTimeout(() => clearInterval(interval), 16000);
+      obs.observe(document.documentElement, { childList: true, subtree: true });
+      // Safety net: remove fallback after 30s even if selector misses.
+      setTimeout(() => {
+        clearFallback();
+        obs.disconnect();
+      }, 30000);
     }
   </script>
-  <meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" name="viewport">
 </head>
 <body>
-  <div id="loading-fallback" style="position:fixed;inset:0;background:#141210;color:#fff;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-size:20px;z-index:9999;">Yükleniyor...</div>
-  <!-- Firebase: Sadece SDK yüklenir; Flutter Dart kodu initialize edecek (çift başlatma önlenir) -->
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
   <picture id="splash">
       <source srcset="splash/img/light-1x.png 1x, splash/img/light-2x.png 2x, splash/img/light-3x.png 3x, splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
       <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
       <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
   </picture>
+  <div id="loading-fallback" style="position:fixed;inset:0;background:#141210;color:#fff;display:flex;align-items:center;justify-content:center;font-family:sans-serif;font-size:20px;z-index:9999;">Yükleniyor...</div>
+  <!-- Firebase: Sadece SDK yüklenir; Flutter Dart kodu initialize edecek (çift başlatma önlenir) -->
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+  
   <script src="flutter_bootstrap.js" async=""></script>
   <script>
     removeFallbackWhenFlutterReady();

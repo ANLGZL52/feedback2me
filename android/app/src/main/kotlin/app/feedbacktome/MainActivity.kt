@@ -1,4 +1,4 @@
-package com.example.feedback_to_me
+package app.feedbacktome
 
 import io.flutter.embedding.android.FlutterActivity
 

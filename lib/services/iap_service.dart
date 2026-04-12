@@ -1,16 +1,14 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../app_state.dart';
+import '../config/iap_products.dart';
 import '../models/user_profile.dart';
 
-/// Premium aylık abonelik ürün ID'si (App Store Connect & Play Console'da aynı tanımlanmalı).
-const String premiumProductId = 'premium_monthly';
-
-/// App Store / Google Play IAP: ürün yükleme, satın alma, satın alımı geri yükleme.
-/// Satın alma tamamlanınca Firestore'da isPremium / premiumUntil güncellenir.
+/// App Store / Google Play IAP.
+/// [purchaseStream] dinleyicisi uygulama açılır açılmaz ([IapService] oluşturulunca) kayıtlı olmalı.
 class IapService {
   IapService() {
     if (!kIsWeb) _listenToPurchases();
@@ -19,32 +17,46 @@ class IapService {
   final List<ProductDetails> _products = [];
   StreamSubscription<List<PurchaseDetails>>? _subscription;
 
-  bool get isAvailable => _available;
+  /// Aynı işlem tekrar gelirse çifte teslimatı önlemek için (yenileme yeni purchaseID ile gelir).
+  final Set<String> _deliveredKeys = <String>{};
+
   bool _available = false;
 
-  /// Mağaza kullanılabilir mi (mobil cihazda store bağlı).
+  bool get isAvailable => _available;
+
+  List<ProductDetails> get loadedProducts => List.unmodifiable(_products);
+
+  Set<String> notFoundProductIds = {};
+
   Future<bool> get isStoreAvailable async {
     if (kIsWeb) return false;
     _available = await InAppPurchase.instance.isAvailable();
     return _available;
   }
 
-  /// Abonelik ürününü yükle (fiyat vb. için).
+  ProductDetails? productById(String id) {
+    for (final p in _products) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  /// Ürünleri mağazadan yükle; aynı id için (Android abonelik teklifleri) ilk kayıt tutulur.
   Future<List<ProductDetails>> loadProducts() async {
     if (kIsWeb) return [];
     if (!await isStoreAvailable) return [];
     final response = await InAppPurchase.instance.queryProductDetails(
-      {premiumProductId},
+      IapProducts.all,
     );
-    if (response.notFoundIDs.isNotEmpty) return [];
+    notFoundProductIds = response.notFoundIDs.toSet();
     _products.clear();
-    _products.addAll(response.productDetails);
+    final byId = <String, ProductDetails>{};
+    for (final p in response.productDetails) {
+      byId.putIfAbsent(p.id, () => p);
+    }
+    _products.addAll(byId.values);
     return List.from(_products);
   }
-
-  /// İlk ürün (premium_monthly) varsa döner.
-  ProductDetails? get premiumProduct =>
-      _products.isEmpty ? null : _products.first;
 
   void _listenToPurchases() {
     if (kIsWeb) return;
@@ -52,60 +64,135 @@ class IapService {
     _subscription = InAppPurchase.instance.purchaseStream.listen(
       _onPurchaseUpdates,
       onDone: () => _subscription = null,
-      onError: (_) {},
+      onError: (Object e, StackTrace st) {
+        debugPrint('IAP purchaseStream error: $e\n$st');
+      },
     );
+  }
+
+  String _deliveryKey(PurchaseDetails p) {
+    final pid = p.purchaseID;
+    if (pid != null && pid.isNotEmpty) {
+      return '${p.productID}|$pid';
+    }
+    final token = p.verificationData.serverVerificationData;
+    if (token.isNotEmpty) return '${p.productID}|$token';
+    return '${p.productID}|${p.transactionDate ?? 'unknown'}';
   }
 
   Future<void> _onPurchaseUpdates(List<PurchaseDetails> purchases) async {
     for (final purchase in purchases) {
-      if (purchase.status == PurchaseStatus.purchased ||
-          purchase.status == PurchaseStatus.restored) {
-        await _grantPremiumToCurrentUser();
-        await InAppPurchase.instance.completePurchase(purchase);
+      if (purchase.status == PurchaseStatus.pending) continue;
+
+      if (purchase.status == PurchaseStatus.error) {
+        debugPrint(
+          'IAP error: ${purchase.error?.code} ${purchase.error?.message}',
+        );
+        if (purchase.pendingCompletePurchase) {
+          await InAppPurchase.instance.completePurchase(purchase);
+        }
+        continue;
       }
-      // pending / error / canceled için sadece completePurchase çağrılmaz
+
+      if (purchase.status == PurchaseStatus.canceled) {
+        if (purchase.pendingCompletePurchase) {
+          await InAppPurchase.instance.completePurchase(purchase);
+        }
+        continue;
+      }
+
+      if (purchase.status != PurchaseStatus.purchased &&
+          purchase.status != PurchaseStatus.restored) {
+        continue;
+      }
+
+      final key = _deliveryKey(purchase);
+      final fresh = !_deliveredKeys.contains(key);
+
+      if (fresh) {
+        try {
+          if (purchase.productID == IapProducts.premiumMonthly) {
+            await _grantPremiumToCurrentUser();
+          } else if (purchase.productID == IapProducts.premiumLinkSingle) {
+            await _grantLinkCreditToCurrentUser();
+          } else {
+            debugPrint('IAP: bilinmeyen ürün ${purchase.productID}');
+          }
+          _deliveredKeys.add(key);
+        } catch (e, st) {
+          debugPrint('IAP teslimat hatası: $e\n$st');
+        }
+      }
+
+      if (purchase.pendingCompletePurchase) {
+        try {
+          await InAppPurchase.instance.completePurchase(purchase);
+        } catch (e, st) {
+          debugPrint('IAP completePurchase: $e\n$st');
+        }
+      }
     }
   }
 
-  /// Mevcut giriş yapmış kullanıcıya premium ver (1 ay).
+  DateTime _extendedPremiumUntil(UserProfile profile) {
+    final now = DateTime.now();
+    final current = profile.premiumUntil;
+    final anchor =
+        current != null && current.isAfter(now) ? current : now;
+    return anchor.add(const Duration(days: 30));
+  }
+
   Future<void> _grantPremiumToCurrentUser() async {
     final uid = authService.uid;
     if (uid == null) return;
-    final profile = await appData.getUserProfile(uid);
-    if (profile == null) return;
-    final until = DateTime.now().add(const Duration(days: 30));
+    final existing = await appData.getUserProfile(uid);
+    final profile = existing ?? UserProfile(uid: uid);
     await appData.setUserProfile(
       uid,
-      UserProfile(
-        uid: uid,
-        displayName: profile.displayName,
-        email: profile.email,
-        photoUrl: profile.photoUrl,
-        handle: profile.handle,
+      profile.copyWith(
         isPremium: true,
-        premiumUntil: until,
-        createdAt: profile.createdAt,
+        premiumUntil: _extendedPremiumUntil(profile),
       ),
     );
   }
 
-  /// Satın alma başlat (mobil, giriş yapılmış ve ürün yüklü olmalı).
+  Future<void> _grantLinkCreditToCurrentUser() async {
+    final uid = authService.uid;
+    if (uid == null) return;
+    final existing = await appData.getUserProfile(uid);
+    final profile = existing ?? UserProfile(uid: uid);
+    await appData.setUserProfile(
+      uid,
+      profile.copyWith(
+        paidLinkCredits: profile.paidLinkCredits + 1,
+      ),
+    );
+  }
+
+  /// Abonelik veya tüketilebilir — doğru [buyNonConsumable] / [buyConsumable] seçilir.
   Future<bool> startPurchase(ProductDetails product) async {
     if (kIsWeb) return false;
     final uid = authService.uid;
     if (uid == null) return false;
-    return InAppPurchase.instance.buyNonConsumable(
-      purchaseParam: PurchaseParam(
-        productDetails: product,
-        applicationUserName: uid,
-      ),
+    final param = PurchaseParam(
+      productDetails: product,
+      applicationUserName: uid,
     );
+    if (IapProducts.isConsumable(product.id)) {
+      return InAppPurchase.instance.buyConsumable(
+        purchaseParam: param,
+        autoConsume: true,
+      );
+    }
+    return InAppPurchase.instance.buyNonConsumable(purchaseParam: param);
   }
 
-  /// Satın alımları geri yükle (örn. yeni cihaz).
   Future<void> restorePurchases() async {
     if (kIsWeb) return;
-    await InAppPurchase.instance.restorePurchases();
+    final uid = authService.uid;
+    await InAppPurchase.instance.restorePurchases(
+      applicationUserName: uid,
+    );
   }
 
   void dispose() {

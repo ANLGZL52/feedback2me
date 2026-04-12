@@ -20,27 +20,54 @@ export const feedbacksRoutes: FastifyPluginAsync = async (app) => {
     }
     const { linkId, textRaw, mood, relation, responderName, creatorSurvey } = parsed.data;
 
-    const link = await prisma.link.findFirst({
-      where: { id: linkId, isActive: true },
-    });
-    if (!link) {
-      return reply.code(404).send({ error: 'link_not_found' });
+    try {
+      const fb = await prisma.$transaction(async (tx) => {
+        const link = await tx.link.findFirst({
+          where: { id: linkId, isActive: true },
+        });
+        if (!link) {
+          throw Object.assign(new Error('link_not_found'), { code: 404 });
+        }
+        const now = new Date();
+        if (link.validUntil && link.validUntil <= now) {
+          throw Object.assign(new Error('link_expired'), { code: 410 });
+        }
+        if (link.linkTier === 'demo' && link.demoSubmissionUsed) {
+          throw Object.assign(new Error('link_not_found'), { code: 404 });
+        }
+
+        const created = await tx.feedback.create({
+          data: {
+            linkId,
+            textRaw: textRaw.trim(),
+            mood: mood ?? null,
+            relation: relation ?? null,
+            responderName: responderName?.trim() || null,
+            creatorSurvey: creatorSurvey ? (creatorSurvey as object) : undefined,
+          },
+        });
+
+        if (link.linkTier === 'demo') {
+          await tx.link.update({
+            where: { id: linkId },
+            data: { demoSubmissionUsed: true, isActive: false },
+          });
+        }
+
+        return created;
+      });
+
+      return { feedback: feedbackToDto(fb) };
+    } catch (e: unknown) {
+      const err = e as { code?: number; message?: string };
+      if (err.code === 404) {
+        return reply.code(404).send({ error: 'link_not_found' });
+      }
+      if (err.code === 410) {
+        return reply.code(410).send({ error: 'link_expired' });
+      }
+      throw e;
     }
-
-    const fb = await prisma.feedback.create({
-      data: {
-        linkId,
-        textRaw: textRaw.trim(),
-        mood: mood ?? null,
-        relation: relation ?? null,
-        responderName: responderName?.trim() || null,
-        creatorSurvey: creatorSurvey ? (creatorSurvey as object) : undefined,
-      },
-    });
-
-    return {
-      feedback: feedbackToDto(fb),
-    };
   });
 
   app.get('/links/:linkId/feedbacks', { onRequest: [app.authenticate] }, async (request, reply) => {

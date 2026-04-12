@@ -1,6 +1,8 @@
 import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:uuid/uuid.dart';
 
 import '../models/audience_score.dart';
@@ -59,17 +61,144 @@ class FirestoreService implements AppDataBackend {
   }
 
   Future<FeedbackLink?> createLink(String ownerId, {String? title}) async {
+    final oid = ownerId.trim();
+    final u = FirebaseAuth.instance.currentUser;
+    if (u == null || u.uid != oid) {
+      throw StateError('link_create_auth_mismatch');
+    }
+    if (kIsWeb) {
+      return _createLinkWeb(oid, title: title);
+    }
+    return _createLinkTransaction(oid, title: title);
+  }
+
+  /// Mobil / masaüstü: atomik transaction.
+  Future<FeedbackLink?> _createLinkTransaction(String ownerId,
+      {String? title}) async {
+    final userRef = _users.doc(ownerId);
     final code = _shortCode();
     final id = _links.doc().id;
+    final linkRef = _links.doc(id);
+
+    final created = await _db.runTransaction<FeedbackLink?>((tx) async {
+      final userSnap = await tx.get(userRef);
+      return _computeLinkForCreate(
+        ownerId: ownerId,
+        title: title,
+        userSnapData: userSnap.data(),
+        code: code,
+        id: id,
+        txSet: (path, data, {bool merge = false}) {
+          if (merge) {
+            tx.set(path, data, SetOptions(merge: true));
+          } else {
+            tx.set(path, data);
+          }
+        },
+        linkRef: linkRef,
+        userRef: userRef,
+      );
+    });
+
+    if (created == null) {
+      throw StateError('link_requires_credit');
+    }
+    return created;
+  }
+
+  /// Web: [runTransaction] bazen auth token ile uyumsuz davranıp permission-denied veriyor;
+  /// önce okuma + [WriteBatch] aynı kurallarla genelde sorunsuz çalışır.
+  Future<FeedbackLink?> _createLinkWeb(String ownerId, {String? title}) async {
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    } catch (_) {}
+
+    final userRef = _users.doc(ownerId);
+    final code = _shortCode();
+    final id = _links.doc().id;
+    final linkRef = _links.doc(id);
+
+    // Web: önbellekte eski anonim oturumdan kalan boş/yanlış okuma permission-denied’e yol açabiliyor.
+    final userSnap = await userRef.get(
+      const GetOptions(source: Source.server),
+    );
+    final batch = _db.batch();
+    final link = _computeLinkForCreate(
+      ownerId: ownerId,
+      title: title,
+      userSnapData: userSnap.data(),
+      code: code,
+      id: id,
+      txSet: (path, data, {bool merge = false}) {
+        if (merge) {
+          batch.set(path, data, SetOptions(merge: true));
+        } else {
+          batch.set(path, data);
+        }
+      },
+      linkRef: linkRef,
+      userRef: userRef,
+    );
+
+    if (link == null) {
+      throw StateError('link_requires_credit');
+    }
+    await batch.commit();
+    return link;
+  }
+
+  /// Transaction veya batch için ortak mantık; [txSet] ilk argüman [DocumentReference].
+  FeedbackLink? _computeLinkForCreate({
+    required String ownerId,
+    required String? title,
+    required Map<String, dynamic>? userSnapData,
+    required String code,
+    required String id,
+    required void Function(DocumentReference<Map<String, dynamic>> path,
+            Map<String, dynamic> data,
+            {bool merge})
+        txSet,
+    required DocumentReference<Map<String, dynamic>> linkRef,
+    required DocumentReference<Map<String, dynamic>> userRef,
+  }) {
+    final profile = UserProfile.fromMap(ownerId, userSnapData);
+    final now = DateTime.now();
+
+    late final String tier;
+    late final DateTime validUntil;
+    final Map<String, dynamic> userPatch = {};
+
+    if (profile.hasFreeDemoAvailable) {
+      tier = 'demo';
+      validUntil = now.add(const Duration(minutes: 10));
+      userPatch['freeDemoLinkUsed'] = true;
+    } else if (profile.hasActivePremium) {
+      tier = 'premium';
+      validUntil = now.add(const Duration(hours: 24));
+    } else if (profile.paidLinkCredits > 0) {
+      tier = 'premium';
+      validUntil = now.add(const Duration(hours: 24));
+      userPatch['paidLinkCredits'] = FieldValue.increment(-1);
+    } else {
+      return null;
+    }
+
     final link = FeedbackLink(
       id: id,
       ownerId: ownerId,
       code: code,
       title: title,
-      createdAt: DateTime.now(),
+      createdAt: now,
       isActive: true,
+      linkTier: tier,
+      validUntil: validUntil,
+      demoSubmissionUsed: false,
     );
-    await _links.doc(id).set(link.toMap());
+
+    txSet(linkRef, link.toFirestoreMap());
+    if (userPatch.isNotEmpty) {
+      txSet(userRef, userPatch, merge: true);
+    }
     return link;
   }
 
@@ -81,7 +210,9 @@ class FirestoreService implements AppDataBackend {
         .get();
     if (q.docs.isEmpty) return null;
     final doc = q.docs.first;
-    return FeedbackLink.fromMap(doc.id, doc.data());
+    final link = FeedbackLink.fromMap(doc.id, doc.data());
+    if (!link.acceptsPublicFeedback) return null;
+    return link;
   }
 
   Stream<List<FeedbackLink>> linksForOwnerStream(String ownerId) {
@@ -141,6 +272,16 @@ class FirestoreService implements AppDataBackend {
     required String textRaw,
     CreatorSurveyPayload? creatorSurvey,
   }) async {
+    final linkRef = _links.doc(linkId);
+    final linkSnap = await linkRef.get();
+    if (!linkSnap.exists || linkSnap.data() == null) {
+      throw StateError('link_not_found');
+    }
+    final link = FeedbackLink.fromMap(linkId, linkSnap.data());
+    if (!link.acceptsPublicFeedback) {
+      throw StateError('link_closed_or_expired');
+    }
+
     final id = _feedbacks.doc().id;
     final entry = FeedbackEntry(
       id: id,
@@ -153,7 +294,16 @@ class FirestoreService implements AppDataBackend {
       creatorSurvey:
           creatorSurvey != null && !creatorSurvey.isEffectivelyEmpty ? creatorSurvey : null,
     );
-    await _feedbacks.doc(id).set(entry.toMap());
+
+    final batch = _db.batch();
+    batch.set(_feedbacks.doc(id), entry.toMap());
+    if (link.isDemoTier) {
+      batch.update(linkRef, {
+        'demoSubmissionUsed': true,
+        'isActive': false,
+      });
+    }
+    await batch.commit();
   }
 
   Stream<List<FeedbackEntry>> feedbacksForLinkStream(String linkId) {
@@ -250,7 +400,7 @@ class FirestoreService implements AppDataBackend {
             .orderBy(FieldPath.documentId)
             .limit(pageSize);
         if (cursor != null) {
-          q = q.startAfterDocument(cursor!);
+          q = q.startAfterDocument(cursor);
         }
         final snap = await q.get();
         if (snap.docs.isEmpty) break;
@@ -278,6 +428,7 @@ class FirestoreService implements AppDataBackend {
     required int positiveCount,
     required int neutralCount,
     required int negativeCount,
+    String? analyzedLinkId,
     int? communityPerception,
     int? trust,
     int? contentClarity,
@@ -295,6 +446,10 @@ class FirestoreService implements AppDataBackend {
       'neutralCount': neutralCount,
       'negativeCount': negativeCount,
     };
+    final aid = analyzedLinkId?.trim();
+    if (aid != null && aid.isNotEmpty) {
+      payload['analyzedLinkId'] = aid;
+    }
     if (communityPerception != null) {
       payload['communityPerception'] = communityPerception.clamp(0, 100);
     }

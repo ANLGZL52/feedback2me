@@ -1,6 +1,6 @@
 {
-    "name": "feedback_to_me",
-    "short_name": "feedback_to_me",
+    "name": "Feedback2Me",
+    "short_name": "Feedback2Me",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

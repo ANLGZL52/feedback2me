@@ -18,19 +18,18 @@ class OpenAiAudienceClient {
 
   bool get isConfigured => _apiKey.isNotEmpty;
 
-  /// Ham yorumları parçalayıp her parça için kısa JSON özet biriktirir (birleştirme için).
-  Future<String?> collectPartialsDigest(
-    List<FeedbackEntry> entries, {
-    void Function(int index1Based, int totalChunks)? onChunkProgress,
-  }) async {
-    if (!isConfigured || entries.isEmpty) return null;
-
-    final chunks = <List<FeedbackEntry>>[];
-    for (var i = 0; i < entries.length; i += chunkSize) {
-      chunks.add(entries.sublist(i, i + chunkSize > entries.length ? entries.length : i + chunkSize));
-    }
-
-    const systemChunk = '''
+  static String _systemChunkPartial(bool outputEnglish) => outputEnglish
+      ? '''
+You are a senior social-media and creator-communication strategist (global audience).
+You receive ONE chunk of comment lines. Each line: mood|relationship|survey_json|text.
+If the survey JSON includes platform, frequency, suggested content types, and 1–5 scores, summarize it and use it in highlights.
+If text mentions audio, video, edit, lighting, cover, thumbnail, shoot, or post-production, put that into "uretimVeGorselNotlar".
+Video files are not analyzed—only viewer text and survey data.
+Return compact JSON for this chunk only.
+OUTPUT SCHEMA (no other text):
+{"partOzeti":"2-5 sentences in English","vurgular":["bullet"],"riskler":["short if any"],"uretimVeGorselNotlar":"short technical/visual note from this chunk or empty string"}
+'''
+      : '''
 Sen Türkiye pazarında çalışan kıdemli bir sosyal medya ve içerik üreticisi iletişimi uzmanısın.
 Sana TEK BİR PARÇA yorum satırları verilecek. Her satır: mood|ilişki|anket_json|metin.
 Anket alanında platform, sıklık, içerik türü önerisi ve 1-5 puanlar varsa mutlaka özetle ve vurgularda kullan.
@@ -41,10 +40,33 @@ Sadece bu parça için kısa JSON döndür.
 {"partOzeti":"2-5 cümle","vurgular":["madde"],"riskler":["varsa kısa"],"uretimVeGorselNotlar":"ses/görüntü/kurgu/kapak ile ilgili bu parçadan çıkan kısa özet (yoksa boş string)"}
 ''';
 
+  /// Ham yorumları parçalayıp her parça için kısa JSON özet biriktirir (birleştirme için).
+  Future<String?> collectPartialsDigest(
+    List<FeedbackEntry> entries, {
+    void Function(int index1Based, int totalChunks)? onChunkProgress,
+    bool outputEnglishModel = false,
+  }) async {
+    if (!isConfigured || entries.isEmpty) return null;
+
+    final chunks = <List<FeedbackEntry>>[];
+    for (var i = 0; i < entries.length; i += chunkSize) {
+      chunks.add(entries.sublist(i, i + chunkSize > entries.length ? entries.length : i + chunkSize));
+    }
+
+    final systemChunk = _systemChunkPartial(outputEnglishModel);
+
     final buf = StringBuffer();
     for (var p = 0; p < chunks.length; p++) {
       onChunkProgress?.call(p + 1, chunks.length);
-      final userChunk = '''
+      final userChunk = outputEnglishModel
+          ? '''
+CHUNK ${p + 1}/${chunks.length} — line format: mood|relationship|survey_json|text
+survey_json: creator-context JSON or "-" (none). May include familiarity, platforms, watchFrequency, contentFocus, scoreProduction–scoreConsistency.
+mood: 1 positive, 0 neutral, -1 negative
+
+${_encodeLines(chunks[p])}
+'''
+          : '''
 PARÇA ${p + 1}/${chunks.length} — satır formatı: mood|ilişki|anket_json|metin
 anket_json: içerik üreticisi bağlamı (JSON) veya "-" (yok). İçinde: familiarity, platforms, watchFrequency, contentFocus (izleyicinin “hangi türde daha iyi olabilir” önerisi), scoreProduction–scoreConsistency olabilir.
 mood: 1 olumlu, 0 nötr, -1 olumsuz
@@ -58,7 +80,11 @@ ${_encodeLines(chunks[p])}
         maxTokens: 1200,
       );
       if (raw == null) return null;
-      buf.writeln('--- PARÇA ${p + 1} / ${chunks.length} ---');
+      buf.writeln(
+        outputEnglishModel
+            ? '--- CHUNK ${p + 1} / ${chunks.length} ---'
+            : '--- PARÇA ${p + 1} / ${chunks.length} ---',
+      );
       buf.writeln(raw);
       await Future<void>.delayed(const Duration(milliseconds: 120));
     }
@@ -70,10 +96,31 @@ ${_encodeLines(chunks[p])}
     CreatorIntelligenceReport heuristic, {
     String? partialsDigest,
     String? surveyAggregateBlock,
+    bool outputEnglishModel = false,
   }) async {
     if (!isConfigured) return null;
 
-    const system = '''
+    final system = outputEnglishModel
+        ? '''
+You are a senior content strategist and community consultant. Task: keep all numeric fields and schema keys EXACTLY as in the input JSON, but rewrite only TEXT fields in clear, warm, premium-advisory English.
+
+TEXT QUALITY:
+- executiveSummary: At least 2 paragraphs; sentiment + strongest theme + growth focus; if structured survey summary exists, mention in one sentence.
+- strategicDigest: Long strategic brief; use "▸" sections (Perception, Platform/Format, Risk-Opportunity, 14-day experiment); merge production/visual notes from chunk digests.
+- visualAndFormatInsight: TEXT only — visible content and format (thumbnail, first frame, light, framing, edit rhythm, audio/clarity, captions); combine survey production scores with technical phrases from comments. Gently note there is no pixel-level video analysis.
+- comprehensiveCoachLetter: Directly address the creator ("you"); 4–8 paragraphs; motivating but honest closing; synthesize survey + comments + suggested formats; give a clear next step.
+- themeRows[].meaning, segments, topDiagnoses, benchmarkLines, riskOpportunity: Reflect survey/chunk production-visual hints where possible.
+- themeRows[].theme and other user-visible labels: use natural English.
+- cover.oneLiner: One punchy sentence (do not change scores).
+
+DO NOT CHANGE:
+- cover.communityPerception, trust, contentClarity, subScores
+- heatMap percentages and hint counts
+- themeSignalTotal, uniqueCommentCount
+- contentRecipe percent numbers
+Output: a single JSON object; no markdown fences.
+'''
+        : '''
 Sen kıdemli içerik stratejisti, görsel iletişim ve topluluk danışmanısın. Görevin: verilen JSON nesnesindeki
 sayıları, yüzdeleri ve şema alan adlarını AYNEN KORUYARAK yalnızca METİN alanlarını Türkçe, sıcak ama net
 teşhis diliyle, önceliklendirilmiş ve premium danışmanlık tonunda YENİDEN YAZMAK.
@@ -94,7 +141,22 @@ KORU (dokunma):
 - Çıktı: TEK bir JSON nesnesi; ek açıklama veya markdown fence yok.
 ''';
 
-    final user = '''
+    final user = outputEnglishModel
+        ? '''
+AGGREGATED SURVEY SUMMARY (all comments — do not change counts; use to enrich text):
+${surveyAggregateBlock ?? '(No or minimal survey summary.)'}
+
+---
+
+CHUNK DIGESTS (JSON lines; uretimVeGorselNotlar holds visual/technical hints):
+${partialsDigest ?? '(No chunk digest — refine heuristic text fields only.)'}
+
+---
+
+HEURISTIC REPORT (JSON — preserve schema and numbers; expand text per rules above):
+${jsonEncode(heuristic.toJson())}
+'''
+        : '''
 TOPLU YAPISAL ANKET ÖZETİ (tüm yorumlar — sayıları değiştirme; metinleri bununla zenginleştir):
 ${surveyAggregateBlock ?? '(Anket özeti yok veya çok az.)'}
 

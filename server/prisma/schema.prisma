@@ -10,15 +10,19 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String?   @unique
-  displayName  String?   @map("display_name")
-  photoUrl     String?   @map("photo_url")
-  handle       String?
-  isPremium    Boolean   @default(false) @map("is_premium")
-  premiumUntil DateTime? @map("premium_until")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  id                String    @id @default(cuid())
+  email             String?   @unique
+  displayName       String?   @map("display_name")
+  photoUrl          String?   @map("photo_url")
+  handle            String?
+  isPremium         Boolean   @default(false) @map("is_premium")
+  premiumUntil      DateTime? @map("premium_until")
+  /// Ücretsiz demo link bir kez kullanıldı mı (10 dk, tek yorum).
+  freeDemoLinkUsed  Boolean   @default(false) @map("free_demo_link_used")
+  /// Satın alınan premium link hakları (her oluşturmada -1).
+  paidLinkCredits   Int       @default(0) @map("paid_link_credits")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   links     Link[]
   snapshots AudienceScoreSnapshot[]
@@ -38,13 +42,17 @@ model OAuthAccount {
 }
 
 model Link {
-  id        String   @id @default(cuid())
-  ownerId   String   @map("owner_id")
-  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  code      String   @unique
-  title     String?
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
+  id                 String    @id @default(cuid())
+  ownerId            String    @map("owner_id")
+  owner              User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  code               String    @unique
+  title              String?
+  isActive           Boolean   @default(true) @map("is_active")
+  /// demo = 10 dk + tek yorum; premium = 24 saat; null = eski kayıt (sınırsız).
+  linkTier           String?   @map("link_tier")
+  validUntil         DateTime? @map("valid_until")
+  demoSubmissionUsed Boolean   @default(false) @map("demo_submission_used")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
   feedbacks Feedback[]
 

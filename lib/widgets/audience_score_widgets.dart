@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../models/audience_score.dart';
 
 const Color _kAccent = Color(0xFFD4AF37);
@@ -34,7 +35,7 @@ class AudienceScoreSummaryCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Dinleyici gelişim puanı',
+                        L10n.get(context, 'audienceGrowthScoreTitle'),
                         style: theme.textTheme.titleSmall?.copyWith(
                           color: _kAccent,
                           fontWeight: FontWeight.w700,
@@ -42,8 +43,7 @@ class AudienceScoreSummaryCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Olumlu oran, olumsuz baskı ve yorum hacmine göre hesaplanır; '
-                        'her “analiz oluştur” çalıştırmasında kayıt tutulur.',
+                        L10n.get(context, 'audienceGrowthScoreBody'),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: Colors.white54,
                           height: 1.35,
@@ -84,19 +84,19 @@ class AudienceScoreSummaryCard extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             _MetricRow(
-              label: 'Olumlu ivme',
+              label: L10n.get(context, 'audienceSharePm'),
               value: scores.positiveMomentum,
               icon: Icons.trending_up_rounded,
             ),
             const SizedBox(height: 10),
             _MetricRow(
-              label: 'Olumsuz kontrol',
+              label: L10n.get(context, 'audienceShareRc'),
               value: scores.riskControl,
               icon: Icons.shield_outlined,
             ),
             const SizedBox(height: 10),
             _MetricRow(
-              label: 'Örneklem gücü',
+              label: L10n.get(context, 'audienceShareDd'),
               value: scores.dataDepth,
               icon: Icons.groups_outlined,
             ),
@@ -219,7 +219,7 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Önceki rapora göre gelişim',
+                L10n.get(context, 'growthVsPreviousTitle'),
                 style: theme.textTheme.titleSmall?.copyWith(
                   color: _kAccent,
                   fontWeight: FontWeight.w700,
@@ -227,8 +227,7 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'En az iki kez «Takipçi Yorum Analizi» çalıştırdığında; genel puan, '
-                'duygu dağılımı ve (varsa) kapak üçlü metrikleri bir önceki kayıtla kıyaslanır.',
+                L10n.get(context, 'growthVsPreviousEmptyBody'),
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: Colors.white54,
                   height: 1.35,
@@ -250,7 +249,7 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Önceki rapora göre gelişim',
+              L10n.get(context, 'growthVsPreviousTitle'),
               style: theme.textTheme.titleSmall?.copyWith(
                 color: _kAccent,
                 fontWeight: FontWeight.w700,
@@ -258,7 +257,9 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Son analiz (${_formatDate(cur.createdAt)}), bir önceki (${_formatDate(prev.createdAt)}) ile kıyaslandı.',
+              L10n.get(context, 'growthComparedDates')
+                  .replaceAll('{cur}', _formatDate(cur.createdAt))
+                  .replaceAll('{prev}', _formatDate(prev.createdAt)),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: Colors.white54,
                 height: 1.35,
@@ -266,28 +267,28 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             _GrowthDeltaRow(
-              label: 'Genel gelişim puanı',
+              label: L10n.get(context, 'growthDeltaOverallScore'),
               delta: cur.scores.overall - prev.scores.overall,
             ),
             _GrowthDeltaRow(
-              label: 'Olumlu ivme (skor)',
+              label: L10n.get(context, 'growthDeltaPmScore'),
               delta: cur.scores.positiveMomentum - prev.scores.positiveMomentum,
             ),
             _GrowthDeltaRow(
-              label: 'Olumsuz kontrol (skor)',
+              label: L10n.get(context, 'growthDeltaRcScore'),
               delta: cur.scores.riskControl - prev.scores.riskControl,
             ),
             _GrowthDeltaRow(
-              label: 'Örneklem gücü (skor)',
+              label: L10n.get(context, 'growthDeltaDdScore'),
               delta: cur.scores.dataDepth - prev.scores.dataDepth,
             ),
             const SizedBox(height: 8),
             _GrowthDeltaRow(
-              label: 'Olumlu yorum payı (%)',
+              label: L10n.get(context, 'growthDeltaSupportivePct'),
               delta: cur.supportivePct - prev.supportivePct,
             ),
             _GrowthDeltaRow(
-              label: 'Olumsuz yorum payı (%)',
+              label: L10n.get(context, 'growthDeltaRiskPct'),
               delta: cur.riskPct - prev.riskPct,
               lowerIsBetter: true,
             ),
@@ -299,20 +300,20 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
                 prev.contentClarity != null) ...[
               const SizedBox(height: 8),
               Text(
-                'Kapak trio (rapor)',
+                L10n.get(context, 'growthCoverTrioLabel'),
                 style: theme.textTheme.labelMedium?.copyWith(color: Colors.white54),
               ),
               const SizedBox(height: 6),
               _GrowthDeltaRow(
-                label: 'Topluluk algısı',
+                label: L10n.get(context, 'growthPerceptionCommunity'),
                 delta: cur.communityPerception! - prev.communityPerception!,
               ),
               _GrowthDeltaRow(
-                label: 'Güven',
+                label: L10n.get(context, 'growthPerceptionTrust'),
                 delta: cur.trust! - prev.trust!,
               ),
               _GrowthDeltaRow(
-                label: 'İçerik netliği',
+                label: L10n.get(context, 'growthPerceptionClarity'),
                 delta: cur.contentClarity! - prev.contentClarity!,
               ),
             ],
@@ -399,7 +400,7 @@ class AudienceScoreHistorySection extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Gelişim geçmişi',
+              L10n.get(context, 'growthHistoryTitle'),
               style: theme.textTheme.titleSmall?.copyWith(
                 color: _kAccent,
                 fontWeight: FontWeight.w700,
@@ -408,8 +409,8 @@ class AudienceScoreHistorySection extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               history.length >= 2
-                  ? 'Yeni linklerle havuz büyüdükçe buradan zaman içindeki puan değişimini izleyebilirsin.'
-                  : 'Bir sonraki analizde çizgi oluşur; düzenli çalıştırmak trendi netleştirir.',
+                  ? L10n.get(context, 'growthHistoryHintMulti')
+                  : L10n.get(context, 'growthHistoryHintSingle'),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: Colors.white54,
                 height: 1.35,
@@ -468,13 +469,14 @@ class AudienceScoreHistorySection extends StatelessWidget {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                '· ${s.feedbackCount} yorum',
+                                L10n.get(context, 'historyCommentsCount')
+                                    .replaceAll('{n}', '${s.feedbackCount}'),
                                 style: theme.textTheme.bodySmall?.copyWith(color: Colors.white38),
                               ),
                               if (tap != null) ...[
                                 const SizedBox(width: 8),
                                 Text(
-                                  'Rapor ›',
+                                  L10n.get(context, 'historyOpenReport'),
                                   style: theme.textTheme.labelSmall?.copyWith(
                                     color: _kAccent.withValues(alpha: 0.9),
                                     fontWeight: FontWeight.w600,

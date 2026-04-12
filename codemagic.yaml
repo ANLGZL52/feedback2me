@@ -1,0 +1,84 @@
+# Codemagic — Flutter iOS (ve isteğe bağlı Android) derlemesi
+# Kurulum: https://docs.codemagic.io/flutter-configuration/flutter-projects/
+#
+# Codemagic panelinde yapılacaklar:
+# 1) App → Environment variables: App Store Connect API key veya Apple Developer entegrasyonu
+# 2) iOS code signing: Distribution certificate + provisioning profile (App Store / ad-hoc)
+# 3) İsterseniz "Variable groups" ile BUNDLE_ID vb. paylaşın
+#
+# BUNDLE_ID, Xcode ile aynı: app.feedbacktome (ios/Runner)
+
+workflows:
+  ios-release:
+    name: iOS Release (IPA)
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      vars:
+        BUNDLE_ID: app.feedbacktome
+      # Panelden "Variable group" ekleyebilirsiniz; örnek isim:
+      # groups:
+      #   - ios_signing
+    # Team integrations → App Store Connect’te verdiğiniz ad ile aynı olmalı (ör. feedback2me).
+    integrations:
+      app_store_connect: feedback2me
+    scripts:
+      - name: Flutter bağımlılıkları
+        script: |
+          set -e
+          flutter pub get
+      - name: CocoaPods
+        script: |
+          set -e
+          cd ios
+          pod install
+      - name: İmzalama (Codemagic CLI)
+        script: |
+          set -e
+          keychain initialize
+      - name: App Store Connect ile imza dosyaları
+        script: |
+          set -e
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+      - name: Sertifikaları keychain'e ekle
+        script: |
+          set -e
+          keychain add-certificates
+      - name: Xcode proje profilleri
+        script: |
+          set -e
+          xcode-project use-profiles
+      - name: IPA derle
+        script: |
+          set -e
+          flutter build ipa --release
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    # İsteğe bağlı: Codemagic UI → Publishing → App Store Connect / TestFlight
+    # publishing:
+    #   app_store_connect:
+    #     auth: integration
+    #     submit_to_testflight: true
+
+  # İmzasız veya yalnızca derleme testi için basit iş akışı (CI smoke):
+  ios-debug-build:
+    name: iOS Debug (imza gerektirmez — yalnızca derleme doğrulama)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Flutter pub get + iOS build (no codesign)
+        script: |
+          set -e
+          flutter pub get
+          cd ios && pod install && cd ..
+          flutter build ios --debug --no-codesign
+    artifacts:
+      - build/ios/iphoneos/Runner.app

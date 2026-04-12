@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../app_state.dart';
 import '../l10n/app_localizations.dart';
 import '../models/feedback_link.dart';
+import 'link_plan_banner.dart';
 
 /// Profil / panel: tek link satırı — özet, kopyala, detay, sil.
 class FeedbackLinkTile extends StatefulWidget {
@@ -59,6 +60,8 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              const SizedBox(height: 12),
+              LinkPlanBanner(link: widget.link),
               const SizedBox(height: 12),
               SelectableText(
                 widget.link.shareUrl,
@@ -188,6 +191,8 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
                       ),
                     ),
                     const SizedBox(height: 4),
+                    LinkPlanBanner(link: widget.link, compact: true),
+                    const SizedBox(height: 2),
                     FutureBuilder<int>(
                       future: _countFuture,
                       builder: (context, snap) {

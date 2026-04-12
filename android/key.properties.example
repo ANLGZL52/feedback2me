@@ -1,0 +1,12 @@
+# Bu dosyayı KOPYALAMAYIN — içine gerçek şifre yazmayın.
+# Kendi değerlerinle android/key.properties oluştur (sadece o dosya Gradle tarafından okunur).
+# android/key.properties Git'te yoktur (.gitignore).
+#
+# Şablon içerik:
+#
+# storePassword=KEYSTORE_SIFREN
+# keyPassword=ANAHTAR_SIFREN   (Enter ile aynı yaptıysan store ile aynı)
+# keyAlias=upload
+# storeFile=upload-keystore.jks
+#
+# keytool örneği için önceki dokümantasyona bakın.

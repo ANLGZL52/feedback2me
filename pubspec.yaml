@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.1+5
 
 environment:
   sdk: ">=3.9.0 <4.0.0"
@@ -43,7 +43,6 @@ dependencies:
   cloud_firestore: ^5.5.0
   # Giriş: Apple & Google (ödeme App Store / Play Store üzerinden kalacak)
   google_sign_in: ^6.2.2
-  sign_in_with_apple: ^6.1.3
   uuid: ^4.5.1
   # Ödeme: App Store / Google Play (sadece mobilde çalışır)
   in_app_purchase: ^3.2.0
@@ -74,8 +73,10 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/app_icon.png"
   min_sdk_android: 21
-  adaptive_icon_background: "#1C1917"
+  adaptive_icon_background: "#0D1117"
   adaptive_icon_foreground: "assets/app_icon.png"
+  # 16% default inset shrinks foreground and showed white side bars when source PNG was non-square.
+  adaptive_icon_foreground_inset: 0
 
 flutter_native_splash:
   color: "#141210"
@@ -90,6 +91,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/app_icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

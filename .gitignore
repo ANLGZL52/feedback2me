@@ -1,6 +1,9 @@
 # Firebase CLI local cache
 .firebase/
 
+# Railway API / dart-define (gizli anahtar içerir)
+railway.env.json
+
 # Miscellaneous
 *.class
 *.log

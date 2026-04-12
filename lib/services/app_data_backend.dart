@@ -56,6 +56,7 @@ abstract class AppDataBackend {
     required int positiveCount,
     required int neutralCount,
     required int negativeCount,
+    String? analyzedLinkId,
     int? communityPerception,
     int? trust,
     int? contentClarity,

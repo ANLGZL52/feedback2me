@@ -1,9 +1,35 @@
 import 'package:firebase_auth/firebase_auth.dart';
-
-import 'api_session.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+
+import 'api_session.dart';
+
+/// SnackBar vb. için kısa Türkçe açıklama.
+String firebaseAuthUserMessage(Object error) {
+  if (error is FirebaseAuthException) {
+    switch (error.code) {
+      case 'operation-not-allowed':
+        return 'Firebase’de bu giriş yöntemi kapalı. Firebase Console → '
+            'Authentication → Giriş yöntemleri → Apple’ı açıp Apple Developer '
+            '(Services ID, anahtar, Team ID) bilgilerini girin.';
+      case 'account-exists-with-different-credential':
+        return 'Bu e-posta başka bir giriş yöntemiyle kayıtlı. Önce o yöntemle giriş yapın.';
+      case 'invalid-credential':
+      case 'user-disabled':
+        return 'Oturum açılamadı. Hesabınız veya sağlayıcı ayarları kontrol edin.';
+      case 'popup-closed-by-user':
+      case 'web-context-cancelled':
+      case 'aborted':
+        return 'Giriş penceresi kapatıldı.';
+      default:
+        break;
+    }
+    final m = error.message;
+    if (m != null && m.isNotEmpty) return m;
+    return error.code;
+  }
+  return error.toString();
+}
 
 /// Giriş tamamen Apple ve Google üzerinden; ödeme App Store / Google Play'da kalacak.
 class AuthService {
@@ -41,25 +67,17 @@ class AuthService {
     }
   }
 
+  /// Web: [signInWithPopup] (Google ile aynı model; `sign_in_with_apple` web JS interop hatası veriyordu).
+  /// iOS/Android: [signInWithProvider].
   Future<User?> signInWithApple() async {
     try {
-      if (!kIsWeb) {
-        final appleProvider = AppleAuthProvider();
-        final credential = await _auth.signInWithProvider(appleProvider);
+      final apple = AppleAuthProvider();
+      if (kIsWeb) {
+        final credential = await _auth.signInWithPopup(apple);
         return credential.user;
       }
-      final appleCredential = await SignInWithApple.getAppleIDCredential(
-        scopes: [
-          AppleIDAuthorizationScopes.email,
-          AppleIDAuthorizationScopes.fullName,
-        ],
-      );
-      final oauthCredential = OAuthProvider('apple.com').credential(
-        idToken: appleCredential.identityToken,
-        accessToken: appleCredential.authorizationCode,
-      );
-      final userCred = await _auth.signInWithCredential(oauthCredential);
-      return userCred.user;
+      final credential = await _auth.signInWithProvider(apple);
+      return credential.user;
     } catch (e) {
       rethrow;
     }

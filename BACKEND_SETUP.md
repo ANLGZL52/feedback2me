@@ -45,3 +45,25 @@ Giriş zaten **sadece Apple ve Google** ile; ödeme de tamamen App Store / Googl
 - **feedbacks** – Her doküman bir yorum. Alanlar: `linkId`, `responderName`, `relation`, `mood`, `textRaw`, `textClean` (ileride AI), `createdAt`.
 
 Raporlama ve analiz: Gelen yorum sayısına göre raporun kapsamı ve detayı artacak şekilde tasarlanmalı (az yorum → kısa özet, çok yorum → daha uzun, tema bazlı, yüzdeli ve madde madde detaylı rapor). İleride Cloud Functions veya başka bir backend’de toplu işlem ve AI entegrasyonu eklenebilir.
+
+## 5. Railway API (Firestore analiz / havuz / link senkronu istemiyorsan)
+
+Uygulama varsayılanında `USE_RAILWAY_API=false` olduğu için **linkler, yorum havuzu ve takipçi analiz geçmişi Firestore** üzerinden gider; `audienceScoreSnapshots` için güvenlik kuralları şarttır.
+
+**Railway modunda** (`USE_RAILWAY_API=true` + `API_BASE_URL` + giriş sonrası sunucu oturumu) veri **Postgres + REST API** ile gider; Profil’deki analiz listesi Firestore’a hiç dokunmaz, `permission-denied` bu yüzden ortadan kalkar (giriş ve Railway ortam değişkenleri doğruysa).
+
+Yerelde çalıştırma:
+
+1. `railway.env.example.json` dosyasını `railway.env.json` olarak kopyala (bu dosya `.gitignore`’da; gizli anahtarı repoya koyma).
+2. `DEV_AUTH_SECRET` değerini Railway’deki `DEV_AUTH_SECRET` ile aynı yap; `API_BASE_URL`’i kendi Railway URL’in ile güncelle.
+3. `.\run_with_railway.ps1` — varsa `railway.env.json` ile `flutter run` çalışır; Android için `-Device android`.
+
+Üretim APK / web build için aynı tanımları derleme sırasında ver:
+
+```bash
+flutter build apk --dart-define-from-file=railway.env.json
+# veya
+flutter build web --dart-define-from-file=railway.env.json
+```
+
+Sunucuda `ALLOW_DEV_AUTH=true` ve aynı `DEV_AUTH_SECRET` olmalı; ayrıntılar `server/README.md`.

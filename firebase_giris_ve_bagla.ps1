@@ -11,3 +11,6 @@ Set-Location $PSScriptRoot
 dart pub global run flutterfire_cli:flutterfire configure
 
 Write-Host "`nBitti. firebase_options.dart guncellendi." -ForegroundColor Green
+Write-Host "`nOpsiyonel: Profil'de analiz 'permission-denied' ise (bir kez calistir):" -ForegroundColor Cyan
+Write-Host "  Set-Location $PSScriptRoot" -ForegroundColor Gray
+Write-Host "  firebase deploy --only firestore:rules" -ForegroundColor Gray

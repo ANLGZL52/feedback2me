@@ -13,11 +13,51 @@
       min-height: 100vh;
       padding: 24px;
     }
-    .container { max-width: 480px; margin: 0 auto; }
+    .container { max-width: 520px; margin: 0 auto; }
+    .promo {
+      background: linear-gradient(145deg, rgba(212,175,55,0.12), rgba(28,25,23,0.95));
+      border: 1px solid rgba(212,175,55,0.35);
+      border-radius: 16px;
+      padding: 18px 16px;
+      margin-bottom: 22px;
+    }
+    .promo h2 {
+      font-size: 1rem;
+      color: #E8C547;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+    .promo p {
+      font-size: 0.88rem;
+      color: rgba(255,255,255,0.78);
+      line-height: 1.45;
+      margin-bottom: 14px;
+    }
+    .promo-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+    .promo-actions a {
+      display: inline-block;
+      padding: 10px 16px;
+      border-radius: 12px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      text-decoration: none;
+      text-align: center;
+    }
+    .promo-actions a.primary {
+      background: #D4AF37;
+      color: #0c0a08;
+    }
+    .promo-actions a.primary:hover { background: #E8C547; }
+    .promo-actions a.secondary {
+      background: rgba(255,255,255,0.08);
+      color: #E8C547;
+      border: 1px solid rgba(212,175,55,0.4);
+    }
+    .promo-actions a.secondary:hover { background: rgba(255,255,255,0.12); }
     h1 { font-size: 1.5rem; color: #D4AF37; margin-bottom: 8px; }
     .sub { color: rgba(255,255,255,0.7); font-size: 0.95rem; margin-bottom: 24px; }
-    label { display: block; margin-bottom: 6px; font-size: 0.9rem; }
-    input, textarea, select {
+    label.block { display: block; margin-bottom: 6px; font-size: 0.9rem; }
+    input[type=text], textarea, select {
       width: 100%; padding: 12px; margin-bottom: 16px;
       background: #1C1917; border: 1px solid rgba(255,255,255,0.1);
       border-radius: 12px; color: #fff; font-size: 1rem;
@@ -26,57 +66,254 @@
     .mood { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
     .mood label { display: flex; align-items: center; margin: 0; }
     .mood input { width: auto; margin: 0 6px 0 0; }
-    button {
+    button[type=submit] {
       background: #D4AF37; color: #000; border: none; padding: 14px 24px;
       border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer;
       width: 100%;
     }
-    button:hover { background: #E8C547; }
-    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    button[type=submit]:hover { background: #E8C547; }
+    button[type=submit]:disabled { opacity: 0.6; cursor: not-allowed; }
     .msg { padding: 16px; border-radius: 12px; margin-bottom: 16px; }
     .msg.ok { background: rgba(76,175,80,0.2); border: 1px solid #4CAF50; }
     .msg.err { background: rgba(244,67,54,0.2); border: 1px solid #f44336; }
     .msg.load { background: rgba(255,255,255,0.05); }
-    .note { font-size: 0.85rem; color: rgba(255,255,255,0.5); margin-top: 24px; }
+    .survey {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .survey summary {
+      padding: 14px 14px;
+      cursor: pointer;
+      font-weight: 600;
+      color: #D4AF37;
+      list-style: none;
+    }
+    .survey summary::-webkit-details-marker { display: none; }
+    .survey summary::after {
+      content: '▸';
+      float: right;
+      opacity: 0.6;
+      transition: transform 0.2s;
+    }
+    .survey[open] summary::after { transform: rotate(90deg); }
+    .survey .hint {
+      padding: 0 14px 12px;
+      font-size: 0.82rem;
+      color: rgba(255,255,255,0.55);
+      line-height: 1.35;
+    }
+    .survey-inner { padding: 0 14px 16px; }
+    .survey-inner h3 {
+      font-size: 0.82rem;
+      color: rgba(255,255,255,0.72);
+      margin: 14px 0 8px;
+      font-weight: 600;
+    }
+    .survey-inner h3:first-child { margin-top: 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+    .chips label {
+      display: inline-flex;
+      align-items: center;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+    .chips label:has(input:checked) {
+      border-color: rgba(212,175,55,0.55);
+      background: rgba(212,175,55,0.12);
+      color: #E8C547;
+    }
+    .chips input { margin-right: 6px; accent-color: #D4AF37; }
+    .likert { margin-bottom: 12px; }
+    .likert .q { font-size: 0.8rem; color: rgba(255,255,255,0.65); margin-bottom: 6px; }
+    .likert .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .likert .row label {
+      position: relative;
+      min-width: 2.25rem;
+      text-align: center;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    .likert .row label:has(input:checked) {
+      border-color: #D4AF37;
+      background: rgba(212,175,55,0.15);
+      color: #E8C547;
+      font-weight: 700;
+    }
+    .likert .row input {
+      position: absolute;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      margin: 0;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .likert .clear {
+      font-size: 0.75rem;
+      color: #E8C547;
+      background: none;
+      border: none;
+      cursor: pointer;
+      text-decoration: underline;
+      padding: 4px 0;
+      width: auto;
+    }
+    .scale-note { font-size: 0.72rem; color: rgba(255,255,255,0.38); margin-bottom: 10px; }
     .footer-cta {
       margin-top: 28px;
       padding-top: 20px;
       border-top: 1px solid rgba(255,255,255,0.12);
       text-align: center;
     }
-    .footer-cta p { font-size: 0.85rem; color: rgba(255,255,255,0.55); margin-bottom: 12px; line-height: 1.4; }
-    .footer-row { font-size: 0.9rem; line-height: 1.6; }
+    .footer-cta p.lead { font-size: 0.95rem; color: rgba(255,255,255,0.85); margin-bottom: 10px; font-weight: 600; }
+    .footer-cta p { font-size: 0.85rem; color: rgba(255,255,255,0.55); margin-bottom: 12px; line-height: 1.45; }
+    .footer-row { font-size: 0.9rem; line-height: 1.7; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 12px; }
     .footer-row a { color: #E8C547; text-decoration: none; font-weight: 600; }
     .footer-row a:hover { text-decoration: underline; }
-    .footer-row .sep { color: rgba(255,255,255,0.35); margin: 0 6px; }
+    .link-countdown {
+      font-variant-numeric: tabular-nums;
+      font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #E8C547;
+      margin-bottom: 16px;
+      padding: 10px 14px;
+      background: rgba(212,175,55,0.1);
+      border: 1px solid rgba(212,175,55,0.28);
+      border-radius: 10px;
+    }
+    .link-countdown.expired {
+      color: #fca5a5;
+      border-color: rgba(248,113,113,0.45);
+      background: rgba(248,113,113,0.08);
+    }
   </style>
 </head>
 <body>
   <div class="container">
+    <aside class="promo" aria-label="FeedbackToMe tanıtım">
+      <h2>Sen de feedback toplamak ister misin?</h2>
+      <p>
+        Uygulamayı aç, <strong>Premium</strong> ile sınırları kaldır ve kendi güvenli linkinle yorum topla.
+        Takipçi analizi ve AI raporları FeedbackToMe içinde.
+      </p>
+      <div class="promo-actions">
+        <a class="primary" id="promoApp" href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Uygulamayı indir / aç</a>
+        <a class="secondary" id="promoPremium" href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Premium ol · Sen de feedback al</a>
+      </div>
+    </aside>
+
     <h1>FeedbackToMe</h1>
     <p class="sub" id="subtitle">Düşüncelerini paylaş</p>
     <div id="msg"></div>
     <form id="form" style="display:none">
-      <label>Adın (isteğe bağlı)</label>
+      <label class="block">Adın (isteğe bağlı)</label>
       <input type="text" id="name" placeholder="Boş bırakabilirsin">
-      <label>Kişiyle ilişkin</label>
+      <label class="block">Kişiyle ilişkin</label>
       <input type="text" id="relation" placeholder="Arkadaş, iş arkadaşı, müşteri...">
-      <label>Genel hissin</label>
+      <label class="block">Genel hissin</label>
       <div class="mood">
         <label><input type="radio" name="mood" value="-1"> Olumsuz</label>
         <label><input type="radio" name="mood" value="0" checked> Nötr</label>
         <label><input type="radio" name="mood" value="1"> Olumlu</label>
       </div>
-      <label>Düşüncelerini yaz *</label>
+      <label class="block">Düşüncelerini yaz *</label>
       <textarea id="feedback" placeholder="En az 10 karakter yaz..." required minlength="10"></textarea>
+
+      <details class="survey" id="surveyDetails">
+        <summary>İçerik üreticisi bağlamı (isteğe bağlı)</summary>
+        <p class="hint">Bu alanlar yapay zeka özetinde bağlam sağlar; doldurmak zorunlu değil. Uygulamadaki form ile aynı yapıdadır.</p>
+        <div class="survey-inner">
+          <h3>İçeriklerini ne zamandır takip ediyorsun?</h3>
+          <div class="chips">
+            <label><input type="radio" name="fam" value="first_time"> İlk kez görüyorum</label>
+            <label><input type="radio" name="fam" value="short"> Birkaç haftadır</label>
+            <label><input type="radio" name="fam" value="medium"> Birkaç aydır</label>
+            <label><input type="radio" name="fam" value="long"> Uzun süredir takipçiyim</label>
+          </div>
+
+          <h3>Hangi kanallarda takip ediyorsun? (çoklu)</h3>
+          <div class="chips">
+            <label><input type="checkbox" name="plat" value="instagram"> Instagram</label>
+            <label><input type="checkbox" name="plat" value="tiktok"> TikTok</label>
+            <label><input type="checkbox" name="plat" value="youtube"> YouTube</label>
+            <label><input type="checkbox" name="plat" value="twitch"> Twitch</label>
+            <label><input type="checkbox" name="plat" value="x"> X (Twitter)</label>
+            <label><input type="checkbox" name="plat" value="linkedin"> LinkedIn</label>
+            <label><input type="checkbox" name="plat" value="other"> Diğer / web</label>
+          </div>
+
+          <h3>İçeriklerini ne sıklıkla tüketiyorsun?</h3>
+          <div class="chips">
+            <label><input type="radio" name="freq" value="rare"> Nadiren</label>
+            <label><input type="radio" name="freq" value="monthly"> Ayda birkaç kez</label>
+            <label><input type="radio" name="freq" value="weekly"> Haftada birkaç kez</label>
+            <label><input type="radio" name="freq" value="daily"> Neredeyse her gün</label>
+          </div>
+
+          <h3>Hangi tür içeriklerde daha güçlü olabilir? (çoklu)</h3>
+          <p class="hint" style="padding:0 0 8px">İzleyici gözüyle — üreticinin hangi türde parlayabileceğini işaretle.</p>
+          <div class="chips">
+            <label><input type="checkbox" name="focus" value="education"> Eğitim / nasıl yapılır</label>
+            <label><input type="checkbox" name="focus" value="entertainment"> Eğlence</label>
+            <label><input type="checkbox" name="focus" value="lifestyle"> Yaşam tarzı / vlog</label>
+            <label><input type="checkbox" name="focus" value="tech"> Teknoloji / ürün</label>
+            <label><input type="checkbox" name="focus" value="business"> İş / kariyer</label>
+            <label><input type="checkbox" name="focus" value="gaming"> Oyun</label>
+            <label><input type="checkbox" name="focus" value="creative"> Yaratıcı / sanat</label>
+            <label><input type="checkbox" name="focus" value="arts"> Müzik / performans</label>
+          </div>
+
+          <h3 style="color:#D4AF37">Puanla 1–5 (isteğe bağlı)</h3>
+          <p class="scale-note">1 düşük · 5 yüksek · Emin değilsen boş bırak</p>
+
+          <div class="likert" data-field="scoreProduction">
+            <div class="q">Üretim kalitesi (ses, görüntü, kurgu)</div>
+            <div class="row" data-likert="scoreProduction"></div>
+            <button type="button" class="clear" data-clear="scoreProduction">Temizle</button>
+          </div>
+          <div class="likert" data-field="scoreClarity">
+            <div class="q">Mesaj netliği</div>
+            <div class="row" data-likert="scoreClarity"></div>
+            <button type="button" class="clear" data-clear="scoreClarity">Temizle</button>
+          </div>
+          <div class="likert" data-field="scoreTrust">
+            <div class="q">Güven / samimiyet</div>
+            <div class="row" data-likert="scoreTrust"></div>
+            <button type="button" class="clear" data-clear="scoreTrust">Temizle</button>
+          </div>
+          <div class="likert" data-field="scoreEngagement">
+            <div class="q">Eğlence / ilgi çekicilik</div>
+            <div class="row" data-likert="scoreEngagement"></div>
+            <button type="button" class="clear" data-clear="scoreEngagement">Temizle</button>
+          </div>
+          <div class="likert" data-field="scoreConsistency">
+            <div class="q">Tutarlılık / yayın düzeni</div>
+            <div class="row" data-likert="scoreConsistency"></div>
+            <button type="button" class="clear" data-clear="scoreConsistency">Temizle</button>
+          </div>
+        </div>
+      </details>
+
       <button type="submit" id="btn">Gönder</button>
     </form>
-    <div class="footer-cta" id="footerCta" style="display:none">
-      <p>Kendi feedback linkin ve AI raporların mı olsun?</p>
+    <div class="footer-cta" id="footerCta">
+      <p class="lead">Kendi linkin, AI analizin ve premium özellikler</p>
+      <p>FeedbackToMe ile güvenli paylaşım linki oluştur; yorumları tek yerde topla ve gelişim raporlarını incele.</p>
       <div class="footer-row">
-        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">FeedbackToMe uygulamasını aç</a>
-        <span class="sep">·</span>
-        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Premium ol ve sen de dene</a>
+        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Uygulamayı aç</a>
+        <span style="color:rgba(255,255,255,0.35)">·</span>
+        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Premium ol — sen de feedback al</a>
       </div>
     </div>
   </div>
@@ -95,75 +332,236 @@
     firebase.initializeApp(cfg);
     const db = firebase.firestore();
 
+    (function buildLikertRows() {
+      document.querySelectorAll('[data-likert]').forEach(function (row) {
+        const name = row.getAttribute('data-likert');
+        for (var n = 1; n <= 5; n++) {
+          var id = name + '_' + n;
+          var lab = document.createElement('label');
+          lab.innerHTML = '<input type="radio" name="' + name + '" value="' + n + '" id="' + id + '">' + n;
+          row.appendChild(lab);
+        }
+      });
+    })();
+
+    document.querySelectorAll('.likert .clear').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var key = btn.getAttribute('data-clear');
+        document.querySelectorAll('input[name="' + key + '"]').forEach(function (i) { i.checked = false; });
+      });
+    });
+
+    function collectCreatorSurvey() {
+      var fam = document.querySelector('input[name="fam"]:checked');
+      var freq = document.querySelector('input[name="freq"]:checked');
+      var plats = Array.from(document.querySelectorAll('input[name="plat"]:checked')).map(function (i) { return i.value; }).sort();
+      var focus = Array.from(document.querySelectorAll('input[name="focus"]:checked')).map(function (i) { return i.value; }).sort();
+
+      function score(name) {
+        var el = document.querySelector('input[name="' + name + '"]:checked');
+        return el ? parseInt(el.value, 10) : null;
+      }
+
+      var m = {};
+      if (fam) m.familiarity = fam.value;
+      if (plats.length) m.platforms = plats;
+      if (freq) m.watchFrequency = freq.value;
+      if (focus.length) m.contentFocus = focus;
+      var sp = score('scoreProduction'), sc = score('scoreClarity'), st = score('scoreTrust'),
+          se = score('scoreEngagement'), scs = score('scoreConsistency');
+      if (sp != null) m.scoreProduction = sp;
+      if (sc != null) m.scoreClarity = sc;
+      if (st != null) m.scoreTrust = st;
+      if (se != null) m.scoreEngagement = se;
+      if (scs != null) m.scoreConsistency = scs;
+      return Object.keys(m).length ? m : null;
+    }
+
     function getCode() {
-      const p = location.pathname;
-      const m = p.match(/\/f\/([a-zA-Z0-9]+)/);
+      var p = location.pathname;
+      var m = p.match(/\/f\/([a-zA-Z0-9]+)/);
       if (m) return m[1];
-      const q = new URLSearchParams(location.search);
+      var q = new URLSearchParams(location.search);
       return q.get('code') || q.get('c') || '';
     }
 
     function show(id, html, cls) {
-      const el = document.getElementById(id);
+      var el = document.getElementById(id);
       if (!el) return;
       el.innerHTML = html;
       el.className = cls ? 'msg ' + cls : '';
       el.style.display = html ? 'block' : 'none';
     }
 
-    const code = getCode();
+    function validUntilMs(v) {
+      if (!v) return null;
+      if (typeof v.toMillis === 'function') return v.toMillis();
+      if (v.seconds != null) {
+        return v.seconds * 1000 + Math.floor((v.nanoseconds || 0) / 1e6);
+      }
+      if (typeof v === 'string') {
+        var t = Date.parse(v);
+        return isNaN(t) ? null : t;
+      }
+      return null;
+    }
+
+    function formatCountdownLeft(msLeft) {
+      if (msLeft <= 0) return null;
+      var totalSec = Math.floor(msLeft / 1000);
+      var h = Math.floor(totalSec / 3600);
+      var m = Math.floor((totalSec % 3600) / 60);
+      var s = totalSec % 60;
+      var pad = function (n) { return n < 10 ? '0' + n : String(n); };
+      if (h > 0) return pad(h) + ':' + pad(m) + ':' + pad(s);
+      return pad(m) + ':' + pad(s);
+    }
+
+    function stopLinkCountdown() {
+      if (window._linkCountdownTimer) {
+        clearInterval(window._linkCountdownTimer);
+        window._linkCountdownTimer = null;
+      }
+    }
+
+    function startLinkCountdown(validUntilEpochMs) {
+      stopLinkCountdown();
+      var el = document.getElementById('linkCountdown');
+      if (!el || validUntilEpochMs == null) return;
+      el.style.display = 'block';
+      function tick() {
+        var left = validUntilEpochMs - Date.now();
+        var txt = formatCountdownLeft(left);
+        if (txt == null) {
+          el.textContent = 'Süre doldu. Bu link artık geri bildirim kabul etmiyor.';
+          el.classList.add('expired');
+          stopLinkCountdown();
+          document.getElementById('form').style.display = 'none';
+          show('msg', 'Bu linkin süresi dolmuş. Link sahibi yeni bir link veya premium link oluşturabilir.', 'err');
+          return;
+        }
+        el.textContent = 'Kalan süre: ' + txt;
+        el.classList.remove('expired');
+      }
+      tick();
+      window._linkCountdownTimer = setInterval(tick, 1000);
+    }
+
+    function hideLinkCountdown() {
+      stopLinkCountdown();
+      var el = document.getElementById('linkCountdown');
+      if (el) {
+        el.style.display = 'none';
+        el.textContent = '';
+        el.classList.remove('expired');
+      }
+    }
+
+    /** Demo / premium süre ve tek kullanım kuralları (Firestore kuralları ile uyumlu). */
+    function publicLinkStatus(data) {
+      if (!data) return { ok: false, reason: 'missing' };
+      var now = Date.now();
+      var vu = validUntilMs(data.validUntil);
+      if (vu != null && now >= vu) return { ok: false, reason: 'expired' };
+      if (data.linkTier === 'demo' && data.demoSubmissionUsed) {
+        return { ok: false, reason: 'demo_used' };
+      }
+      if (data.isActive === false) {
+        return { ok: false, reason: 'inactive' };
+      }
+      return { ok: true };
+    }
+
+    var code = getCode();
     if (!code) {
+      hideLinkCountdown();
       document.getElementById('subtitle').textContent = 'Geçersiz link. Doğru feedback linkini kullan.';
       show('msg', 'Linkte kod bulunamadı. Örnek: feedbacktome-79655.web.app/f/abc12345', 'err');
     } else {
       show('msg', 'Link kontrol ediliyor...', 'load');
       db.collection('links')
         .where('code', '==', code)
-        .where('isActive', '==', true)
         .limit(1)
         .get()
-        .then(snap => {
+        .then(function (snap) {
           if (snap.empty) {
-            show('msg', 'Bu link bulunamadı veya artık geçerli değil.', 'err');
+            hideLinkCountdown();
+            show('msg', 'Bu link bulunamadı.', 'err');
             return;
           }
-          const link = snap.docs[0];
-          window._linkId = link.id;
+          var linkDoc = snap.docs[0];
+          var data = linkDoc.data();
+          var st = publicLinkStatus(data);
+          if (!st.ok) {
+            if (st.reason === 'expired') {
+              show('msg', 'Bu linkin süresi dolmuş. Link sahibi yeni bir link veya premium link oluşturabilir.', 'err');
+            } else if (st.reason === 'demo_used') {
+              show('msg', 'Bu demo link zaten bir kez kullanıldı. Yeni analiz için link sahibinin premium link oluşturması gerekir.', 'err');
+            } else {
+              show('msg', 'Bu link artık geçerli değil.', 'err');
+            }
+            hideLinkCountdown();
+            return;
+          }
+          window._linkId = linkDoc.id;
+          window._linkRef = linkDoc.ref;
+          window._linkData = data;
           show('msg', '');
           document.getElementById('form').style.display = 'block';
-          const ft = document.getElementById('footerCta');
-          if (ft) ft.style.display = 'block';
+          var vuMs = validUntilMs(data.validUntil);
+          var tier = data.linkTier;
+          if (vuMs != null && (tier === 'demo' || tier === 'premium')) {
+            startLinkCountdown(vuMs);
+          } else {
+            hideLinkCountdown();
+          }
         })
-        .catch(e => {
+        .catch(function (e) {
+          hideLinkCountdown();
           show('msg', 'Bağlantı hatası: ' + e.message, 'err');
         });
     }
 
-    document.getElementById('form')?.addEventListener('submit', async (e) => {
+    document.getElementById('form').addEventListener('submit', async function (e) {
       e.preventDefault();
-      const text = document.getElementById('feedback').value.trim();
+      var text = document.getElementById('feedback').value.trim();
       if (text.length < 10) {
         show('msg', 'En az 10 karakter yaz.', 'err');
         return;
       }
-      if (!window._linkId) return;
-      const btn = document.getElementById('btn');
+      if (!window._linkId || !window._linkRef) return;
+      var st = publicLinkStatus(window._linkData);
+      if (!st.ok) {
+        show('msg', 'Bu link artık kabul etmiyor. Sayfayı yenileyin.', 'err');
+        return;
+      }
+      var btn = document.getElementById('btn');
       btn.disabled = true;
       show('msg', 'Gönderiliyor...', 'load');
       try {
-        const mood = parseInt(document.querySelector('input[name="mood"]:checked')?.value || '0', 10);
-        await db.collection('feedbacks').add({
+        var mood = parseInt(document.querySelector('input[name="mood"]:checked').value, 10);
+        var payload = {
           linkId: window._linkId,
           responderName: document.getElementById('name').value.trim() || null,
           relation: document.getElementById('relation').value.trim() || null,
           mood: mood,
           textRaw: text,
           createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
+        };
+        var survey = collectCreatorSurvey();
+        if (survey) payload.creatorSurvey = survey;
+        var batch = db.batch();
+        var fr = db.collection('feedbacks').doc();
+        batch.set(fr, payload);
+        if (window._linkData && window._linkData.linkTier === 'demo') {
+          batch.update(window._linkRef, { demoSubmissionUsed: true, isActive: false });
+        }
+        await batch.commit();
+        hideLinkCountdown();
         document.getElementById('form').style.display = 'none';
         show('msg', 'Teşekkürler! Feedback\'in gönderildi. Link sahibine iletilecek.', 'ok');
-      } catch (e) {
-        show('msg', 'Gönderilemedi: ' + e.message, 'err');
+      } catch (err) {
+        show('msg', 'Gönderilemedi: ' + err.message, 'err');
         btn.disabled = false;
       }
     });

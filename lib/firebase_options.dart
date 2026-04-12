@@ -1,4 +1,4 @@
-// Firebase yapılandırması — FeedbackToMe projesi (feedbacktome-79655)
+// Firebase yapılandırması — Feedback2Me projesi (feedbacktome-79655)
 // Web config ile oluşturuldu. Android/iOS için ileride Firebase Console'dan uygulama ekleyip appId güncellenebilir.
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
@@ -31,12 +31,12 @@ class DefaultFirebaseOptions {
   );
 
   /// Android: Google ile giriş için Firebase Console’da **Android uygulaması** ekleyip
-  /// gerçek `appId` (mobilesdk) buraya yazın; paket adı `com.example.feedback_to_me` ile
-  /// eşleşmeli. Ayrıca Play Integrity / SHA-1 sertifikalarını Console’a ekleyin.
+  /// gerçek `appId` (mobilesdk) buraya yazın; paket adı `app.feedbacktome` ile eşleşmeli.
+  /// Ayrıca Play Integrity / SHA-1 (veya SHA-256) sertifikalarını Console’a ekleyin.
   /// İsterseniz: `dart pub global activate flutterfire_cli` → `flutterfire configure`
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyCRflC9vEs78jUte24z4mzGU2AXtaVKV_M',
-    appId: '1:16565078393:web:552d6701140bbca3e747a8',
+    appId: '1:16565078393:android:14cb32626446e212e747a8',
     messagingSenderId: '16565078393',
     projectId: 'feedbacktome-79655',
     authDomain: 'feedbacktome-79655.firebaseapp.com',

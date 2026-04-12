@@ -66,6 +66,7 @@ class AudienceScoreSnapshot {
     this.contentClarity,
     this.executiveSummary,
     this.creatorReport,
+    this.analyzedLinkId,
   });
 
   final String id;
@@ -82,6 +83,8 @@ class AudienceScoreSnapshot {
   final String? executiveSummary;
   /// Tam creator raporu; yoksa sadece skor satırı kaydıdır.
   final CreatorIntelligenceReport? creatorReport;
+  /// Analizin üretildiği link id (aynı link için tekrar AI üretimini engellemek için).
+  final String? analyzedLinkId;
 
   AudienceScoreSnapshot copyWith({
     CreatorIntelligenceReport? creatorReport,
@@ -100,6 +103,7 @@ class AudienceScoreSnapshot {
       contentClarity: contentClarity,
       executiveSummary: executiveSummary ?? this.executiveSummary,
       creatorReport: creatorReport ?? this.creatorReport,
+      analyzedLinkId: analyzedLinkId,
     );
   }
 
@@ -165,6 +169,7 @@ class AudienceScoreSnapshot {
       contentClarity: (data['contentClarity'] as num?)?.round(),
       executiveSummary: data['executiveSummary']?.toString(),
       creatorReport: cr,
+      analyzedLinkId: data['analyzedLinkId']?.toString(),
     );
   }
 
@@ -189,6 +194,7 @@ class AudienceScoreSnapshot {
       contentClarity: (m['contentClarity'] as num?)?.round(),
       executiveSummary: m['executiveSummary']?.toString(),
       creatorReport: null,
+      analyzedLinkId: m['analyzedLinkId']?.toString(),
     );
   }
 
@@ -237,6 +243,7 @@ class AudienceScoreSnapshot {
       contentClarity: (m['contentClarity'] as num?)?.round(),
       executiveSummary: m['executiveSummary']?.toString(),
       creatorReport: cr,
+      analyzedLinkId: m['analyzedLinkId']?.toString(),
     );
   }
 }

@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_core/firebase_core.dart' show Firebase;
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
+import 'services/auth_service.dart' show firebaseAuthUserMessage;
 import 'config/backend_config.dart';
 import 'services/api_session.dart' show ApiSession;
 import 'services/railway_backend_sync.dart';
@@ -32,8 +33,13 @@ import 'widgets/app_onboarding.dart';
 import 'widgets/audience_score_widgets.dart';
 import 'widgets/creator_intelligence_report_view.dart';
 import 'widgets/creator_survey_section.dart';
+import 'theme/app_theme.dart';
+import 'theme/feedback_material_theme.dart';
 import 'widgets/feedback_link_tile.dart';
+import 'widgets/link_plan_banner.dart';
 import 'package:feedback_to_me/utils/reload_stub.dart' if (dart.library.html) 'package:feedback_to_me/utils/reload_web.dart' as reload_util;
+import 'package:feedback_to_me/utils/link_create_error.dart';
+import 'package:feedback_to_me/utils/unwrap_web_future_error.dart';
 
 const bool _devicePreviewEnabled =
     bool.fromEnvironment('DEVICE_PREVIEW', defaultValue: true);
@@ -55,6 +61,7 @@ void main() async {
     L10n.setPrefs(prefs);
     await L10n.loadSavedLocale();
     await ApiSession.instance.loadFromPrefs();
+    unawaited(iapService.isStoreAvailable);
     runApp(_withDevicePreview(const FeedbackToMeApp()));
   } catch (e, st) {
     runApp(_withDevicePreview(MaterialApp(
@@ -65,7 +72,7 @@ void main() async {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: SelectableText(
-              'Hata (bu metni kopyalayıp paylaş):\n\n$e\n\n$st',
+              '${L10n.boot('bootErrorTitle')}$e\n\n$st',
               style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
           ),
@@ -134,12 +141,12 @@ class _WebSplashState extends State<_WebSplash> {
                     const Icon(Icons.refresh, size: 48, color: Color(0xFFD4AF37)),
                     const SizedBox(height: 24),
                     Text(
-                      'Yükleme uzun sürdü',
+                      L10n.boot('webLoadSlowTitle'),
                       style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 20, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Sayfayı yenileyin (F5) veya aşağıdaki düğmeye tıklayın.',
+                      L10n.boot('webLoadSlowBody'),
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white70, fontSize: 14),
                     ),
@@ -147,7 +154,7 @@ class _WebSplashState extends State<_WebSplash> {
                     FilledButton.icon(
                       onPressed: () => reload_util.reloadPage(),
                       icon: const Icon(Icons.refresh),
-                      label: const Text('Yenile'),
+                      label: Text(L10n.boot('webRefresh')),
                     ),
                   ],
                 ),
@@ -168,7 +175,7 @@ class _WebSplashState extends State<_WebSplash> {
               children: [
                 const CircularProgressIndicator(color: Color(0xFFD4AF37)),
                 const SizedBox(height: 24),
-                Text('Yükleniyor...', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 20)),
+                Text(L10n.boot('loading'), style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 20)),
               ],
             ),
           ),
@@ -232,7 +239,7 @@ class _WebInitWrapperState extends State<_WebInitWrapper> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: SelectableText(
-                'Hata:\n\n$_error',
+                '${L10n.boot('webErrorLead')}$_error',
                 style: const TextStyle(color: Colors.white, fontSize: 12),
               ),
             ),
@@ -254,18 +261,18 @@ class _WebInitWrapperState extends State<_WebInitWrapper> {
                   const Icon(Icons.refresh, size: 48, color: Color(0xFFD4AF37)),
                   const SizedBox(height: 24),
                   Text(
-                    'Yüklenemedi',
+                    L10n.boot('webLoadFailedTitle'),
                     style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 20),
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Sayfayı yenileyin (F5) veya aşağıdaki düğmeye tıklayın.',
+                    L10n.boot('webLoadSlowBody'),
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70, fontSize: 14),
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'F5 tuşuna basarak yenileyin',
+                    L10n.boot('webLoadF5'),
                     style: TextStyle(color: const Color(0xFFD4AF37), fontSize: 16),
                   ),
                 ],
@@ -287,7 +294,7 @@ class _WebInitWrapperState extends State<_WebInitWrapper> {
                 const CircularProgressIndicator(color: Color(0xFFD4AF37)),
                 const SizedBox(height: 24),
                 Text(
-                  'Yükleniyor...',
+                  L10n.boot('loading'),
                   style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 20),
                 ),
               ],
@@ -369,12 +376,16 @@ class _AuthGateState extends State<_AuthGate> {
       if (mounted) setState(() {});
     });
     _sub = authService.authStateChanges.listen((user) async {
+      if (!mounted) return;
+      // Önce senkron güncelle: await Railway/Firestore köprüsü bitene kadar bekleme —
+      // aksi halde giriş sonrası LandingScreen eski "çıkışlı" karede kalıyor.
+      setState(() => _user = user);
       if (user != null) {
         await ensureRailwayBackendSession(user);
       } else {
         await ApiSession.instance.clear();
       }
-      if (mounted) setState(() => _user = user);
+      if (mounted) setState(() {});
     });
     // Web'de 1 sn, mobilde 3 sn sonra beklemeden aç
     final timeout = kIsWeb ? const Duration(seconds: 1) : const Duration(seconds: 3);
@@ -401,7 +412,7 @@ class _AuthGateState extends State<_AuthGate> {
             const CircularProgressIndicator(color: Color(0xFFD4AF37)),
             const SizedBox(height: 24),
             Text(
-              'Yükleniyor...',
+              L10n.get(context, 'loading'),
               style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 18),
             ),
           ],
@@ -409,15 +420,6 @@ class _AuthGateState extends State<_AuthGate> {
       ),
     );
   }
-}
-
-/// Görsel stili: koyu tema, yarı saydam kartlar, altın sarısı CTA butonları.
-class AppTheme {
-  static const Color gold = Color(0xFFE8C547);
-  static const Color goldDark = Color(0xFFD4AF37);
-  static const Color cardBg = Color(0xE6121215);
-  static const Color appBarBg = Color(0xE60D0D0D);
-  static const Color navBarBg = Color(0xE60D0D0D);
 }
 
 /// Koyu mistik arka plan: gece gökyüzü, yumuşak merkez ışığı.
@@ -469,69 +471,56 @@ class _DarkMysticalBackground extends StatelessWidget {
   }
 }
 
+/// AppBar başlığı: dar alanda kırpılmasın (Apple HIG: net başlık).
+class _AppBarBrandTitle extends StatelessWidget {
+  const _AppBarBrandTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    final title = L10n.get(context, 'appTitle');
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: feedbackAppUsesIosTypography
+          ? Alignment.center
+          : Alignment.centerLeft,
+      child: Text(
+        title,
+        maxLines: 1,
+        style: Theme.of(context).appBarTheme.titleTextStyle,
+      ),
+    );
+  }
+}
+
 class FeedbackToMeApp extends StatelessWidget {
   const FeedbackToMeApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final theme = ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: AppTheme.gold,
-        brightness: Brightness.dark,
-        primary: AppTheme.gold,
-        surface: AppTheme.cardBg,
-      ),
-      scaffoldBackgroundColor: Colors.transparent,
-      appBarTheme: AppBarTheme(
-        backgroundColor: AppTheme.appBarBg,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        surfaceTintColor: Colors.transparent,
-      ),
-      cardTheme: CardThemeData(
-        color: AppTheme.cardBg,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: Colors.white.withOpacity(0.08)),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: AppTheme.gold,
-          foregroundColor: const Color(0xFF1a1a1a),
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          elevation: 0,
-        ),
-      ),
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: AppTheme.navBarBg,
-        selectedItemColor: AppTheme.gold,
-        unselectedItemColor: Colors.white54,
-        type: BottomNavigationBarType.fixed,
-      ),
-      useMaterial3: true,
-      fontFamily: 'Roboto',
-    );
+    final theme = buildFeedbackTheme();
 
     return ValueListenableBuilder<Locale?>(
       valueListenable: localeNotifier,
       builder: (context, locale, _) {
         return MaterialApp(
           key: ValueKey(locale?.toString() ?? 'default'),
-          title: 'FeedbackToMe',
+          title: 'Feedback2Me',
           debugShowCheckedModeBanner: false,
           theme: theme,
           useInheritedMediaQuery: kIsWeb && _devicePreviewEnabled,
           builder: (kIsWeb && _devicePreviewEnabled) ? DevicePreview.appBuilder : null,
           locale: locale ??
-              ((kIsWeb && _devicePreviewEnabled)
-                  ? DevicePreview.locale(context)
-                  : const Locale('tr')),
+              ((kIsWeb && _devicePreviewEnabled) ? DevicePreview.locale(context) : null),
+          localeListResolutionCallback: (locales, supported) {
+            if (locales == null || locales.isEmpty) {
+              return const Locale('en');
+            }
+            for (final l in locales) {
+              if (l.languageCode == 'tr') return const Locale('tr');
+              if (l.languageCode == 'en') return const Locale('en');
+            }
+            return const Locale('en');
+          },
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalWidgetsLocalizations.delegate,
@@ -557,12 +546,7 @@ Future<void> _afterFirebaseLoginCloseSheet(BuildContext context, User? user) asy
   if (BackendConfig.isRailwayBackendConfigured && !railwayOk) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text(
-          'Giriş tamamlandı ancak sunucu (Railway) oturumu açılamadı.\n'
-          '• Derlemede --dart-define=DEV_AUTH_SECRET, Railway’deki ile aynı olmalı\n'
-          '• Sunucuda ALLOW_DEV_AUTH=true olmalı\n'
-          '• Google hesabında e-posta olmalı (Apple gizli e-posta bu köprüde çalışmaz)',
-        ),
+        content: Text(L10n.get(context, 'railwayLoginSnack')),
         duration: const Duration(seconds: 10),
       ),
     );
@@ -578,84 +562,9 @@ class LoginScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final content = Padding(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const _AppBrand(),
-              const SizedBox(height: 32),
-              Text(
-                L10n.get(context, 'loginSubtitle'),
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: Colors.white70),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 32),
-              FilledButton.icon(
-                onPressed: () async {
-                  try {
-                    final user = await authService.signInWithGoogle();
-                    if (!context.mounted) return;
-                    await _afterFirebaseLoginCloseSheet(context, user);
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('${L10n.get(context, 'loginFailedGoogle')}: $e')),
-                      );
-                    }
-                  }
-                },
-                icon: const Icon(Icons.g_mobiledata_rounded),
-                label: Text(L10n.get(context, 'loginGoogle')),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  try {
-                    final user = await authService.signInWithApple();
-                    if (!context.mounted) return;
-                    await _afterFirebaseLoginCloseSheet(context, user);
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('${L10n.get(context, 'loginFailedApple')}: $e')),
-                      );
-                    }
-                  }
-                },
-                icon: const Icon(Icons.apple),
-                label: Text(L10n.get(context, 'loginApple')),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  side: BorderSide(color: Colors.white.withOpacity(0.4)),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text(L10n.get(context, 'continueWithoutLogin')),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
     return Scaffold(
       backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: Text(L10n.get(context, 'login')),
         leading: IconButton(
@@ -665,7 +574,104 @@ class LoginScreen extends StatelessWidget {
         ),
       ),
       body: _DarkMysticalBackground(
-        child: SafeArea(child: content),
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 400),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const _AppBrand(),
+                          const SizedBox(height: 32),
+                          Text(
+                            L10n.get(context, 'loginSubtitle'),
+                            style: theme.textTheme.bodyMedium
+                                ?.copyWith(color: Colors.white70),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 32),
+                          FilledButton.icon(
+                            onPressed: () async {
+                              try {
+                                final user = await authService.signInWithGoogle();
+                                if (!context.mounted) return;
+                                await _afterFirebaseLoginCloseSheet(context, user);
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '${L10n.get(context, 'loginFailedGoogle')}: '
+                                        '${firebaseAuthUserMessage(e)}',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.g_mobiledata_rounded),
+                            label: Text(L10n.get(context, 'loginGoogle')),
+                            style: FilledButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              try {
+                                final user = await authService.signInWithApple();
+                                if (!context.mounted) return;
+                                await _afterFirebaseLoginCloseSheet(context, user);
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '${L10n.get(context, 'loginFailedApple')}: '
+                                        '${firebaseAuthUserMessage(e)}',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.apple),
+                            label: Text(L10n.get(context, 'loginApple')),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              side: BorderSide(
+                                  color: Colors.white.withOpacity(0.4)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: Text(L10n.get(context, 'continueWithoutLogin')),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -683,40 +689,58 @@ class _LandingScreenState extends State<LandingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final uid = authService.uid;
-    final isLoggedIn = uid != null;
-    if (!isLoggedIn) {
-      return _buildLandingBody(context, isLoggedIn: false, profile: null, uid: null);
-    }
-    final dataOwner = effectiveDataOwnerId(uid);
-    if (BackendConfig.isRailwayBackendConfigured && dataOwner == null) {
-      return Scaffold(
-        backgroundColor: Colors.transparent,
-        body: _DarkMysticalBackground(
-          child: SafeArea(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CircularProgressIndicator(color: AppTheme.gold),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Sunucu oturumu açılıyor…',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
-                        ),
+    // Auth her değiştiğinde (giriş/çıkış) yeniden çiz: üst seviye setState gecikse bile
+    // "Giriş yapıldı" SnackBar'ı ile çelişen eski UI kalmasın.
+    return StreamBuilder<User?>(
+      stream: authService.authStateChanges,
+      initialData: authService.currentUser,
+      builder: (context, authSnap) {
+        final uid = authSnap.data?.uid;
+        final isLoggedIn = uid != null;
+        if (!isLoggedIn) {
+          return _buildLandingBody(
+            context,
+            isLoggedIn: false,
+            profile: null,
+            uid: null,
+          );
+        }
+        final dataOwner = effectiveDataOwnerId(uid);
+        if (BackendConfig.isRailwayBackendConfigured && dataOwner == null) {
+          return Scaffold(
+            backgroundColor: Colors.transparent,
+            body: _DarkMysticalBackground(
+              child: SafeArea(
+                child: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(color: AppTheme.gold),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Sunucu oturumu açılıyor…',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.white70,
+                            ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-        ),
-      );
-    }
-    return StreamBuilder(
-      stream: appData.userProfileStream(dataOwner!),
-      builder: (context, profileSnap) {
-        return _buildLandingBody(context, isLoggedIn: true, profile: profileSnap.data, uid: uid);
+          );
+        }
+        return StreamBuilder(
+          stream: appData.userProfileStream(dataOwner!),
+          builder: (context, profileSnap) {
+            return _buildLandingBody(
+              context,
+              isLoggedIn: true,
+              profile: profileSnap.data,
+              uid: uid,
+            );
+          },
+        );
       },
     );
   }
@@ -726,21 +750,41 @@ class _LandingScreenState extends State<LandingScreen> {
           backgroundColor: Colors.transparent,
           body: _DarkMysticalBackground(
             child: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
-                    child: _currentIndex == 0
-                        ? _buildHomeContent(isLoggedIn: isLoggedIn, uid: uid)
-                        : _ProfileTab(profile: profile, uid: uid),
-                  ),
-                ),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final content = _currentIndex == 0
+                      ? _buildHomeContent(isLoggedIn: isLoggedIn, uid: uid)
+                      : _ProfileTab(profile: profile, uid: uid);
+
+                  // Küçük Android ekranlarda taşmayı önlemek için Home sekmesi kaydırılabilir.
+                  if (_currentIndex == 0) {
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 520),
+                          child: content,
+                        ),
+                      ),
+                    );
+                  }
+
+                  return Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 520),
+                        child: content,
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
           appBar: AppBar(
-            title: Text(L10n.get(context, 'appTitle')),
+            title: const _AppBarBrandTitle(),
             actions: [
               IconButton(
                 icon: const Icon(Icons.settings_outlined),
@@ -762,8 +806,14 @@ class _LandingScreenState extends State<LandingScreen> {
                 },
               ),
               Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: _FreeBadge(),
+                padding: EdgeInsets.only(
+                  right: feedbackAppUsesIosTypography ? 0 : 8,
+                ),
+                child: _PlanTierBadge(
+                  isLoggedIn: isLoggedIn,
+                  profile: profile,
+                  compact: feedbackAppUsesIosTypography,
+                ),
               ),
               if (isLoggedIn)
                 IconButton(
@@ -772,6 +822,18 @@ class _LandingScreenState extends State<LandingScreen> {
                     await authService.signOut();
                   },
                   tooltip: L10n.get(context, 'logout'),
+                )
+              else if (feedbackAppUsesIosTypography)
+                IconButton(
+                  icon: const Icon(Icons.person_outline_rounded),
+                  tooltip: L10n.get(context, 'login'),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const LoginScreen(),
+                      ),
+                    );
+                  },
                 )
               else
                 TextButton.icon(
@@ -807,42 +869,51 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   Widget _buildHomeContent({required bool isLoggedIn, String? uid}) {
+    final theme = Theme.of(context);
+    final ios = feedbackAppUsesIosTypography;
+    final cardPad = ios ? 24.0 : 20.0;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _AppBrand(),
-        const SizedBox(height: 24),
+        SizedBox(height: ios ? 28 : 24),
         const _Tagline(),
-        const SizedBox(height: 32),
+        SizedBox(height: ios ? 36 : 32),
         Card(
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(cardPad),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   L10n.get(context, 'createLinkCardTitle'),
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-                const SizedBox(height: 8),
+                SizedBox(height: ios ? 12 : 8),
                 Text(
                   L10n.get(context, 'createLinkCardSubtitle'),
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: Colors.white70),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.82),
+                  ),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: ios ? 14 : 8),
+                Text(
+                  L10n.get(context, 'createLinkTierHint'),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.48),
+                    height: 1.4,
+                  ),
+                ),
+                SizedBox(height: ios ? 22 : 16),
                 _PrimaryActions(isLoggedIn: isLoggedIn, uid: uid),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 32),
+        SizedBox(height: ios ? 36 : 32),
         const _FooterNote(),
       ],
     );
@@ -960,9 +1031,20 @@ class _PrimaryActions extends StatelessWidget {
                   ),
                 );
                 if (!context.mounted) return;
-                final uidAfterLogin = authService.uid;
-                if ((loggedIn ?? false) && uidAfterLogin != null) {
-                  await _createLink(context, uidAfterLogin);
+                // Girişten hemen sonra link oluşturma: demo hakkı bitmiş kullanıcıda
+                // createLink → premium Snackbar; kullanıcı bunu "giriş olmadı" sanıyor.
+                // Link, giriş sonrası "Yeni link oluştur" ile ayrı adımda istenir.
+                if (loggedIn ?? false) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          L10n.get(context, 'afterLoginUseNewLinkButton'),
+                        ),
+                      ),
+                    );
+                  });
                 }
               },
               style: FilledButton.styleFrom(
@@ -1024,40 +1106,299 @@ class _FooterNote extends StatelessWidget {
   }
 }
 
-class _FreeBadge extends StatelessWidget {
-  const _FreeBadge();
+/// Üst çubuk: abonelik / link kredisi → Premium; ücretsiz demo hakkı → Demo; demo bitti → satın alma.
+Future<void> _showDemoPlanSheet(BuildContext context, {required bool isLoggedIn}) async {
+  final theme = Theme.of(context);
+  await showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: const Color(0xFF1a1a1f),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetCtx) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                L10n.get(sheetCtx, 'demoSheetTitle'),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                L10n.get(
+                  sheetCtx,
+                  isLoggedIn ? 'demoSheetBodyLoggedIn' : 'demoSheetBodyGuest',
+                ),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.white70,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 22),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(sheetCtx).pop();
+                  if (isLoggedIn) {
+                    Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const PremiumScreen(),
+                      ),
+                    );
+                  } else {
+                    Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const LoginScreen(),
+                      ),
+                    );
+                  }
+                },
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: Text(
+                  L10n.get(
+                    sheetCtx,
+                    isLoggedIn ? 'demoSheetGoPremium' : 'demoSheetLoginFirst',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(sheetCtx).pop(),
+                child: Text(L10n.get(sheetCtx, 'close')),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
-  static const Color _freeGreen = Color(0xFF22C55E);
+Future<void> _showLinkCreditSheet(BuildContext context) async {
+  final theme = Theme.of(context);
+  await showModalBottomSheet<void>(
+    context: context,
+    backgroundColor: const Color(0xFF1a1a1f),
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+    ),
+    builder: (sheetCtx) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                L10n.get(sheetCtx, 'creditSheetTitle'),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                L10n.get(sheetCtx, 'creditSheetBody'),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: Colors.white70,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 22),
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(sheetCtx).pop();
+                  Navigator.of(context).push<void>(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const PremiumScreen(),
+                    ),
+                  );
+                },
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+                child: Text(L10n.get(sheetCtx, 'creditSheetOpenPremium')),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.of(sheetCtx).pop(),
+                child: Text(L10n.get(sheetCtx, 'close')),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _PlanTierBadge extends StatelessWidget {
+  const _PlanTierBadge({
+    required this.isLoggedIn,
+    this.profile,
+    this.compact = false,
+  });
+
+  final bool isLoggedIn;
+  final UserProfile? profile;
+
+  /// iOS AppBar: metin yerine ikon + tooltip (HIG: 44pt hedef, taşma yok).
+  final bool compact;
+
+  static const Color _demoOrange = Color(0xFFEA580C);
+  static const Color _demoBg = Color(0x1FEA580C);
+  static const Color _slate = Color(0xFF94A3B8);
+  static const Color _slateBg = Color(0x1F94A3B8);
 
   @override
   Widget build(BuildContext context) {
-    final label = L10n.get(context, 'free');
+    final p = profile;
+    final premiumEligible = isLoggedIn &&
+        (p?.hasActivePremium == true || (p?.paidLinkCredits ?? 0) > 0);
+    final needCredit = isLoggedIn &&
+        p != null &&
+        p.freeDemoLinkUsed &&
+        !premiumEligible;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _freeGreen),
-        color: _freeGreen.withOpacity(0.15),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.check_circle_outline,
-            size: 16,
-            color: _freeGreen,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: const TextStyle(
-              color: _freeGreen,
-              fontWeight: FontWeight.w600,
-              fontSize: 13,
+    late final Color borderColor;
+    late final Color fg;
+    late final Color bg;
+    late final String label;
+    late final String tip;
+    late final IconData icon;
+    VoidCallback? onTap;
+
+    if (premiumEligible) {
+      borderColor = AppTheme.gold;
+      fg = AppTheme.gold;
+      bg = AppTheme.gold.withValues(alpha: 0.14);
+      label = L10n.get(context, 'headerBadgePremium');
+      final n = p?.paidLinkCredits ?? 0;
+      tip = n > 0
+          ? '${L10n.get(context, 'headerBadgePremiumTooltip')} (${L10n.get(context, 'linkCreditsCount')}: $n)'
+          : L10n.get(context, 'headerBadgePremiumTooltip');
+      icon = Icons.workspace_premium_rounded;
+      onTap = null;
+    } else if (needCredit) {
+      borderColor = _slate;
+      fg = _slate;
+      bg = _slateBg;
+      label = L10n.get(context, 'headerBadgeNeedCredit');
+      tip = L10n.get(context, 'headerBadgeNeedCreditTooltip');
+      icon = Icons.shopping_cart_outlined;
+      onTap = () => _showLinkCreditSheet(context);
+    } else {
+      borderColor = _demoOrange;
+      fg = _demoOrange;
+      bg = _demoBg;
+      label = L10n.get(context, 'headerBadgeDemo');
+      tip = L10n.get(context, 'headerBadgeDemoTooltip');
+      icon = Icons.timer_outlined;
+      onTap = () => _showDemoPlanSheet(context, isLoggedIn: isLoggedIn);
+    }
+
+    if (compact) {
+      final semanticsLabel = '$label. $tip';
+      if (onTap == null) {
+        return Semantics(
+          label: semanticsLabel,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Container(
+              width: 36,
+              height: 36,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: bg,
+                border: Border.all(color: borderColor.withValues(alpha: 0.85)),
+              ),
+              child: Icon(icon, size: 18, color: fg),
             ),
           ),
-        ],
+        );
+      }
+      return Semantics(
+        label: semanticsLabel,
+        button: true,
+        child: Tooltip(
+          message: '$label\n$tip',
+          child: IconButton(
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+            style: IconButton.styleFrom(
+              backgroundColor: bg,
+              foregroundColor: fg,
+              side: BorderSide(color: borderColor.withValues(alpha: 0.85)),
+              shape: const CircleBorder(),
+            ),
+            icon: Icon(icon, size: 20),
+            onPressed: onTap,
+          ),
+        ),
+      );
+    }
+
+    return Tooltip(
+      message: tip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(999),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: borderColor.withValues(alpha: 0.85)),
+              color: bg,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 16, color: fg),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: fg,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                  ),
+                ),
+                if (onTap != null) ...[
+                  const SizedBox(width: 2),
+                  Icon(Icons.expand_more_rounded, size: 18, color: fg),
+                ],
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1182,6 +1523,18 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
 String _formatDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year}';
 
+/// Flutter Web’de Firestore [runTransaction] içindeki [StateError] bazen JS
+/// sarmalayıcısına dönüşür; [e is StateError] false kalır.
+bool _errorMeansLinkRequiresCredit(Object e) {
+  if (e is StateError) return e.message == 'link_requires_credit';
+  return e.toString().contains('link_requires_credit');
+}
+
+bool _errorMeansLinkCreateAuthMismatch(Object e) {
+  if (e is StateError) return e.message == 'link_create_auth_mismatch';
+  return e.toString().contains('link_create_auth_mismatch');
+}
+
 Future<void> _createLink(BuildContext context, String uid) async {
   var owner = effectiveDataOwnerId(uid);
   if (owner == null && BackendConfig.isRailwayBackendConfigured) {
@@ -1201,20 +1554,119 @@ Future<void> _createLink(BuildContext context, String uid) async {
     );
     return;
   }
-  try {
-    final link = await appData.createLink(owner);
-    if (!context.mounted || link == null) return;
-    await Clipboard.setData(ClipboardData(text: link.shareUrl));
-    if (!context.mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => CreatedLinkScreen(link: link)),
-    );
-  } catch (e) {
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${L10n.get(context, 'linkCreateFailed')}: $e')),
-    );
+
+  if (!BackendConfig.isRailwayBackendConfigured) {
+    final cu = FirebaseAuth.instance.currentUser;
+    if (cu == null || cu.uid != owner) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(L10n.get(context, 'linkCreateAuthMismatch'))),
+      );
+      return;
+    }
   }
+
+  if (kIsWeb) {
+    try {
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+    } catch (_) {}
+  }
+
+  Object? err;
+  StackTrace? errStack;
+  FeedbackLink? link;
+  for (var attempt = 0; attempt < 3; attempt++) {
+    if (kIsWeb && attempt > 0) {
+      try {
+        await FirebaseAuth.instance.currentUser?.getIdToken(true);
+        await Future<void>.delayed(Duration(milliseconds: 350 * attempt));
+      } catch (_) {}
+    }
+    try {
+      link = await appData.createLink(owner);
+      err = null;
+      errStack = null;
+      break;
+    } catch (e, st) {
+      err = e;
+      errStack = st;
+      final r = linkCreateErrorText(e);
+      final perm = r.contains('permission-denied') ||
+          r.toLowerCase().contains('permission denied');
+      if (kIsWeb && perm && attempt < 2) {
+        continue;
+      }
+      break;
+    }
+  }
+
+  if (err != null) {
+    final e = err;
+    final st = errStack;
+    final root = unwrapWebFutureError(e) ?? e;
+    final readable = linkCreateErrorText(e);
+    if (kDebugMode) {
+      debugPrint('createLink failed: $readable');
+      debugPrint('$st');
+    }
+    if (!context.mounted) return;
+    if (_errorMeansLinkRequiresCredit(root) ||
+        readable.contains('link_requires_credit')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(L10n.get(context, 'linkRequiresCredit')),
+          action: SnackBarAction(
+            label: L10n.get(context, 'creditSheetOpenPremium'),
+            onPressed: () {
+              Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => const PremiumScreen(),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      return;
+    }
+    if (_errorMeansLinkCreateAuthMismatch(root) ||
+        readable.contains('link_create_auth_mismatch')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(L10n.get(context, 'linkCreateAuthMismatch'))),
+      );
+      return;
+    }
+    final detail = linkCreateErrorText(root);
+    final looksInterop = detail.contains('converted Future') ||
+        detail.contains('boxed error') ||
+        detail == '[object Object]' ||
+        detail == '[object Error]';
+    var msg = looksInterop
+        ? L10n.get(context, 'linkCreateFailedInterop')
+        : '${L10n.get(context, 'linkCreateFailed')}: $detail';
+    if (detail.contains('permission-denied') ||
+        detail.toLowerCase().contains('permission denied')) {
+      msg = '$msg\n${L10n.get(context, 'linkCreateFirestoreDeployHint')}';
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        duration: const Duration(seconds: 8),
+      ),
+    );
+    return;
+  }
+
+  final createdLink = link;
+  if (createdLink == null || !context.mounted) return;
+  await Clipboard.setData(ClipboardData(text: createdLink.shareUrl));
+  if (!context.mounted) return;
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => CreatedLinkScreen(link: createdLink),
+    ),
+  );
 }
 
 class CreatedLinkScreen extends StatelessWidget {
@@ -1246,7 +1698,9 @@ class CreatedLinkScreen extends StatelessWidget {
                             .titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
+                      LinkPlanBanner(link: link),
+                      const SizedBox(height: 12),
                       SelectableText(
                         link.shareUrl,
                         style: Theme.of(context)
@@ -1274,6 +1728,40 @@ class CreatedLinkScreen extends StatelessWidget {
                         icon: const Icon(Icons.share_outlined),
                         label: Text(L10n.get(context, 'shareLink')),
                       ),
+                      if (link.isDemoTier) ...[
+                        const SizedBox(height: 20),
+                        Divider(color: Colors.white.withValues(alpha: 0.12)),
+                        const SizedBox(height: 12),
+                        Text(
+                          L10n.get(context, 'createdLinkPremiumPitch'),
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: Colors.white60, height: 1.4),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            Navigator.of(context).push<void>(
+                              MaterialPageRoute<void>(
+                                builder: (_) => const PremiumScreen(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.workspace_premium_outlined),
+                          label: Text(L10n.get(context, 'createdLinkOpenPremium')),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Theme.of(context).colorScheme.primary,
+                            side: BorderSide(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withValues(alpha: 0.7),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1293,7 +1781,10 @@ Future<void> _createReport(BuildContext context, String linkId) async {
     builder: (_) => const Center(child: CircularProgressIndicator()),
   );
   try {
-    final report = await reportService.generateReport(linkId);
+    final report = await reportService.generateReport(
+      linkId,
+      languageCode: L10n.languageCodeForApp(context),
+    );
     if (!context.mounted) return;
     Navigator.of(context).pop();
     showDialog<void>(
@@ -1602,12 +2093,8 @@ class DashboardScreen extends StatelessWidget {
                             ),
                             const SizedBox(height: 8),
                             Text(
-                              'Örneğin:\n'
-                              '- 1. dönem: 01–21 Mart • “İlk izlenim”\n'
-                              '- 2. dönem: 22 Mart–11 Nisan • “Geliştirdikten sonra”\n\n'
-                              'Yapay zeka bu dönemleri karşılaştırarak, '
-                              'yaptığın değişikliklerin insanlara gerçekten yansıyıp yansımadığını '
-                              'senin için raporlayacak.',
+                              '${L10n.get(context, 'comparePeriodsExampleTitle')}\n'
+                              '${L10n.get(context, 'comparePeriodsExampleBody')}',
                               style: theme.textTheme.bodySmall
                                   ?.copyWith(color: Colors.white70),
                             ),
@@ -1615,7 +2102,7 @@ class DashboardScreen extends StatelessWidget {
                             OutlinedButton.icon(
                               onPressed: () {},
                               icon: const Icon(Icons.analytics_outlined),
-                              label: const Text('Örnek değişim raporu gör'),
+                              label: Text(L10n.get(context, 'viewSampleChangeReport')),
                             ),
                           ],
                         ),
@@ -1654,14 +2141,19 @@ class _ProfileTabState extends State<_ProfileTab> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Toplu test verisi'),
+        title: Text(L10n.get(context, 'bulkTestDataTitle')),
         content: Text(
-          '$_bulkTarget adet rastgele yorum Firestore’a yazılacak. '
-          'Bu işlem birkaç saniye sürebilir. Devam?',
+          L10n.get(context, 'bulkTestDataBody').replaceAll('{n}', '$_bulkTarget'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Evet')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(L10n.get(context, 'cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(L10n.get(context, 'yes')),
+          ),
         ],
       ),
     );
@@ -1670,16 +2162,16 @@ class _ProfileTabState extends State<_ProfileTab> {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(
+      builder: (_) => Center(
         child: Card(
           child: Padding(
-            padding: EdgeInsets.all(32),
+            padding: const EdgeInsets.all(32),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Yorumlar yazılıyor…'),
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(L10n.get(context, 'commentsWriting')),
               ],
             ),
           ),
@@ -1696,11 +2188,15 @@ class _ProfileTabState extends State<_ProfileTab> {
       Navigator.of(context).pop();
       if (written == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Önce bir link oluştur.')),
+          SnackBar(content: Text(L10n.get(context, 'snackCreateLinkFirst'))),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$written yorum eklendi.')),
+          SnackBar(
+            content: Text(
+              L10n.get(context, 'snackCommentsAdded').replaceAll('{n}', '$written'),
+            ),
+          ),
         );
         _refreshPool();
       }
@@ -1708,7 +2204,9 @@ class _ProfileTabState extends State<_ProfileTab> {
       if (context.mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Hata: $e')),
+          SnackBar(
+            content: Text(L10n.get(context, 'errorGeneric').replaceAll('{e}', '$e')),
+          ),
         );
       }
     }
@@ -1720,13 +2218,13 @@ class _ProfileTabState extends State<_ProfileTab> {
     final uid = widget.uid;
     final oid = uid != null ? effectiveDataOwnerId(uid) : null;
     final theme = Theme.of(context);
-    final name = profile?.displayName ?? 'Premium kullanıcı';
+    final name = profile?.displayName ?? L10n.get(context, 'profileDefaultUser');
     final initial = name.isNotEmpty ? name[0].toUpperCase() : 'F';
 
     return ListView(
       children: [
         Text(
-          'Profil',
+          L10n.get(context, 'profileSectionTitle'),
           style: theme.textTheme.titleMedium
               ?.copyWith(fontWeight: FontWeight.w600),
         ),
@@ -1736,13 +2234,13 @@ class _ProfileTabState extends State<_ProfileTab> {
             leading: CircleAvatar(child: Text(initial)),
             title: Text(name),
             subtitle: Text(
-              profile?.handle ?? 'Profil bilgilerini düzenlemek için ayarlara gidin.',
+              profile?.handle ?? L10n.get(context, 'profileEditHint'),
             ),
           ),
         ),
         const SizedBox(height: 24),
         Text(
-          'Yorum havuzu',
+          L10n.get(context, 'feedbackPoolSectionTitle'),
           style: theme.textTheme.titleMedium
               ?.copyWith(fontWeight: FontWeight.w600),
         ),
@@ -1758,14 +2256,13 @@ class _ProfileTabState extends State<_ProfileTab> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Geliştirici: test verisi',
+                      L10n.get(context, 'devSeedTitle'),
                       style: theme.textTheme.titleSmall
                           ?.copyWith(fontWeight: FontWeight.w700, color: const Color(0xFF94A3B8)),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Tek tek yorum yazmadan analiz ekranlarını denemek için örnek yorumları Firestore’a ekleyebilirsin. '
-                      'Önce en az bir feedback linkin olmalı.',
+                      L10n.get(context, 'devSeedBody'),
                       style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
                     ),
                     const SizedBox(height: 12),
@@ -1776,26 +2273,35 @@ class _ProfileTabState extends State<_ProfileTab> {
                           if (!context.mounted) return;
                           if (n == 0) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Önce ana sayfadan bir link oluştur, sonra tekrar dene.'),
+                              SnackBar(
+                                content: Text(L10n.get(context, 'snackCreateLinkFirstLong')),
                               ),
                             );
                           } else {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('$n örnek yorum eklendi. Listeyi yeniledik.')),
+                              SnackBar(
+                                content: Text(
+                                  L10n.get(context, 'snackSampleCommentsAdded')
+                                      .replaceAll('{n}', '$n'),
+                                ),
+                              ),
                             );
                             _refreshPool();
                           }
                         } catch (e) {
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Eklenemedi: $e')),
+                              SnackBar(
+                                content: Text(
+                                  L10n.get(context, 'snackCouldNotAdd').replaceAll('{e}', '$e'),
+                                ),
+                              ),
                             );
                           }
                         }
                       },
                       icon: const Icon(Icons.science_outlined),
-                      label: const Text('12 örnek yorum (hızlı)'),
+                      label: Text(L10n.get(context, 'devSeed12')),
                     ),
                     const SizedBox(height: 16),
                     Row(
@@ -1826,7 +2332,9 @@ class _ProfileTabState extends State<_ProfileTab> {
                     OutlinedButton.icon(
                       onPressed: () => _runBulkSeed(context, oid!),
                       icon: const Icon(Icons.smart_toy_outlined),
-                      label: Text('$_bulkTarget bot yorumu üret (batch)'),
+                      label: Text(
+                        L10n.get(context, 'bulkBotGenerate').replaceAll('{n}', '$_bulkTarget'),
+                      ),
                     ),
                   ],
                 ),
@@ -1857,21 +2365,38 @@ class _ProfileTabState extends State<_ProfileTab> {
             onRefresh: _refreshPool,
           ),
         const SizedBox(height: 24),
-        Text(
-          L10n.get(context, 'previousReports'),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        if (uid == null)
+        if (uid == null) ...[
+          Text(
+            L10n.get(context, 'previousReports'),
+            style: theme.textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: ListTile(
               leading: const Icon(Icons.description_outlined),
               title: Text(L10n.get(context, 'noReportsYet')),
               subtitle: Text(L10n.get(context, 'firstReportNote')),
             ),
-          )
-        else if (BackendConfig.isRailwayBackendConfigured && oid == null)
+          ),
+          const SizedBox(height: 24),
+          Text(
+            L10n.get(context, 'reportAnalysisTitle'),
+            style: theme.textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.trending_up_outlined),
+              title: Text(L10n.get(context, 'reportAnalysisTitle')),
+              subtitle: Text(
+                'Giriş yaptıktan sonra son analiz özetin ve gelişim kıyası burada görünür.',
+                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+              ),
+            ),
+          ),
+        ] else if (BackendConfig.isRailwayBackendConfigured && oid == null)
           const Card(
             child: Padding(
               padding: EdgeInsets.all(24),
@@ -1880,177 +2405,354 @@ class _ProfileTabState extends State<_ProfileTab> {
           )
         else
           StreamBuilder<List<AudienceScoreSnapshot>>(
-            stream: appData.audienceScoreHistoryStream(oid!, limit: 12),
+            stream: appData.audienceScoreHistoryStream(
+              audienceRecordsOwnerKey(uid!, oid),
+              limit: 12,
+            ),
             builder: (context, snap) {
-              if (snap.hasError) {
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(Icons.error_outline, color: Theme.of(context).colorScheme.error),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'Kayıtlar yüklenemedi (Firestore izinleri). '
-                                'Projede `firebase deploy --only firestore:rules` ile güncel kuralları yayınlayın.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.white70,
-                                  height: 1.35,
+              final storageKey = audienceRecordsOwnerKey(uid!, oid);
+              Widget errorCard(String extra) => Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.error_outline,
+                                  color: Theme.of(context).colorScheme.error),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  extra,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white70,
+                                    height: 1.35,
+                                  ),
                                 ),
                               ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          SelectableText(
+                            snap.error.toString(),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontSize: 11,
+                              color: Colors.white38,
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        SelectableText(
-                          snap.error.toString(),
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontSize: 11,
-                            color: Colors.white38,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }
-              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-                return const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                );
-              }
-              final history = snap.data ?? const <AudienceScoreSnapshot>[];
-              if (history.isEmpty) {
-                return Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.description_outlined),
-                    title: Text(L10n.get(context, 'noReportsYet')),
-                    subtitle: Text(
-                      '${L10n.get(context, 'firstReportNote')} '
-                      'Ana sayfadan «Takipçi Yorum Analizi» çalıştırdığında kayıt burada görünür.',
-                    ),
-                    trailing: TextButton(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => AudienceAnalysisScreen(ownerId: oid!),
-                          ),
-                        );
-                      },
-                      child: const Text('Analiz yap'),
-                    ),
-                  ),
-                );
-              }
-              return Card(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${history.length} kayıtlı analiz',
-                              style: theme.textTheme.labelMedium?.copyWith(color: Colors.white60),
-                            ),
-                          ),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => const ReportAnalysisScreen(),
-                                ),
-                              );
-                            },
-                            child: const Text('Gelişim analizi'),
                           ),
                         ],
                       ),
                     ),
-                    ...history.take(6).map((s) {
-                      final d = s.createdAt;
-                      final dateStr =
-                          '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} '
-                          '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-                      final idx = history.indexWhere((e) => e.id == s.id);
-                      final prev =
-                          (idx >= 0 && idx + 1 < history.length) ? history[idx + 1] : null;
-                      return ListTile(
-                        leading: const Icon(Icons.insert_chart_outlined),
-                        title: Text(dateStr),
+                  );
+
+              if (snap.hasError) {
+                final err = snap.error.toString();
+                final perm = err.contains('permission-denied');
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      L10n.get(context, 'previousReports'),
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    errorCard(
+                      perm
+                          ? 'Kayıtlar yüklenemedi: Firestore güvenlik kuralları bu yolu reddediyor. '
+                              'Projede güncel `firestore.rules` dosyasını '
+                              '`firebase deploy --only firestore:rules` ile yayınlayın. '
+                              'Kurallarda `users/{userId}` altında `audienceScoreSnapshots` için '
+                              'okuma/yazma, `request.auth.uid == userId` olmalı.'
+                          : 'Kayıtlar yüklenemedi.',
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      L10n.get(context, 'reportAnalysisTitle'),
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    errorCard('Özet kartları için analiz geçmişi gerekir.'),
+                  ],
+                );
+              }
+              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      L10n.get(context, 'previousReports'),
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      L10n.get(context, 'reportAnalysisTitle'),
+                      style: theme.textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 12),
+                    const Card(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(child: CircularProgressIndicator()),
+                      ),
+                    ),
+                  ],
+                );
+              }
+              final history = snap.data ?? const <AudienceScoreSnapshot>[];
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    L10n.get(context, 'previousReports'),
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 12),
+                  if (history.isEmpty)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.description_outlined),
+                        title: Text(L10n.get(context, 'noReportsYet')),
                         subtitle: Text(
-                          'Puan ${s.scores.overall}/100 · ${s.feedbackCount} yorum',
-                          style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+                          '${L10n.get(context, 'firstReportNote')} '
+                          '${L10n.get(context, 'firstReportExtraHint')}',
                         ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => SavedAudienceReportScreen(
-                                ownerId: oid!,
-                                snapshot: s,
-                                previousSnapshot: prev,
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    }),
-                    if (history.length > 6)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: TextButton(
+                        trailing: TextButton(
                           onPressed: () {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
-                                builder: (_) => const ReportAnalysisScreen(),
+                                builder: (_) => AudienceAnalysisScreen(ownerId: oid!),
                               ),
                             );
                           },
-                          child: const Text('Tüm geçmiş ve kıyas →'),
+                          child: Text(L10n.get(context, 'runAnalysis')),
                         ),
                       ),
-                  ],
-                ),
+                    )
+                  else
+                    Card(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    L10n.get(context, 'savedAnalysesLine')
+                                        .replaceAll('{n}', '${history.length}'),
+                                    style: theme.textTheme.labelMedium
+                                        ?.copyWith(color: Colors.white60),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) => const ReportAnalysisScreen(),
+                                      ),
+                                    );
+                                  },
+                                  child: Text(L10n.get(context, 'growthAnalysisNav')),
+                                ),
+                              ],
+                            ),
+                          ),
+                          ...history.take(6).map((s) {
+                            final d = s.createdAt;
+                            final dateStr =
+                                '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} '
+                                '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+                            final idx = history.indexWhere((e) => e.id == s.id);
+                            final prev = (idx >= 0 && idx + 1 < history.length)
+                                ? history[idx + 1]
+                                : null;
+                            return ListTile(
+                              leading: const Icon(Icons.insert_chart_outlined),
+                              title: Text(dateStr),
+                              subtitle: Text(
+                                L10n.get(context, 'scoreOverallComments')
+                                    .replaceAll('{score}', '${s.scores.overall}')
+                                    .replaceAll('{count}', '${s.feedbackCount}'),
+                                style: theme.textTheme.bodySmall
+                                    ?.copyWith(color: Colors.white54),
+                              ),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => SavedAudienceReportScreen(
+                                      ownerId: storageKey,
+                                      snapshot: s,
+                                      previousSnapshot: prev,
+                                    ),
+                                  ),
+                                );
+                              },
+                            );
+                          }),
+                          if (history.length > 6)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: TextButton(
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => const ReportAnalysisScreen(),
+                                    ),
+                                  );
+                                },
+                                child: Text(L10n.get(context, 'allHistoryCompare')),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: 24),
+                  Text(
+                    L10n.get(context, 'reportAnalysisTitle'),
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 12),
+                  if (history.isEmpty)
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              L10n.get(context, 'comparePeriods'),
+                              style: theme.textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              L10n.get(context, 'compareNoSavedBody'),
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: Colors.white60, height: 1.35),
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) =>
+                                        AudienceAnalysisScreen(ownerId: oid!),
+                                  ),
+                                );
+                              },
+                              child: Text(L10n.get(context, 'runFollowerAnalysis')),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => const ReportAnalysisScreen(),
+                                  ),
+                                );
+                              },
+                              child: Text(L10n.get(context, 'goGrowthScreen')),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              L10n.get(context, 'lastAnalysisTitle'),
+                              style: theme.textTheme.titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              L10n.get(context, 'lastAnalysisBody'),
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: Colors.white54, height: 1.35),
+                            ),
+                            const SizedBox(height: 16),
+                            AudienceScoreSummaryCard(
+                              scores: history.first.scores,
+                              deltaFromPrevious: history.length >= 2
+                                  ? history.first.scores.overall -
+                                      history[1].scores.overall
+                                  : null,
+                            ),
+                            const SizedBox(height: 12),
+                            CreatorPerceptionPreviewCard(snapshot: history.first),
+                            const SizedBox(height: 12),
+                            AudienceGrowthComparisonCard(history: history),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () {
+                                      final latest = history.first;
+                                      final prev = history.length >= 2
+                                          ? history[1]
+                                          : null;
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              SavedAudienceReportScreen(
+                                            ownerId: storageKey,
+                                            snapshot: latest,
+                                            previousSnapshot: prev,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.article_outlined),
+                                    label: Text(L10n.get(context, 'fullReport')),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: FilledButton.icon(
+                                    onPressed: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              const ReportAnalysisScreen(),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.trending_up),
+                                    label: Text(L10n.get(context, 'growthShort')),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
               );
             },
           ),
-        const SizedBox(height: 24),
-        Text(
-          L10n.get(context, 'reportAnalysisTitle'),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: const Icon(Icons.trending_up_outlined),
-            title: const Text('Zaman içindeki değişimi gör'),
-            subtitle: const Text(
-              'Örneğin “Mart dönemi” ve “Nisan dönemi” linklerinden gelen yorumları karşılaştırıp, '
-              'hangi alanlarda iyileşme ya da gerileme olduğunu gösteren bir analiz ekranı.',
-            ),
-            trailing: TextButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const ReportAnalysisScreen(),
-                  ),
-                );
-              },
-              child: const Text('Gelişim analizi'),
-            ),
-          ),
-        ),
         const SizedBox(height: 24),
         Text(
           L10n.get(context, 'yourLinks'),
@@ -2161,9 +2863,10 @@ class _FeedbackPoolCard extends StatelessWidget {
                     Expanded(
                       child: Text(
                         totalAll > 0
-                            ? 'Toplam $totalAll yorum havuzda'
-                                '${entries.length < totalAll ? ' · Önizleme: ${entries.length} adet' : ''}'
-                            : '${entries.length} yorum havuzda birikti',
+                            ? '${L10n.get(context, 'poolTotal').replaceAll('{n}', '$totalAll')}'
+                                '${entries.length < totalAll ? L10n.get(context, 'poolPreview').replaceAll('{m}', '${entries.length}') : ''}'
+                            : L10n.get(context, 'poolGrowing')
+                                .replaceAll('{n}', '${entries.length}'),
                         style: theme.textTheme.bodyMedium
                             ?.copyWith(fontWeight: FontWeight.w600),
                       ),
@@ -2171,7 +2874,7 @@ class _FeedbackPoolCard extends StatelessWidget {
                     IconButton(
                       onPressed: onRefresh,
                       icon: const Icon(Icons.refresh),
-                      tooltip: 'Yenile',
+                      tooltip: L10n.get(context, 'refreshTooltip'),
                     ),
                   ],
                 ),
@@ -2185,14 +2888,14 @@ class _FeedbackPoolCard extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text(
-                      'Yorum havuzu okunamadı: $errorText',
+                      L10n.get(context, 'poolReadError').replaceAll('{e}', '$errorText'),
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: Colors.orangeAccent),
                     ),
                   ),
                 if (entries.isEmpty)
                   Text(
-                    'Henüz yorum yok. Linkini paylaştıkça bu havuz dolacak.',
+                    L10n.get(context, 'poolEmptyHint'),
                     style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
                   )
                 else ...[
@@ -2201,14 +2904,15 @@ class _FeedbackPoolCard extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Text(
                         '• ${e.textRaw}\n'
-                        '  ${e.relation ?? 'Belirsiz'} • ${_moodLabel(e.mood)}',
+                        '  ${e.relation?.trim().isNotEmpty == true ? e.relation! : L10n.get(context, 'relationUnknown')} · ${_moodLabel(context, e.mood)}',
                         style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
                       ),
                     ),
                   ),
                   if (entries.length > 6)
                     Text(
-                      '... +${entries.length - 6} yorum daha',
+                      L10n.get(context, 'poolMore')
+                          .replaceAll('{n}', '${entries.length - 6}'),
                       style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
                     ),
                 ],
@@ -2222,7 +2926,7 @@ class _FeedbackPoolCard extends StatelessWidget {
                     );
                   },
                   icon: const Icon(Icons.auto_awesome),
-                  label: const Text('AI Takipçi Yorum Analizi Oluştur'),
+                  label: Text(L10n.get(context, 'aiAudienceAnalysisRun')),
                 ),
               ],
             ),
@@ -2233,10 +2937,10 @@ class _FeedbackPoolCard extends StatelessWidget {
   }
 }
 
-String _moodLabel(int? mood) {
-  if (mood == 1) return 'Olumlu';
-  if (mood == -1) return 'Olumsuz';
-  return 'Nötr';
+String _moodLabel(BuildContext context, int? mood) {
+  if (mood == 1) return L10n.get(context, 'moodPositive');
+  if (mood == -1) return L10n.get(context, 'moodNegative');
+  return L10n.get(context, 'moodNeutral');
 }
 
 IconData _audienceLoadPhaseIcon(AudienceAnalysisLoadPhase phase) {
@@ -2264,8 +2968,10 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     const accent = Color(0xFFD4AF37);
     final phase = state?.phase ?? AudienceAnalysisLoadPhase.fetchingComments;
-    final title = state?.title ?? 'Analiz hazırlanıyor';
-    final subtitle = state?.subtitle ?? 'Bu işlem veri miktarına göre birkaç dakika sürebilir.';
+    final title =
+        state?.title ?? L10n.get(context, 'audienceLoadingTitle');
+    final subtitle =
+        state?.subtitle ?? L10n.get(context, 'audienceLoadingSubtitle');
     final idx = state?.stepIndex;
     final tot = state?.stepTotal;
     final hasChunkProgress = idx != null && tot != null && tot > 0;
@@ -2419,7 +3125,7 @@ class SavedAudienceReportScreen extends StatelessWidget {
         ? snapshot.scores.overall - previousSnapshot!.scores.overall
         : null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Kayıtlı takipçi raporu')),
+      appBar: AppBar(title: Text(L10n.get(context, 'savedReportAppBar'))),
       body: SafeArea(
         child: FutureBuilder<AudienceScoreSnapshot>(
           future: appData
@@ -2434,7 +3140,8 @@ class SavedAudienceReportScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    'Rapor yüklenemedi: ${asyncSnap.error}',
+                    L10n.get(context, 'reportLoadFailed')
+                        .replaceAll('{e}', '${asyncSnap.error}'),
                     textAlign: TextAlign.center,
                   ),
                 ),
@@ -2493,9 +3200,9 @@ class _ReportSharePreviewCard extends StatelessWidget {
                 color: const Color(0xFFD4AF37).withOpacity(0.2),
                 border: Border.all(color: const Color(0xFFD4AF37)),
               ),
-              child: const Text(
-                'FeedbackToMe · Gelişim özeti',
-                style: TextStyle(
+              child: Text(
+                L10n.get(context, 'growthSummaryBadge'),
+                style: const TextStyle(
                   color: Color(0xFFD4AF37),
                   fontWeight: FontWeight.w600,
                   fontSize: 12,
@@ -2504,14 +3211,19 @@ class _ReportSharePreviewCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Güncel puan: ${latest.scores.overall}/100 · ${latest.feedbackCount} yorum',
+              L10n.get(context, 'currentScoreLine')
+                  .replaceAll('{score}', '${latest.scores.overall}')
+                  .replaceAll('{count}', '${latest.feedbackCount}'),
               style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
             ),
             if (history.length >= 2) ...[
               const SizedBox(height: 6),
               Text(
-                'Önceki analize göre: ${history[0].scores.overall - history[1].scores.overall >= 0 ? '+' : ''}'
-                '${history[0].scores.overall - history[1].scores.overall} puan',
+                () {
+                  final d = history[0].scores.overall - history[1].scores.overall;
+                  final ds = '${d >= 0 ? '+' : ''}$d';
+                  return L10n.get(context, 'pointsDelta').replaceAll('{delta}', ds);
+                }(),
                 style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
               ),
             ],
@@ -2527,7 +3239,7 @@ class _ReportSharePreviewCard extends StatelessWidget {
             ],
             const SizedBox(height: 12),
             Text(
-              'Generated by FeedbackToMe',
+              L10n.get(context, 'generatedByLine'),
               style: theme.textTheme.bodySmall?.copyWith(color: Colors.white38),
             ),
           ],
@@ -2547,27 +3259,70 @@ class AudienceAnalysisScreen extends StatefulWidget {
 }
 
 class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
-  late Future<AudienceAnalysisResult> _future;
+  Future<AudienceAnalysisResult>? _future;
   AudienceAnalysisLoadState? _loadState;
 
-  void _scheduleAnalysis() {
-    _loadState = const AudienceAnalysisLoadState(
-      phase: AudienceAnalysisLoadPhase.fetchingComments,
-      title: 'Yorum havuzu yükleniyor',
-      subtitle: 'Sunucudan tüm geri bildirimler alınıyor…',
-    );
-    _future = reportService.generateAudienceAnalysis(
+  Future<AudienceAnalysisResult> _loadOrCreateAnalysis(String lang) async {
+    final fbUid = FirebaseAuth.instance.currentUser?.uid ?? widget.ownerId;
+    final recordKey = audienceRecordsOwnerKey(fbUid, widget.ownerId);
+    List<FeedbackLink> links = const <FeedbackLink>[];
+    try {
+      links = await appData
+          .getLinksForOwner(widget.ownerId)
+          .timeout(const Duration(seconds: 6));
+    } catch (_) {
+      links = const <FeedbackLink>[];
+    }
+    final latestLinkId = links.isNotEmpty ? links.first.id : null;
+    if (latestLinkId != null && latestLinkId.isNotEmpty) {
+      try {
+        final history = await appData
+            .audienceScoreHistoryStream(recordKey, limit: 36)
+            .first
+            .timeout(const Duration(seconds: 6));
+        final existing = history.where((s) => s.analyzedLinkId == latestLinkId);
+        if (existing.isNotEmpty) {
+          final newest = existing.first;
+          final full = await appData
+              .loadAudienceScoreSnapshotWithBody(recordKey, newest.id)
+              .timeout(const Duration(seconds: 6));
+          if (full != null) {
+            return AudienceAnalysisResult.fromHistorySnapshot(full);
+          }
+        }
+      } catch (_) {
+        // History fetch timed out/failed; continue with fresh analysis.
+      }
+    }
+    return reportService.generateAudienceAnalysis(
       widget.ownerId,
+      analyzedLinkId: latestLinkId,
+      languageCode: lang,
       onLoadUpdate: (s) {
         if (mounted) setState(() => _loadState = s);
       },
     );
   }
 
+  void _scheduleAnalysis() {
+    if (!mounted) return;
+    final lang = L10n.languageCodeForApp(context);
+    setState(() {
+      _loadState = AudienceAnalysisLoadState(
+        phase: AudienceAnalysisLoadPhase.fetchingComments,
+        title: L10n.get(context, 'audienceFetchTitle'),
+        subtitle: L10n.get(context, 'audienceFetchSubtitle'),
+      );
+      _future = _loadOrCreateAnalysis(lang);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
-    _scheduleAnalysis();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scheduleAnalysis();
+    });
   }
 
   static String _audienceShareText(
@@ -2648,12 +3403,24 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final future = _future;
+    if (future == null) {
+      return Scaffold(
+        appBar: AppBar(title: Text(L10n.get(context, 'audienceAppBarTitle'))),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: _AudienceAnalysisLoadingPanel(state: _loadState),
+          ),
+        ),
+      );
+    }
     return FutureBuilder<AudienceAnalysisResult>(
-      future: _future,
+      future: future,
       builder: (context, snap) {
         if (snap.connectionState == ConnectionState.waiting) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Takipçi Yorum Analizi')),
+            appBar: AppBar(title: Text(L10n.get(context, 'audienceAppBarTitle'))),
             body: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -2664,7 +3431,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
         }
         if (snap.hasError) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Takipçi Yorum Analizi')),
+            appBar: AppBar(title: Text(L10n.get(context, 'audienceAppBarTitle'))),
             body: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -2694,10 +3461,10 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
                         const SizedBox(height: 20),
                         FilledButton.icon(
                           onPressed: () {
-                            setState(_scheduleAnalysis);
+                            _scheduleAnalysis();
                           },
                           icon: const Icon(Icons.refresh),
-                          label: const Text('Tekrar dene'),
+                          label: Text(L10n.get(context, 'retry')),
                         ),
                       ],
                     ),
@@ -2709,7 +3476,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
         }
         if (!snap.hasData) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Takipçi Yorum Analizi')),
+            appBar: AppBar(title: Text(L10n.get(context, 'audienceAppBarTitle'))),
             body: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(24),
@@ -2724,8 +3491,8 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
                       ),
                       const SizedBox(height: 16),
                       FilledButton(
-                        onPressed: () => setState(_scheduleAnalysis),
-                        child: const Text('Tekrar dene'),
+                        onPressed: _scheduleAnalysis,
+                        child: Text(L10n.get(context, 'retry')),
                       ),
                     ],
                   ),
@@ -2738,8 +3505,12 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
         final sectionTitle = Theme.of(context).textTheme.titleSmall?.copyWith(
               fontWeight: FontWeight.w700,
             );
+        final fbUid =
+            FirebaseAuth.instance.currentUser?.uid ?? widget.ownerId;
+        final recordKey =
+            audienceRecordsOwnerKey(fbUid, widget.ownerId);
         return StreamBuilder<List<AudienceScoreSnapshot>>(
-          stream: appData.audienceScoreHistoryStream(widget.ownerId),
+          stream: appData.audienceScoreHistoryStream(recordKey),
           builder: (context, histSnap) {
             final history = histSnap.hasError
                 ? const <AudienceScoreSnapshot>[]
@@ -2760,7 +3531,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
             }
             return Scaffold(
               appBar: AppBar(
-                title: const Text('Takipçi Yorum Analizi'),
+                title: Text(L10n.get(context, 'audienceAppBarTitle')),
                 actions: [
                   IconButton(
                     icon: const Icon(Icons.share_rounded),
@@ -2793,7 +3564,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
                             Navigator.of(context).push(
                               MaterialPageRoute<void>(
                                 builder: (_) => SavedAudienceReportScreen(
-                                  ownerId: widget.ownerId,
+                                  ownerId: recordKey,
                                   snapshot: s,
                                   previousSnapshot: prev,
                                 ),
@@ -2809,7 +3580,10 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Text('İlişki bazlı dağılım', style: sectionTitle),
+                                  Text(
+                                    L10n.get(context, 'relationDistributionTitle'),
+                                    style: sectionTitle,
+                                  ),
                                   const SizedBox(height: 8),
                                   ...result.relationBreakdown.map((r) => Padding(
                                         padding: const EdgeInsets.only(bottom: 6),
@@ -2901,7 +3675,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
       name: 'feedbacktome_rapor.png',
       mimeType: 'image/png',
     );
-    final shareText = 'FeedbackToMe gelişim analizim';
+    final shareText = 'Feedback2Me gelişim analizim';
 
     showModalBottomSheet<void>(
       context: context,
@@ -2982,6 +3756,8 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
     final theme = Theme.of(context);
     final uid = FirebaseAuth.instance.currentUser?.uid;
     final oid = uid != null ? effectiveDataOwnerId(uid) : null;
+    final recordKey =
+        uid != null ? audienceRecordsOwnerKey(uid, oid) : null;
 
     return Scaffold(
       appBar: AppBar(
@@ -3003,7 +3779,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Takipçi analizi geçmişi ve önceki rapora göre gelişim için giriş yapmalısın.',
+                          L10n.get(context, 'reportAnalysisLoginRequired'),
                           style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
                         ),
                       ],
@@ -3019,20 +3795,21 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Her «Takipçi Yorum Analizi» çalıştırman kaydedilir. Aşağıda son kayıtların kıyası, '
-                          'paylaşılabilir özet kartı ve geçmiş raporları açma yer alır.',
+                          L10n.get(context, 'reportAnalysisHistoryHint'),
                           style: theme.textTheme.bodySmall
                               ?.copyWith(color: Colors.white70, height: 1.35),
                         ),
                         const SizedBox(height: 20),
                         StreamBuilder<List<AudienceScoreSnapshot>>(
-                          stream: appData.audienceScoreHistoryStream(oid!),
+                          stream: appData
+                              .audienceScoreHistoryStream(recordKey!),
                           builder: (context, snap) {
                             if (snap.hasError) {
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 16),
                                 child: Text(
-                                  'Geçmiş yüklenemedi: ${snap.error}',
+                                  L10n.get(context, 'historyLoadFailed')
+                                      .replaceAll('{e}', '${snap.error}'),
                                   style: theme.textTheme.bodySmall
                                       ?.copyWith(color: const Color(0xFFF87171)),
                                 ),
@@ -3051,8 +3828,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
                                 child: Text(
-                                  'Henüz kayıtlı takipçi analizi yok. Önce havuzda yorum topla, '
-                                  'sonra panodan «Takipçi Yorum Analizi»ni çalıştır.',
+                                  L10n.get(context, 'noSavedAudienceRun'),
                                   style: theme.textTheme.bodySmall
                                       ?.copyWith(color: Colors.white60),
                                 ),
@@ -3078,7 +3854,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                                     Navigator.of(context).push(
                                       MaterialPageRoute<void>(
                                         builder: (_) => SavedAudienceReportScreen(
-                                          ownerId: oid!,
+                                          ownerId: recordKey,
                                           snapshot: s,
                                           previousSnapshot: prev,
                                         ),
@@ -3099,7 +3875,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                               ),
                             );
                           },
-                          child: const Text('Takipçi analizini çalıştır'),
+                          child: Text(L10n.get(context, 'runFollowerAnalysisShort')),
                         ),
                         const SizedBox(height: 12),
                         FilledButton.icon(
@@ -3254,12 +4030,24 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
       );
     } catch (e) {
       if (!context.mounted) return;
+      final msg = _feedbackSubmitErrorMessage(context, e);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${L10n.get(context, 'feedbackFormSendFailed')} $e'),
-        ),
+        SnackBar(content: Text(msg)),
       );
     }
+  }
+
+  String _feedbackSubmitErrorMessage(BuildContext context, Object e) {
+    if (e is StateError) {
+      switch (e.message) {
+        case 'link_not_found':
+          return L10n.get(context, 'feedbackFormLinkNotFound');
+        case 'link_expired':
+        case 'link_closed_or_expired':
+          return L10n.get(context, 'feedbackFormLinkExpired');
+      }
+    }
+    return '${L10n.get(context, 'feedbackFormSendFailed')} $e';
   }
 
   Widget _feedbackHowStep(ThemeData theme, IconData icon, String text) {

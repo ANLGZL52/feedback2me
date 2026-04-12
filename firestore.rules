@@ -1,24 +1,59 @@
 rules_version = '2';
+// Bu dosyayı canlıya almak için (yoksa permission-denied alırsın):
+//   firebase deploy --only firestore:rules
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Kullanıcı kök dokümanı + tüm alt koleksiyonlar (audienceScoreSnapshots dahil).
-    // Not: Değişiklikten sonra mutlaka `firebase deploy --only firestore:rules` çalıştırın.
+
+    // Uygulama linkTier: 'demo' | 'premium'. Eski kurallarda 'pro' kullanildiysa onu da kabul et.
+    function linkTierAllowsPublicFeedback(link) {
+      return !link.keys().hasAny(['linkTier'])
+        || link.linkTier == 'premium'
+        || link.linkTier == 'pro'
+        || (link.linkTier == 'demo'
+            && (!link.keys().hasAny(['demoSubmissionUsed']) || link.demoSubmissionUsed == false));
+    }
+
+    function linkAcceptsPublicFeedback(linkId) {
+      let link = get(/databases/$(database)/documents/links/$(linkId)).data;
+      return link.isActive == true
+        && (!link.keys().hasAny(['validUntil']) || request.time < link.validUntil)
+        && linkTierAllowsPublicFeedback(link);
+    }
+
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
-
-      match /{document=**} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
+    }
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     match /links/{linkId} {
-      allow read: if resource.data.isActive == true;
-      allow create: if request.auth != null;
+      // Aktif linkler + tükenmiş demo (tek kullanım sonrası mesaj için isActive=false).
+      allow read: if resource.data.isActive == true
+        || (resource.data.keys().hasAny(['linkTier']) && resource.data.linkTier == 'demo'
+            && resource.data.keys().hasAny(['demoSubmissionUsed'])
+            && resource.data.demoSubmissionUsed == true);
+      // Sadece oturum açmış kullanıcı kendi adına link oluşturabilir.
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.ownerId is string
+        && request.resource.data.code is string;
       allow update, delete: if request.auth != null && request.auth.uid == resource.data.ownerId;
+      // Demo: tek yorum sonrasi misafir batch (yorum + link kapatma).
+      allow update: if resource.data.linkTier == 'demo'
+        && resource.data.demoSubmissionUsed == false
+        && request.resource.data.linkTier == resource.data.linkTier
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.validUntil == resource.data.validUntil
+        && request.resource.data.demoSubmissionUsed == true
+        && request.resource.data.isActive == false
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['demoSubmissionUsed', 'isActive']);
     }
     match /feedbacks/{feedbackId} {
       allow create: if request.resource.data.keys().hasAll(['linkId', 'textRaw'])
         && request.resource.data.textRaw is string
-        && request.resource.data.textRaw.size() >= 10;
+        && request.resource.data.textRaw.size() >= 10
+        && linkAcceptsPublicFeedback(request.resource.data.linkId);
       allow read, update, delete: if request.auth != null;
     }
   }

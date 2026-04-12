@@ -50,7 +50,7 @@ class _AppOnboardingState extends State<AppOnboarding> {
       icon: Icons.auto_awesome_rounded,
       title: 'Gerçek geri bildirim,\nnet içgörü',
       body:
-          'FeedbackToMe ile takipçilerinden anonim, dürüst yorumlar topla. '
+          'Feedback2Me ile takipçilerinden anonim, dürüst yorumlar topla. '
           'Kısayol linkin tek; paylaşımı sen kontrol edersin.',
       badge: 'Başlangıç',
     ),
@@ -116,6 +116,7 @@ class _AppOnboardingState extends State<AppOnboarding> {
 
     return Scaffold(
       backgroundColor: const Color(0xFF0a0a0f),
+      resizeToAvoidBottomInset: true,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -158,7 +159,7 @@ class _AppOnboardingState extends State<AppOnboarding> {
                       children: [
                         const SizedBox(width: 8),
                         Text(
-                          'FeedbackToMe',
+                          'Feedback2Me',
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.5,
@@ -298,93 +299,106 @@ class _OnboardingPage extends StatelessWidget {
               onTapBack();
             }
           },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (slide.badge != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 20),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: gold.withValues(alpha: 0.45)),
-                        color: gold.withValues(alpha: 0.08),
-                      ),
-                      child: Text(
-                        slide.badge!,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: goldDim,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                    ),
-                  ),
-                Container(
-                  padding: const EdgeInsets.all(28),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        gold.withValues(alpha: 0.2),
-                        gold.withValues(alpha: 0.05),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                  child: Icon(
-                    slide.icon,
-                    size: 72,
-                    color: gold,
-                  ),
-                ),
-                const SizedBox(height: 28),
-                Text(
-                  slide.title,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    height: 1.25,
-                    color: Colors.white,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  slide.body,
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: Colors.white70,
-                    height: 1.5,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.chevron_left_rounded,
-                        color: Colors.white.withValues(alpha: 0.25), size: 20),
+          child: SingleChildScrollView(
+            clipBehavior: Clip.none,
+            physics: const ClampingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (slide.badge != null)
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(
-                        'Sol / sağ dokunuş · kaydır',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: Colors.white30,
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(999),
+                          border:
+                              Border.all(color: gold.withValues(alpha: 0.45)),
+                          color: gold.withValues(alpha: 0.08),
+                        ),
+                        child: Text(
+                          slide.badge!,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: goldDim,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                          ),
                         ),
                       ),
                     ),
-                    Icon(Icons.chevron_right_rounded,
-                        color: Colors.white.withValues(alpha: 0.25), size: 20),
-                  ],
-                ),
-              ],
+                  Container(
+                    padding: const EdgeInsets.all(28),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          gold.withValues(alpha: 0.2),
+                          gold.withValues(alpha: 0.05),
+                          Colors.transparent,
+                        ],
+                      ),
+                    ),
+                    child: Icon(
+                      slide.icon,
+                      size: 72,
+                      color: gold,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  Text(
+                    slide.title,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      height: 1.25,
+                      color: Colors.white,
+                      letterSpacing: -0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    slide.body,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: Colors.white70,
+                      height: 1.5,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.chevron_left_rounded,
+                        color: Colors.white.withValues(alpha: 0.25),
+                        size: 20,
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          'Sol / sağ dokunuş · kaydır',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: Colors.white30,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: Colors.white.withValues(alpha: 0.25),
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../app_state.dart' show authService, localeNotifier;
 import '../l10n/app_localizations.dart';
@@ -15,6 +16,21 @@ class SettingsScreen extends StatelessWidget {
   final void Function(BuildContext context) onOpenLogin;
 
   static const _gold = Color(0xFFE8C547);
+  static final Uri _privacyPolicyUri =
+      Uri.parse('https://feedbacktome.app/privacy');
+  static final Uri _termsUri = Uri.parse('https://feedbacktome.app/terms');
+  static final Uri _supportEmailUri =
+      Uri.parse('mailto:support@feedbacktome.app');
+
+  Future<void> _openExternal(BuildContext context, Uri uri) async {
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!context.mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(L10n.get(context, 'settingsLinkOpenFailed'))),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +194,50 @@ class SettingsScreen extends StatelessWidget {
                       ),
                     );
                   },
+                ),
+              ),
+              const SizedBox(height: 24),
+              _SectionTitle(text: L10n.get(context, 'settingsLegal')),
+              const SizedBox(height: 8),
+              Card(
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: Icon(Icons.privacy_tip_outlined, color: _gold),
+                      title: Text(L10n.get(context, 'settingsPrivacyPolicy')),
+                      subtitle: Text(
+                        L10n.get(context, 'settingsPrivacyPolicyHint'),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: Colors.white54),
+                      ),
+                      trailing: const Icon(Icons.open_in_new_rounded),
+                      onTap: () => _openExternal(context, _privacyPolicyUri),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: Icon(Icons.gavel_outlined, color: _gold),
+                      title: Text(L10n.get(context, 'settingsTerms')),
+                      subtitle: Text(
+                        L10n.get(context, 'settingsTermsHint'),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: Colors.white54),
+                      ),
+                      trailing: const Icon(Icons.open_in_new_rounded),
+                      onTap: () => _openExternal(context, _termsUri),
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: Icon(Icons.support_agent_rounded, color: _gold),
+                      title: Text(L10n.get(context, 'settingsSupport')),
+                      subtitle: Text(
+                        L10n.get(context, 'settingsSupportHint'),
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: Colors.white54),
+                      ),
+                      trailing: const Icon(Icons.mail_outline_rounded),
+                      onTap: () => _openExternal(context, _supportEmailUri),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 24),

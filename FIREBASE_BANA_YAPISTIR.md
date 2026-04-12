@@ -54,7 +54,7 @@ const firebaseConfig = {
 Aynı **Project settings** sayfasında:
 
 - **Android** (Android robotu) ikonuna tıkla veya **"Add app" → "Android"**
-- **Android package name** kutusuna şunu yaz: **com.example.feedback_to_me**
+- **Android package name** kutusuna şunu yaz: **app.feedbacktome** (Play Store `com.example` kabul etmez.)
 - **Register app** de
 - Sonraki ekranda yine **config** (apiKey, projectId, appId vb.) görünür. **Android için appId** genelde **1:xxx:android:yyy** şeklindedir. Bu **appId** değerini de kopyala (ve mümkünse tüm Android config’i).
 
@@ -82,3 +82,17 @@ android appId: 1:123456789:android:def456
 ```
 
 Bu 6–7 satırı bana yapıştırman yeterli; ben `firebase_options.dart` dosyasını senin için yazacağım.
+
+---
+
+## Firestore: `permission-denied` (link oluşturulamıyor)
+
+Repodaki `firestore.rules` dosyasını **Firebase’e yayınlaman** gerekir; yayınlanmadıysa veya eskiyse tüm yazmalar reddedilir.
+
+Proje klasöründe (`.firebaserc` olan yerde), giriş yapmışken:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+Sonra uygulamada tekrar dene. Kuralların özeti: `users/{uid}` yalnızca kendi `uid`’in; `links` oluştururken `ownerId` oturumdaki kullanıcı ile aynı olmalı.
