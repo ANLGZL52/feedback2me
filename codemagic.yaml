@@ -77,11 +77,12 @@ workflows:
       - build/ios/ipa/*.ipa
       - build/ios/ipa/**
       - /tmp/xcodebuild_logs/*.log
-    # İsteğe bağlı: Codemagic UI → Publishing → App Store Connect / TestFlight
-    # publishing:
-    #   app_store_connect:
-    #     auth: integration
-    #     submit_to_testflight: true
+    # Mac/Transporter olmadan: build sonrası IPA App Store Connect’e gider → TestFlight’ta görünür.
+    # API anahtarı: App Manager (veya Admin). integration adı yukarıdaki app_store_connect ile aynı olmalı.
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
 
   # İmzasız veya yalnızca derleme testi için basit iş akışı (CI smoke):
   ios-debug-build:
