@@ -51,8 +51,17 @@ workflows:
         script: |
           set -e
           flutter build ipa --release
+          # .ipa yoksa Publishing "No artifacts" der; hatayı burada net göster.
+          if ! compgen -G "build/ios/ipa/*.ipa" > /dev/null; then
+            echo "ERROR: build/ios/ipa/*.ipa bulunamadı (export/imza/bundle id kontrol edin)."
+            find build/ios -name "*.ipa" 2>/dev/null || true
+            ls -la build/ios/ipa 2>/dev/null || true
+            exit 1
+          fi
+          ls -la build/ios/ipa/*.ipa
     artifacts:
       - build/ios/ipa/*.ipa
+      - build/ios/ipa/**
       - /tmp/xcodebuild_logs/*.log
     # İsteğe bağlı: Codemagic UI → Publishing → App Store Connect / TestFlight
     # publishing:
