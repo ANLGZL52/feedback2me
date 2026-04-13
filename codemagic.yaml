@@ -26,6 +26,10 @@ workflows:
         bundle_identifier: app.feedbacktome
       vars:
         BUNDLE_ID: app.feedbacktome
+        # Xcode 26+ altool: bundle id → App Store uygulama ID eşlemesi bazen başarısız olur.
+        # App Store Connect → Uygulama → Genel → App Information → "Apple ID" (sayı, örn. 6762082400)
+        # Kendi ID’nizi yazın; yanlışsa yükleme yine düşer.
+        APP_STORE_CONNECT_ALTOOL_ADDITIONAL_ARGUMENTS: "--apple-id 6762082400"
       # Panelden "Variable group" ekleyebilirsiniz; örnek isim:
       # groups:
       #   - ios_signing
