@@ -42,15 +42,29 @@ workflows:
           set -e
           cd ios
           pod install
-      # ios_signing sertifika ve profilleri otomatik yerleştirir; ardından use-profiles Xcode’a uygular.
-      - name: Xcode proje profilleri
+      # Sıra: keychain → sertifikaları ekle → use-profiles (Manuel imza + export_options.plist) → flutter ipa
+      - name: Keychain ve sertifikalar
         script: |
           set -e
-          xcode-project use-profiles
+          keychain initialize
+          keychain add-certificates
+      - name: Xcode proje profilleri (App Store)
+        script: |
+          set -e
+          xcode-project use-profiles \
+            --project ios/Runner.xcodeproj \
+            --archive-method app-store \
+            --code-signing-setup-verbose-logging
       - name: IPA derle
         script: |
           set -e
-          flutter build ipa --release
+          # use-profiles genelde $HOME/export_options.plist üretir; verilmezse export "provisioning profile" hatası verir.
+          if [ -f "$HOME/export_options.plist" ]; then
+            flutter build ipa --release --export-options-plist="$HOME/export_options.plist"
+          else
+            echo "WARN: $HOME/export_options.plist yok, doğrudan flutter build ipa deneniyor."
+            flutter build ipa --release
+          fi
           # .ipa yoksa Publishing "No artifacts" der; hatayı burada net göster.
           if ! compgen -G "build/ios/ipa/*.ipa" > /dev/null; then
             echo "ERROR: build/ios/ipa/*.ipa bulunamadı (export/imza/bundle id kontrol edin)."
