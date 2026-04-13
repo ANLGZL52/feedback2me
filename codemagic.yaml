@@ -3,7 +3,9 @@
 #
 # Codemagic panelinde yapılacaklar:
 # 1) App → Environment variables: App Store Connect API key veya Apple Developer entegrasyonu
-# 2) iOS code signing: Distribution certificate + provisioning profile (App Store / ad-hoc)
+# 2) iOS code signing (manuel): Codemagic Settings → Code signing identities:
+#    - iOS certificates: Distribution .p12 (+ şifre)
+#    - iOS provisioning profiles: App Store .mobileprovision (Bundle ID: app.feedbacktome)
 # 3) İsterseniz "Variable groups" ile BUNDLE_ID vb. paylaşın
 #
 # BUNDLE_ID, Xcode ile aynı: app.feedbacktome (ios/Runner)
@@ -39,10 +41,7 @@ workflows:
         script: |
           set -e
           keychain initialize
-      - name: App Store Connect ile imza dosyaları
-        script: |
-          set -e
-          app-store-connect fetch-signing-files "$BUNDLE_ID" --type IOS_APP_STORE --create
+      # Manuel .p12 + provisioning profile kullanılır; fetch-signing-files private key olmadan hataya düşer.
       - name: Sertifikaları keychain'e ekle
         script: |
           set -e
