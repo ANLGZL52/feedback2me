@@ -19,6 +19,11 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      # Yüklenen .p12 + .mobileprovision’ı build VM’e kopyalar; keychain add-certificates tek başına yetmez.
+      # Code signing identities’teki profil/sertifika bu bundle id ile eşleşmeli (App Store).
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: app.feedbacktome
       vars:
         BUNDLE_ID: app.feedbacktome
       # Panelden "Variable group" ekleyebilirsiniz; örnek isim:
@@ -37,15 +42,7 @@ workflows:
           set -e
           cd ios
           pod install
-      - name: İmzalama (Codemagic CLI)
-        script: |
-          set -e
-          keychain initialize
-      # Manuel .p12 + provisioning profile kullanılır; fetch-signing-files private key olmadan hataya düşer.
-      - name: Sertifikaları keychain'e ekle
-        script: |
-          set -e
-          keychain add-certificates
+      # ios_signing sertifika ve profilleri otomatik yerleştirir; ardından use-profiles Xcode’a uygular.
       - name: Xcode proje profilleri
         script: |
           set -e
