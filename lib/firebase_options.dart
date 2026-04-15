@@ -43,10 +43,10 @@ class DefaultFirebaseOptions {
     storageBucket: 'feedbacktome-79655.firebasestorage.app',
   );
 
-  /// iOS için aynı proje; Firebase Console'da iOS uygulaması eklenirse appId burada güncellenir.
+  /// iOS: bundle id `com.anlgzl.feedback2meapp` için Firebase uygulaması.
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyCRflC9vEs78jUte24z4mzGU2AXtaVKV_M',
-    appId: '1:16565078393:web:552d6701140bbca3e747a8',
+    appId: '1:16565078393:ios:c9577651fba3a805e747a8',
     messagingSenderId: '16565078393',
     projectId: 'feedbacktome-79655',
     authDomain: 'feedbacktome-79655.firebaseapp.com',
