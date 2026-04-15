@@ -5,10 +5,10 @@
 # 1) App → Environment variables: App Store Connect API key veya Apple Developer entegrasyonu
 # 2) iOS code signing (manuel): Codemagic Settings → Code signing identities:
 #    - iOS certificates: Distribution .p12 (+ şifre)
-#    - iOS provisioning profiles: App Store .mobileprovision (Bundle ID: app.feedbacktome)
+#    - iOS provisioning profiles: App Store .mobileprovision (Bundle ID: com.anlgzl.feedback2meapp)
 # 3) İsterseniz "Variable groups" ile BUNDLE_ID vb. paylaşın
 #
-# BUNDLE_ID, Xcode ile aynı: app.feedbacktome (ios/Runner)
+# BUNDLE_ID, Xcode ile aynı: com.anlgzl.feedback2meapp (ios/Runner)
 
 workflows:
   ios-release:
@@ -23,13 +23,13 @@ workflows:
       # Code signing identities’teki profil/sertifika bu bundle id ile eşleşmeli (App Store).
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: app.feedbacktome
+        bundle_identifier: com.anlgzl.feedback2meapp
       vars:
-        BUNDLE_ID: app.feedbacktome
+        BUNDLE_ID: com.anlgzl.feedback2meapp
         # Xcode 26+ altool: bundle id → App Store uygulama ID eşlemesi bazen başarısız olur.
-        # App Store Connect → Uygulama → Genel → App Information → "Apple ID" (sayı, örn. 6762082400)
+        # App Store Connect → Uygulama → Genel → App Information → "Apple ID" (sayı, örn. 6762295382)
         # Kendi ID’nizi yazın; yanlışsa yükleme yine düşer.
-        APP_STORE_CONNECT_ALTOOL_ADDITIONAL_ARGUMENTS: "--apple-id 6762082400"
+        APP_STORE_CONNECT_ALTOOL_ADDITIONAL_ARGUMENTS: "--apple-id 6762295382"
       # Panelden "Variable group" ekleyebilirsiniz; örnek isim:
       # groups:
       #   - ios_signing
