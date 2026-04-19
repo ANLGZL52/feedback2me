@@ -57,6 +57,7 @@ void main() async {
   }
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    initializeAppState();
     final prefs = await SharedPreferences.getInstance();
     L10n.setPrefs(prefs);
     await L10n.loadSavedLocale();
@@ -108,6 +109,9 @@ class _WebSplashState extends State<_WebSplash> {
         await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
       } catch (_) {
         // HTML zaten başlattıysa "already exists" olabilir
+      }
+      if (Firebase.apps.isNotEmpty) {
+        initializeAppState();
       }
       try {
         final prefs = await SharedPreferences.getInstance();
@@ -215,6 +219,9 @@ class _WebInitWrapperState extends State<_WebInitWrapper> {
       ]);
       if (!mounted) return;
       if (ok) {
+        if (Firebase.apps.isNotEmpty) {
+          initializeAppState();
+        }
         SharedPreferences.getInstance().then((prefs) {
           L10n.setPrefs(prefs);
           L10n.loadSavedLocale();

@@ -51,5 +51,16 @@
 		<string>Rapor görselini galeriye kaydetmek için fotoğraf kütüphanesine erişim gerekiyor.</string>
 		<key>NSPhotoLibraryUsageDescription</key>
 		<string>Rapor görselini galeriye kaydetmek için fotoğraf kütüphanesine erişim gerekiyor.</string>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.16565078393-a9o1cj0oi1eo0fhouu4h162bi68l21jo</string>
+				</array>
+			</dict>
+		</array>
 	</dict>
 </plist>

@@ -8,16 +8,29 @@ import 'services/firestore_service.dart';
 import 'services/iap_service.dart';
 import 'services/railway_api_service.dart';
 
-final authService = AuthService();
+/// [Firebase.initializeApp] sonrasında bir kez çağrılmalı; aksi halde Firebase
+/// kullanıcısı oluşturulmadan [FirebaseAuth]/[FirebaseFirestore] erişimi iOS’ta
+/// çökme üretebilir.
+bool _appStateInitialized = false;
 
-final FirestoreService _firestoreBackend = FirestoreService();
+late final AuthService authService;
+
+late final FirestoreService _firestoreBackend;
 final RailwayApiService _railwayBackend = RailwayApiService();
 
 /// Firestore veya Railway — [BackendConfig] ile seçilir.
 AppDataBackend get appData =>
     BackendConfig.isRailwayBackendConfigured ? _railwayBackend : _firestoreBackend;
 
-final iapService = IapService();
+late final IapService iapService;
+
+void initializeAppState() {
+  if (_appStateInitialized) return;
+  _appStateInitialized = true;
+  authService = AuthService();
+  _firestoreBackend = FirestoreService();
+  iapService = IapService();
+}
 
 /// Dil seçimi: null = cihaz dili, Locale('en') = İngilizce, Locale('tr') = Türkçe.
 final ValueNotifier<Locale?> localeNotifier = ValueNotifier<Locale?>(null);

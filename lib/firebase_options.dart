@@ -44,8 +44,9 @@ class DefaultFirebaseOptions {
   );
 
   /// iOS: bundle id `com.anlgzl.feedback2meapp` için Firebase uygulaması.
+  /// `apiKey`, `ios/Runner/GoogleService-Info.plist` içindeki `API_KEY` ile aynı olmalı.
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyCRflC9vEs78jUte24z4mzGU2AXtaVKV_M',
+    apiKey: 'AIzaSyAIU91FpUp7C9NW0sn0F8DiaQ5pztjv5Lc',
     appId: '1:16565078393:ios:c9577651fba3a805e747a8',
     messagingSenderId: '16565078393',
     projectId: 'feedbacktome-79655',
