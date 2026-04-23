@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:google_sign_in/google_sign_in.dart';
 
 import 'api_session.dart';
@@ -9,9 +10,7 @@ String firebaseAuthUserMessage(Object error) {
   if (error is FirebaseAuthException) {
     switch (error.code) {
       case 'operation-not-allowed':
-        return 'Firebase’de bu giriş yöntemi kapalı. Firebase Console → '
-            'Authentication → Giriş yöntemleri → Apple’ı açıp Apple Developer '
-            '(Services ID, anahtar, Team ID) bilgilerini girin.';
+        return 'Bu giriş yöntemi şu an etkin değil. Lütfen daha sonra tekrar deneyin.';
       case 'account-exists-with-different-credential':
         return 'Bu e-posta başka bir giriş yöntemiyle kayıtlı. Önce o yöntemle giriş yapın.';
       case 'invalid-credential':
@@ -21,6 +20,14 @@ String firebaseAuthUserMessage(Object error) {
       case 'web-context-cancelled':
       case 'aborted':
         return 'Giriş penceresi kapatıldı.';
+      case 'network-request-failed':
+        return 'İnternet bağlantısı kurulamadı. Bağlantınızı kontrol edip tekrar deneyin.';
+      case 'too-many-requests':
+        return 'Çok fazla deneme yapıldı. Lütfen biraz bekleyip tekrar deneyin.';
+      case 'user-not-found':
+        return 'Bu hesap bulunamadı.';
+      case 'credential-already-in-use':
+        return 'Bu kimlik bilgisi başka bir hesaba bağlı.';
       default:
         break;
     }
@@ -28,7 +35,20 @@ String firebaseAuthUserMessage(Object error) {
     if (m != null && m.isNotEmpty) return m;
     return error.code;
   }
-  return error.toString();
+  if (error is PlatformException) {
+    if (error.code == 'ERROR_CANCELED' ||
+        error.code == 'AuthorizationErrorCanceled' ||
+        error.message?.contains('canceled') == true ||
+        error.message?.contains('cancelled') == true) {
+      return 'Giriş iptal edildi.';
+    }
+    return error.message ?? error.code;
+  }
+  final msg = error.toString();
+  if (msg.contains('cancel') || msg.contains('Cancel')) {
+    return 'Giriş iptal edildi.';
+  }
+  return msg;
 }
 
 /// Giriş tamamen Apple ve Google üzerinden; ödeme App Store / Google Play'da kalacak.
@@ -38,7 +58,6 @@ class AuthService {
   }
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
-  /// Mobilde GoogleSignIn; web'de signInWithPopup (client ID gerekmez)
   final GoogleSignIn? _googleSignIn = kIsWeb ? null : GoogleSignIn();
 
   User? get currentUser => _auth.currentUser;
@@ -49,7 +68,6 @@ class AuthService {
   Future<User?> signInWithGoogle() async {
     try {
       if (kIsWeb) {
-        // Web: signInWithPopup Firebase config kullanır, ayrı client ID gerekmez
         final credential = await _auth.signInWithPopup(GoogleAuthProvider());
         return credential.user;
       }
@@ -67,18 +85,30 @@ class AuthService {
     }
   }
 
-  /// Web: [signInWithPopup] (Google ile aynı model; `sign_in_with_apple` web JS interop hatası veriyordu).
-  /// iOS/Android: [signInWithProvider].
   Future<User?> signInWithApple() async {
     try {
       final apple = AppleAuthProvider();
+      apple.addScope('email');
+      apple.addScope('name');
       if (kIsWeb) {
         final credential = await _auth.signInWithPopup(apple);
         return credential.user;
       }
       final credential = await _auth.signInWithProvider(apple);
       return credential.user;
+    } on FirebaseAuthException catch (_) {
+      rethrow;
+    } on PlatformException catch (e) {
+      if (e.code == 'ERROR_CANCELED' ||
+          e.code == 'AuthorizationErrorCanceled' ||
+          (e.message?.contains('canceled') ?? false) ||
+          (e.message?.contains('cancelled') ?? false)) {
+        return null;
+      }
+      rethrow;
     } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('cancel')) return null;
       rethrow;
     }
   }

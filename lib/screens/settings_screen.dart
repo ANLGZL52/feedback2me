@@ -12,23 +12,41 @@ class SettingsScreen extends StatelessWidget {
     required this.onOpenLogin,
   });
 
-  /// [LoginScreen] `main.dart` içinde; döngüsel import önlemek için callback.
   final void Function(BuildContext context) onOpenLogin;
 
   static const _gold = Color(0xFFE8C547);
   static final Uri _privacyPolicyUri =
-      Uri.parse('https://feedbacktome.app/privacy');
-  static final Uri _termsUri = Uri.parse('https://feedbacktome.app/terms');
+      Uri.parse('https://feedbacktome-79655.web.app/privacy');
+  static final Uri _termsUri =
+      Uri.parse('https://feedbacktome-79655.web.app/terms');
   static final Uri _supportEmailUri =
       Uri.parse('mailto:support@feedbacktome.app');
 
   Future<void> _openExternal(BuildContext context, Uri uri) async {
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    bool ok = false;
+    try {
+      ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      ok = false;
+    }
     if (!context.mounted) return;
     if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(L10n.get(context, 'settingsLinkOpenFailed'))),
-      );
+      if (uri.scheme == 'https') {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => _InAppLegalPage(
+              title: uri.path.contains('privacy')
+                  ? L10n.get(context, 'settingsPrivacyPolicy')
+                  : L10n.get(context, 'settingsTerms'),
+              url: uri.toString(),
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(L10n.get(context, 'settingsLinkOpenFailed'))),
+        );
+      }
     }
   }
 
@@ -344,6 +362,107 @@ class _LanguageTile extends StatelessWidget {
       onTap: () async {
         await L10n.setLocale(locale);
       },
+    );
+  }
+}
+
+/// URL tarayıcıda açılamazsa in-app fallback olarak gösterilir.
+class _InAppLegalPage extends StatelessWidget {
+  const _InAppLegalPage({required this.title, required this.url});
+
+  final String title;
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      backgroundColor: const Color(0xFF141210),
+      appBar: AppBar(title: Text(title)),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: const Color(0xFFE8C547),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        url,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.white54,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        L10n.get(context, 'settingsLegalFallbackBody'),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: Colors.white70,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      FilledButton.icon(
+                        onPressed: () async {
+                          final uri = Uri.parse(url);
+                          try {
+                            await launchUrl(uri, mode: LaunchMode.platformDefault);
+                          } catch (_) {}
+                        },
+                        icon: const Icon(Icons.open_in_browser_rounded),
+                        label: Text(L10n.get(context, 'settingsLegalOpenBrowser')),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        L10n.get(context, 'settingsSupport'),
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'support@feedbacktome.app',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFFE8C547),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        L10n.get(context, 'settingsSupportHint'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: Colors.white54,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

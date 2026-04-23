@@ -557,7 +557,6 @@ Future<void> _afterFirebaseLoginCloseSheet(BuildContext context, User? user) asy
         duration: const Duration(seconds: 10),
       ),
     );
-    return;
   }
   Navigator.of(context).pop(true);
 }

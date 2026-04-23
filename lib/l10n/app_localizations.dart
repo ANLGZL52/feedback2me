@@ -66,7 +66,7 @@ class L10n {
     'createLinkCardTitle': 'Create my Feedback2Me link',
     'createLinkCardSubtitle': 'Create your profile and collect honest feedback from everyone with one link. Free.',
     'createLinkTierHint':
-        'One free demo link per account (10 min, one comment). After that, each premium link is paid or use a subscription for unlimited 24-hour links.',
+        'One free demo link per account (10 min, one comment). After that, purchase premium link credits (24 hours, multiple comments).',
     'tagline': 'Create one link in your name and let everyone share their thoughts.\nAI turns all feedback into a report for you.',
     'premiumAndCreateLink': 'Sign in',
     'afterLoginUseNewLinkButton':
@@ -78,13 +78,13 @@ class L10n {
     'headerBadgeDemo': 'Demo',
     'headerBadgePremium': 'Premium',
     'headerBadgeDemoTooltip':
-        'One-time free demo: 10 minutes, one comment. Then buy links or subscribe.',
+        'One-time free demo: 10 minutes, one comment. Then purchase premium link credits.',
     'headerBadgeNeedCredit': 'Buy link',
     'headerBadgeNeedCreditTooltip':
-        'Free demo used. Purchase a premium link or subscribe.',
+        'Free demo used. Purchase a premium link credit to continue.',
     'creditSheetTitle': 'Premium link required',
     'creditSheetBody':
-        'You already used your one-time demo (10 min, one comment). Buy a premium link credit or subscribe for unlimited 24-hour links.',
+        'You already used your one-time demo (10 min, one comment). Buy a premium link credit for a 24-hour link with multiple comments.',
     'creditSheetOpenPremium': 'Plans & purchase',
     'linkRequiresCredit':
         'You need a premium link or subscription. Open Plans to continue.',
@@ -261,6 +261,9 @@ class L10n {
     'settingsSupport': 'Contact support',
     'settingsSupportHint': 'Email support for account or billing issues.',
     'settingsLinkOpenFailed': 'Could not open the link.',
+    'settingsLegalFallbackBody':
+        'The document could not be opened in the browser. You can view the full text at the URL below, or contact support for assistance.',
+    'settingsLegalOpenBrowser': 'Try opening in browser',
     'settingsAbout': 'About',
     'settingsAboutBody':
         'Collect anonymous feedback with one link, then explore AI-powered audience insights and growth trends.',
@@ -403,11 +406,10 @@ class L10n {
     'historyLoadFailed': 'Could not load history: {e}',
     'currentScoreLine': 'Current score: {score}/100 · {count} comments',
     'errorGeneric': 'Error: {e}',
-    'iapStoreUnavailable': 'Store unavailable (Play Store / App Store).',
-    'iapMissingIds': ' Missing product IDs: {ids}.',
-    'iapProductsMissing':
-        'Products are missing or not live in the store yet.{hint} '
-        'In App Store Connect and Play Console define {subId} and {linkId} (see iap_products.dart).',
+    'iapStoreUnavailable': 'Store unavailable. Please check your internet connection and try again.',
+    'iapProductsComingSoon':
+        'Premium plans are being set up and will be available shortly. Please try again later.',
+    'iapLoadError': 'Could not load products. Please check your connection and try again.',
     'iapLoginRequired': 'You must sign in first.',
     'iapPaymentOpened':
         'Payment sheet opened. Rights will apply to your account when complete.',
@@ -416,27 +418,23 @@ class L10n {
         'Restore finished. Premium updates if an active subscription exists.',
     'iapRestoreError': 'Restore error: {e}',
     'iapScreenTitle': 'Premium',
-    'iapCreditTitle': 'Single premium link',
-    'iapMonthlyTitle': 'Monthly Premium',
-    'iapMonthlySubtitle':
-        'Unlimited 24-hour premium links while active. Renews automatically.',
+    'iapCreditTitle': 'Premium link credit',
     'iapCreditSubtitle':
         'Adds +1 link credit to your account (one link, 24 hours, multiple comments).',
     'iapRestoreButton': 'Restore purchases (Apple / Google)',
     'iapAppleFootnote':
-        'Payments run through your Apple ID. To cancel auto-renew: Settings → Apple Account → Subscriptions.',
+        'Payments are processed through your Apple ID.',
     'iapDebugSection': 'Developer (debug only)',
     'iapBuy': 'Buy',
     'iapNotInStore': 'Not in store yet: {label}',
     'iapBullets':
         '• First account: one free demo link (10 min, one comment)\n'
-        '• Monthly subscription: unlimited premium links (24 hours)\n'
-        '• One-time purchase: +1 premium link credit',
-    'iapHeadline': 'Premium and link credits',
+        '• Purchase link credits: each credit = one premium link (24 hours, multiple comments)',
+    'iapHeadline': 'Premium link credits',
     'iapPaymentsNote':
         'Payments are only via Apple App Store and Google Play. Open the app on iPhone or Android to purchase from this screen.',
     'iapAndroidFootnote':
-        'Payments and subscriptions are processed with your Google account. Manage or cancel subscriptions in Play Store → Payments & subscriptions.',
+        'Payments are processed with your Google account.',
     'audienceGrowthScoreTitle': 'Audience growth score',
     'audienceGrowthScoreBody':
         'Calculated from positive rate, negative pressure, and comment volume; '
@@ -484,7 +482,7 @@ class L10n {
     'createLinkCardTitle': 'Feedback2Me linkimi oluştur',
     'createLinkCardSubtitle': 'Profilini oluştur, tek linkten herkesten dürüst geri bildirim topla. Ücretsiz.',
     'createLinkTierHint':
-        'Hesap başına tek ücretsiz demo link (10 dk, tek yorum). Sonrasında her premium link ücretli veya abonelikle sınırsız 24 saatlik link.',
+        'Hesap başına tek ücretsiz demo link (10 dk, tek yorum). Sonrasında premium link kredisi satın alarak 24 saatlik çoklu yorum linkleri oluşturabilirsiniz.',
     'tagline': 'Feedback2Me ile kendi adınla tek bir link oluştur, herkes düşüncesini yazsın.\nYapay zeka tüm yorumları senin için rapora çevirsin.',
     'premiumAndCreateLink': 'Giriş yap',
     'afterLoginUseNewLinkButton':
@@ -496,13 +494,13 @@ class L10n {
     'headerBadgeDemo': 'Demo',
     'headerBadgePremium': 'Premium',
     'headerBadgeDemoTooltip':
-        'Tek seferlik ücretsiz demo: 10 dk, tek yorum. Sonra link satın al veya abone ol.',
+        'Tek seferlik ücretsiz demo: 10 dk, tek yorum. Sonra premium link kredisi satın al.',
     'headerBadgeNeedCredit': 'Link satın al',
     'headerBadgeNeedCreditTooltip':
-        'Ücretsiz demo kullanıldı. Premium link veya abonelik gerekir.',
+        'Ücretsiz demo kullanıldı. Devam etmek için premium link kredisi satın al.',
     'creditSheetTitle': 'Premium link gerekli',
     'creditSheetBody':
-        'Tek seferlik demo hakkını kullandın (10 dk, tek yorum). Premium link kredisi satın al veya abone ol; 24 saatlik çoklu yorum linkleri.',
+        'Tek seferlik demo hakkını kullandın (10 dk, tek yorum). Devam etmek için premium link kredisi satın al (24 saat, çoklu yorum).',
     'creditSheetOpenPremium': 'Planlar ve satın al',
     'linkRequiresCredit':
         'Premium link veya abonelik gerekir. Devam etmek için Planlar ekranını aç.',
@@ -683,6 +681,9 @@ class L10n {
     'settingsSupport': 'Destek ile iletişim',
     'settingsSupportHint': 'Hesap veya ödeme sorunları için e-posta desteği.',
     'settingsLinkOpenFailed': 'Bağlantı açılamadı.',
+    'settingsLegalFallbackBody':
+        'Belge tarayıcıda açılamadı. Tam metni aşağıdaki adresten görüntüleyebilir veya destek ile iletişime geçebilirsiniz.',
+    'settingsLegalOpenBrowser': 'Tarayıcıda açmayı dene',
     'settingsAbout': 'Hakkında',
     'settingsAboutBody':
         'Tek linkle anonim geri bildirim topla; yapay zekâ destekli kitle içgörüleri ve gelişim özetlerini keşfet.',
@@ -831,11 +832,10 @@ class L10n {
     'currentScoreLine': 'Güncel puan: {score}/100 · {count} yorum',
     'errorGeneric': 'Hata: {e}',
     'iapStoreUnavailable':
-        'Mağaza kullanılamıyor (Play Store / App Store).',
-    'iapMissingIds': ' Bulunamayan ID’ler: {ids}.',
-    'iapProductsMissing':
-        'Ürünler mağazada yok veya henüz yayında değil.{hint} '
-        'App Store Connect ve Play Console’da {subId} ve {linkId} tanımlayın (bkz. iap_products.dart).',
+        'Mağaza kullanılamıyor. İnternet bağlantınızı kontrol edip tekrar deneyin.',
+    'iapProductsComingSoon':
+        'Premium planlar hazırlanıyor ve kısa sürede kullanılabilir olacak. Lütfen daha sonra tekrar deneyin.',
+    'iapLoadError': 'Ürünler yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
     'iapLoginRequired': 'Önce giriş yapmalısın.',
     'iapPaymentOpened':
         'Ödeme ekranı açıldı. Tamamlanınca haklar hesabına işlenecek.',
@@ -844,30 +844,24 @@ class L10n {
         'Geri yükleme tamamlandı. Abonelik varsa premium güncellenir.',
     'iapRestoreError': 'Geri yükleme hatası: {e}',
     'iapScreenTitle': 'Premium',
-    'iapCreditTitle': 'Tek premium link',
-    'iapMonthlyTitle': 'Aylık Premium',
-    'iapMonthlySubtitle':
-        'Süresince sınırsız 24 saatlik premium link. Otomatik yenilenir.',
+    'iapCreditTitle': 'Premium link kredisi',
     'iapCreditSubtitle':
         'Hesabına +1 link kredisi eklenir (bir link, 24 saat, çoklu yorum).',
     'iapRestoreButton': 'Satın alımları geri yükle (Apple / Google)',
     'iapAppleFootnote':
-        'Ödemeler ve abonelikler Apple kimliğin üzerinden işlenir. '
-        'Otomatik yenilenen aboneliği iptal etmek için: Ayarlar → Apple Hesabı → Abonelikler.',
+        'Ödemeler Apple kimliğin üzerinden işlenir.',
     'iapDebugSection': 'Geliştirici (yalnızca debug)',
     'iapBuy': 'Satın al',
     'iapNotInStore': 'Mağazada henüz yok: {label}',
     'iapBullets':
         '• İlk hesap: tek ücretsiz demo link (10 dk, bir yorum)\n'
-        '• Aylık abonelik: sınırsız premium link (24 saat)\n'
-        '• Tek seferlik satın alma: +1 premium link kredisi',
-    'iapHeadline': 'Premium ve link kredisi',
+        '• Link kredisi satın al: her kredi = bir premium link (24 saat, çoklu yorum)',
+    'iapHeadline': 'Premium link kredisi',
     'iapPaymentsNote':
         'Ödeme yalnızca Apple App Store ve Google Play üzerinden yapılır. '
         'iPhone veya Android’de uygulamayı açıp bu ekrandan satın alın.',
     'iapAndroidFootnote':
-        'Ödemeler ve abonelikler Google hesabın üzerinden işlenir. '
-        'Aboneliği yönetmek veya iptal etmek için: Play Store → Ödemeler ve abonelikler.',
+        'Ödemeler Google hesabın üzerinden işlenir.',
     'audienceGrowthScoreTitle': 'Dinleyici gelişim puanı',
     'audienceGrowthScoreBody':
         'Olumlu oran, olumsuz baskı ve yorum hacmine göre hesaplanır; '

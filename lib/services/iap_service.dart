@@ -7,8 +7,7 @@ import '../app_state.dart';
 import '../config/iap_products.dart';
 import '../models/user_profile.dart';
 
-/// App Store / Google Play IAP.
-/// [purchaseStream] dinleyicisi uygulama açılır açılmaz ([IapService] oluşturulunca) kayıtlı olmalı.
+/// App Store / Google Play IAP — sadece consumable (link basina odeme).
 class IapService {
   IapService() {
     if (!kIsWeb) _listenToPurchases();
@@ -17,10 +16,10 @@ class IapService {
   final List<ProductDetails> _products = [];
   StreamSubscription<List<PurchaseDetails>>? _subscription;
 
-  /// Aynı işlem tekrar gelirse çifte teslimatı önlemek için (yenileme yeni purchaseID ile gelir).
   final Set<String> _deliveredKeys = <String>{};
 
   bool _available = false;
+  String? lastLoadError;
 
   bool get isAvailable => _available;
 
@@ -30,7 +29,12 @@ class IapService {
 
   Future<bool> get isStoreAvailable async {
     if (kIsWeb) return false;
-    _available = await InAppPurchase.instance.isAvailable();
+    try {
+      _available = await InAppPurchase.instance.isAvailable();
+    } catch (e) {
+      debugPrint('IAP isAvailable error: $e');
+      _available = false;
+    }
     return _available;
   }
 
@@ -41,21 +45,37 @@ class IapService {
     return null;
   }
 
-  /// Ürünleri mağazadan yükle; aynı id için (Android abonelik teklifleri) ilk kayıt tutulur.
   Future<List<ProductDetails>> loadProducts() async {
     if (kIsWeb) return [];
-    if (!await isStoreAvailable) return [];
-    final response = await InAppPurchase.instance.queryProductDetails(
-      IapProducts.all,
-    );
-    notFoundProductIds = response.notFoundIDs.toSet();
-    _products.clear();
-    final byId = <String, ProductDetails>{};
-    for (final p in response.productDetails) {
-      byId.putIfAbsent(p.id, () => p);
+    lastLoadError = null;
+    if (!await isStoreAvailable) {
+      lastLoadError = 'store_unavailable';
+      return [];
     }
-    _products.addAll(byId.values);
-    return List.from(_products);
+    try {
+      final response = await InAppPurchase.instance.queryProductDetails(
+        IapProducts.all,
+      );
+      notFoundProductIds = response.notFoundIDs.toSet();
+      if (response.error != null) {
+        debugPrint('IAP queryProductDetails error: ${response.error}');
+        lastLoadError = 'query_error';
+      }
+      _products.clear();
+      final byId = <String, ProductDetails>{};
+      for (final p in response.productDetails) {
+        byId.putIfAbsent(p.id, () => p);
+      }
+      _products.addAll(byId.values);
+      if (_products.isEmpty && notFoundProductIds.isNotEmpty) {
+        lastLoadError = 'products_not_found';
+      }
+      return List.from(_products);
+    } catch (e, st) {
+      debugPrint('IAP loadProducts exception: $e\n$st');
+      lastLoadError = 'load_exception';
+      return [];
+    }
   }
 
   void _listenToPurchases() {
@@ -111,16 +131,14 @@ class IapService {
 
       if (fresh) {
         try {
-          if (purchase.productID == IapProducts.premiumMonthly) {
-            await _grantPremiumToCurrentUser();
-          } else if (purchase.productID == IapProducts.premiumLinkSingle) {
+          if (purchase.productID == IapProducts.premiumLinkSingle) {
             await _grantLinkCreditToCurrentUser();
           } else {
-            debugPrint('IAP: bilinmeyen ürün ${purchase.productID}');
+            debugPrint('IAP: unknown product ${purchase.productID}');
           }
           _deliveredKeys.add(key);
         } catch (e, st) {
-          debugPrint('IAP teslimat hatası: $e\n$st');
+          debugPrint('IAP delivery error: $e\n$st');
         }
       }
 
@@ -132,28 +150,6 @@ class IapService {
         }
       }
     }
-  }
-
-  DateTime _extendedPremiumUntil(UserProfile profile) {
-    final now = DateTime.now();
-    final current = profile.premiumUntil;
-    final anchor =
-        current != null && current.isAfter(now) ? current : now;
-    return anchor.add(const Duration(days: 30));
-  }
-
-  Future<void> _grantPremiumToCurrentUser() async {
-    final uid = authService.uid;
-    if (uid == null) return;
-    final existing = await appData.getUserProfile(uid);
-    final profile = existing ?? UserProfile(uid: uid);
-    await appData.setUserProfile(
-      uid,
-      profile.copyWith(
-        isPremium: true,
-        premiumUntil: _extendedPremiumUntil(profile),
-      ),
-    );
   }
 
   Future<void> _grantLinkCreditToCurrentUser() async {
@@ -169,30 +165,41 @@ class IapService {
     );
   }
 
-  /// Abonelik veya tüketilebilir — doğru [buyNonConsumable] / [buyConsumable] seçilir.
+  /// Consumable satin alma (link kredisi).
   Future<bool> startPurchase(ProductDetails product) async {
     if (kIsWeb) return false;
     final uid = authService.uid;
     if (uid == null) return false;
+    if (!_available) {
+      debugPrint('IAP: store not available, cannot purchase');
+      return false;
+    }
     final param = PurchaseParam(
       productDetails: product,
       applicationUserName: uid,
     );
-    if (IapProducts.isConsumable(product.id)) {
-      return InAppPurchase.instance.buyConsumable(
+    try {
+      return await InAppPurchase.instance.buyConsumable(
         purchaseParam: param,
         autoConsume: true,
       );
+    } catch (e, st) {
+      debugPrint('IAP startPurchase error: $e\n$st');
+      rethrow;
     }
-    return InAppPurchase.instance.buyNonConsumable(purchaseParam: param);
   }
 
   Future<void> restorePurchases() async {
     if (kIsWeb) return;
     final uid = authService.uid;
-    await InAppPurchase.instance.restorePurchases(
-      applicationUserName: uid,
-    );
+    try {
+      await InAppPurchase.instance.restorePurchases(
+        applicationUserName: uid,
+      );
+    } catch (e, st) {
+      debugPrint('IAP restorePurchases error: $e\n$st');
+      rethrow;
+    }
   }
 
   void dispose() {

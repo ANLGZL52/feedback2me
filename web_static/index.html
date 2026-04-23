@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>FeedbackToMe</title>
+  <title>Feedback2Me — Personal Feedback Link &amp; AI Reports</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -17,32 +17,66 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
       padding: 24px;
-      text-align: center;
     }
+    .container { max-width: 480px; width: 100%; text-align: center; margin-top: 48px; }
     .logo { font-size: 1.75rem; font-weight: 700; color: #D4AF37; margin-bottom: 8px; }
-    .tagline { color: rgba(255,255,255,0.85); font-size: 1rem; max-width: 360px; line-height: 1.5; margin-bottom: 32px; }
+    .tagline { color: rgba(255,255,255,0.85); font-size: 1rem; max-width: 360px; line-height: 1.5; margin: 0 auto 32px; }
     .card {
       background: #1C1917;
       border: 1px solid rgba(255,255,255,0.06);
       border-radius: 16px;
       padding: 24px;
-      max-width: 400px;
       width: 100%;
+      text-align: left;
+      margin-bottom: 16px;
     }
     .card h2 { font-size: 1.1rem; margin-bottom: 12px; color: #fff; }
-    .card p { color: rgba(255,255,255,0.7); font-size: 0.9rem; line-height: 1.5; }
-    .note { margin-top: 24px; font-size: 0.85rem; color: rgba(255,255,255,0.5); }
+    .card p { color: rgba(255,255,255,0.7); font-size: 0.9rem; line-height: 1.5; margin-bottom: 8px; }
+    .card a { color: #D4AF37; text-decoration: none; }
+    .card a:hover { text-decoration: underline; }
+    .nav-links { margin-top: 24px; }
+    .nav-links a {
+      color: #D4AF37;
+      text-decoration: none;
+      margin: 0 12px;
+      font-size: 0.9rem;
+    }
+    .nav-links a:hover { text-decoration: underline; }
+    .footer { margin-top: 32px; font-size: 0.8rem; color: rgba(255,255,255,0.35); }
   </style>
 </head>
 <body>
-  <div class="logo">FeedbackToMe</div>
-  <p class="tagline">Tek linkle geri bildirim topla. AI ile rapora dönüştür.</p>
-  <div class="card">
-    <h2>Hoş geldiniz</h2>
-    <p>Web sürümü şu an güncelleniyor. Uygulamayı kullanmak için <strong>Android</strong> veya <strong>iOS</strong> cihazınızdan mağazalardan indirebilirsiniz.</p>
+  <div class="container">
+    <div class="logo">Feedback2Me</div>
+    <p class="tagline">Create one link, collect honest feedback from everyone. AI turns all comments into a report for you.</p>
+
+    <div class="card">
+      <h2>Get the App</h2>
+      <p>Feedback2Me is available on <strong>iOS</strong> (iPhone &amp; iPad) and <strong>Android</strong>. Download from the App Store or Google Play to create feedback links, collect responses, and view AI-powered reports.</p>
+    </div>
+
+    <div class="card">
+      <h2>Need Help?</h2>
+      <p>If you have questions or need support, visit our <a href="/support">Support page</a> or email us directly:</p>
+      <p><a href="mailto:support@feedbacktome.app" style="font-size: 1rem; font-weight: 600;">support@feedbacktome.app</a></p>
+    </div>
+
+    <div class="card">
+      <h2>How It Works</h2>
+      <p>1. Sign in with Apple or Google.</p>
+      <p>2. Create a personal feedback link.</p>
+      <p>3. Share the link — anyone can write anonymous feedback.</p>
+      <p>4. AI analyzes all responses into a detailed report.</p>
+    </div>
+
+    <div class="nav-links">
+      <a href="/support">Support</a>
+      <a href="/privacy">Privacy Policy</a>
+      <a href="/terms">Terms of Use</a>
+    </div>
+
+    <p class="footer">&copy; 2026 Feedback2Me. All rights reserved.</p>
   </div>
-  <p class="note">feedbacktome-79655.web.app</p>
 </body>
 </html>

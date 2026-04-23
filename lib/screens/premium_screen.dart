@@ -7,7 +7,7 @@ import '../app_state.dart';
 import '../config/iap_products.dart';
 import '../l10n/app_localizations.dart';
 
-/// Premium abonelik + tek link kredisi: App Store / Google Play (IAP).
+/// Premium link kredisi satin alma ekrani: App Store / Google Play (IAP).
 class PremiumScreen extends StatefulWidget {
   const PremiumScreen({super.key});
 
@@ -18,8 +18,7 @@ class PremiumScreen extends StatefulWidget {
 class _PremiumScreenState extends State<PremiumScreen> {
   bool _loading = true;
   String? _error;
-  bool _purchasingSub = false;
-  bool _purchasingCredit = false;
+  bool _purchasing = false;
   bool _restoring = false;
 
   @override
@@ -41,21 +40,13 @@ class _PremiumScreenState extends State<PremiumScreen> {
       await iapService.loadProducts();
       final storeAvailable = await iapService.isStoreAvailable;
       if (!mounted) return;
-      final missing = iapService.notFoundProductIds;
-      final sub = iapService.productById(IapProducts.premiumMonthly);
       final credit = iapService.productById(IapProducts.premiumLinkSingle);
       setState(() {
         _loading = false;
         if (!storeAvailable) {
-          _error = 'Mağaza kullanılamıyor (Play Store / App Store).';
-        } else if (sub == null && credit == null) {
-          final hint = missing.isEmpty
-              ? ''
-              : ' Bulunamayan ID’ler: ${missing.join(', ')}.';
-          _error =
-              'Ürünler mağazada yok veya henüz yayında değil.$hint '
-              'App Store Connect ve Play Console’da ${IapProducts.premiumMonthly} '
-              've ${IapProducts.premiumLinkSingle} tanımlayın (bkz. iap_products.dart).';
+          _error = L10n.get(context, 'iapStoreUnavailable');
+        } else if (credit == null) {
+          _error = L10n.get(context, 'iapProductsComingSoon');
         } else {
           _error = null;
         }
@@ -64,13 +55,13 @@ class _PremiumScreenState extends State<PremiumScreen> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = e.toString();
+          _error = L10n.get(context, 'iapLoadError');
         });
       }
     }
   }
 
-  Future<void> _purchase(ProductDetails product, {required bool isCredit}) async {
+  Future<void> _purchase(ProductDetails product) async {
     final uid = authService.uid;
     if (uid == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -78,20 +69,11 @@ class _PremiumScreenState extends State<PremiumScreen> {
       );
       return;
     }
-    setState(() {
-      if (isCredit) {
-        _purchasingCredit = true;
-      } else {
-        _purchasingSub = true;
-      }
-    });
+    setState(() => _purchasing = true);
     try {
       final ok = await iapService.startPurchase(product);
       if (!mounted) return;
-      setState(() {
-        _purchasingSub = false;
-        _purchasingCredit = false;
-      });
+      setState(() => _purchasing = false);
       if (ok) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(L10n.get(context, 'iapPaymentOpened'))),
@@ -103,10 +85,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _purchasingSub = false;
-          _purchasingCredit = false;
-        });
+        setState(() => _purchasing = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -146,7 +125,6 @@ class _PremiumScreenState extends State<PremiumScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final uid = authService.uid;
-    final sub = iapService.productById(IapProducts.premiumMonthly);
     final credit = iapService.productById(IapProducts.premiumLinkSingle);
 
     return Scaffold(
@@ -224,33 +202,17 @@ class _PremiumScreenState extends State<PremiumScreen> {
                         ),
                       )
                     else ...[
-                      if (sub != null)
-                        _PurchaseCard(
-                          title: L10n.get(context, 'iapMonthlyTitle'),
-                          subtitle: L10n.get(context, 'iapMonthlySubtitle'),
-                          price: sub.price,
-                          busy: _purchasingSub,
-                          onPressed: _purchasingSub
-                              ? null
-                              : () => _purchase(sub, isCredit: false),
-                        ),
-                      if (sub == null && _error == null)
-                        _MissingProductRow(
-                          label: IapProducts.premiumMonthly,
-                          theme: theme,
-                        ),
-                      const SizedBox(height: 12),
                       if (credit != null)
                         _PurchaseCard(
                           title: L10n.get(context, 'iapCreditTitle'),
                           subtitle: L10n.get(context, 'iapCreditSubtitle'),
                           price: credit.price,
-                          busy: _purchasingCredit,
-                          onPressed: _purchasingCredit
+                          busy: _purchasing,
+                          onPressed: _purchasing
                               ? null
-                              : () => _purchase(credit, isCredit: true),
-                        ),
-                      if (credit == null && _error == null)
+                              : () => _purchase(credit),
+                        )
+                      else
                         _MissingProductRow(
                           label: IapProducts.premiumLinkSingle,
                           theme: theme,
@@ -268,7 +230,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
                                 width: 18,
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
-                            : const Text('Satın alımları geri yükle (Apple / Google)'),
+                            : Text(L10n.get(context, 'iapRestoreButton')),
                       ),
                     ],
                     if (!kIsWeb &&
@@ -302,42 +264,9 @@ class _PremiumScreenState extends State<PremiumScreen> {
                       const Divider(color: Colors.white24),
                       const SizedBox(height: 8),
                       Text(
-                        'Geliştirici (yalnızca debug)',
+                        L10n.get(context, 'iapDebugSection'),
                         style: theme.textTheme.labelSmall
                             ?.copyWith(color: Colors.white38),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton(
-                        onPressed: uid == null
-                            ? null
-                            : () async {
-                                final profile =
-                                    await appData.getUserProfile(uid);
-                                if (profile == null) return;
-                                final until = DateTime.now()
-                                    .add(const Duration(days: 30));
-                                await appData.setUserProfile(
-                                  uid,
-                                  profile.copyWith(
-                                    isPremium: true,
-                                    premiumUntil: until,
-                                  ),
-                                );
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Test: Premium 30 gün',
-                                      ),
-                                    ),
-                                  );
-                                  Navigator.of(context).pop();
-                                }
-                              },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white38,
-                        ),
-                        child: const Text('Test: Premium 30 gün'),
                       ),
                       const SizedBox(height: 8),
                       OutlinedButton(
@@ -357,7 +286,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
-                                      content: Text('Test: +1 link kredisi'),
+                                      content: Text('Test: +1 link credit'),
                                     ),
                                   );
                                 }
@@ -365,7 +294,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white38,
                         ),
-                        child: const Text('Test: +1 link kredisi'),
+                        child: const Text('Test: +1 link credit'),
                       ),
                     ],
                   ],
