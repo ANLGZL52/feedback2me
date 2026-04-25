@@ -85,18 +85,19 @@ class L10n {
     'creditSheetTitle': 'Premium link required',
     'creditSheetBody':
         'You already used your one-time demo (10 min, one comment). Buy a premium link credit for a 24-hour link with multiple comments.',
-    'creditSheetOpenPremium': 'Plans & purchase',
+    'creditSheetOpenPremium': 'Buy link credits',
     'linkRequiresCredit':
-        'You need a premium link or subscription. Open Plans to continue.',
+        'You need a premium link credit. Open the purchase screen to continue.',
     'linkCreditsCount': 'Credits',
-    'demoSheetTitle': 'Demo plan',
+    'demoSheetTitle': 'Free demo link',
     'demoSheetBodyLoggedIn':
-        'Your account gets one free demo link (10 minutes, one comment). After that, premium links are paid per link or included with a subscription.',
+        'Your account gets one free demo link (10 minutes, one comment). After that, buy premium link credits — each credit is one 24-hour link with multiple comments.',
     'demoSheetBodyGuest':
-        'Sign in to create your one free demo link. Then purchase premium links or subscribe.',
-    'demoSheetGoPremium': 'Plans & purchase',
+        'Sign in to create your one free demo link. Then buy premium link credits when you need more links.',
+    'demoSheetGoPremium': 'Buy link credits',
     'demoSheetLoginFirst': 'Sign in',
-    'headerBadgePremiumTooltip': '24-hour links, multiple comments (subscription or link credits).',
+    'headerBadgePremiumTooltip':
+        '24-hour premium links with multiple comments (uses link credits).',
     'premium': 'Premium',
     'createProfile': 'Create your profile',
     'createProfileSubtitle': 'Create your personal feedback link for free.',
@@ -257,7 +258,7 @@ class L10n {
     'settingsPrivacyPolicyHint':
         'How data is collected, used, and deletion requests are handled.',
     'settingsTerms': 'Terms of use',
-    'settingsTermsHint': 'Subscription and product usage terms.',
+    'settingsTermsHint': 'Terms of use and in-app purchase information.',
     'settingsSupport': 'Contact support',
     'settingsSupportHint': 'Email support for account or billing issues.',
     'settingsLinkOpenFailed': 'Could not open the link.',
@@ -291,7 +292,7 @@ class L10n {
     'linkPlanBannerPremiumSub': '24 hours · Multiple comments until it expires',
     'linkPlanBannerLegacy': 'OLDER LINK',
     'linkPlanBannerLegacySub':
-        'Created before plan labels · May not match current demo rules',
+        'Created before tier labels · May not match current demo rules',
     'linkTileDemoHint': 'Demo · 10 min · one response',
     'linkTilePremiumUntil': 'Premium · active until',
     'linkValidUntilShort': 'Valid until',
@@ -299,12 +300,12 @@ class L10n {
     'linkCountdownCompactPrefix': 'Left:',
     'linkCountdownExpired': 'Expired — link no longer accepts feedback',
     'createdLinkDemoRules':
-        'Demo link: 10 minutes and one feedback only. Next links require a purchase or subscription — premium links stay open 24 hours with multiple responses.',
+        'Demo link: 10 minutes and one feedback only. Next links need a premium link credit — premium links stay open 24 hours with multiple responses.',
     'createdLinkPremiumRules':
         'Premium link: open for 24 hours; you can collect multiple comments until it expires.',
     'createdLinkPremiumPitch':
-        'This link is your one-time free demo. Later links need a paid premium link or subscription for 24-hour multi-comment links.',
-    'createdLinkOpenPremium': 'Plans & purchase',
+        'This link is your one-time free demo. Later links need a paid premium link credit (24 hours, multiple comments).',
+    'createdLinkOpenPremium': 'Buy link credits',
     'shareAudienceAnalysis': 'Share analysis',
     'audienceShareSubject': 'Feedback2Me — Audience analysis',
     'audienceShareHeading': 'Follower comment analysis',
@@ -408,14 +409,14 @@ class L10n {
     'errorGeneric': 'Error: {e}',
     'iapStoreUnavailable': 'Store unavailable. Please check your internet connection and try again.',
     'iapProductsComingSoon':
-        'Premium plans are being set up and will be available shortly. Please try again later.',
+        'Link credits are not available from the store yet. Please try again later.',
     'iapLoadError': 'Could not load products. Please check your connection and try again.',
     'iapLoginRequired': 'You must sign in first.',
     'iapPaymentOpened':
         'Payment sheet opened. Rights will apply to your account when complete.',
     'iapPurchaseStartFailed': 'Purchase could not be started.',
     'iapRestoreDone':
-        'Restore finished. Premium updates if an active subscription exists.',
+        'Restore finished. Any previously purchased link credits will sync to your account.',
     'iapRestoreError': 'Restore error: {e}',
     'iapScreenTitle': 'Premium',
     'iapCreditTitle': 'Premium link credit',
@@ -501,19 +502,19 @@ class L10n {
     'creditSheetTitle': 'Premium link gerekli',
     'creditSheetBody':
         'Tek seferlik demo hakkını kullandın (10 dk, tek yorum). Devam etmek için premium link kredisi satın al (24 saat, çoklu yorum).',
-    'creditSheetOpenPremium': 'Planlar ve satın al',
+    'creditSheetOpenPremium': 'Link kredisi satın al',
     'linkRequiresCredit':
-        'Premium link veya abonelik gerekir. Devam etmek için Planlar ekranını aç.',
+        'Premium link kredisi gerekir. Devam etmek için satın alma ekranını aç.',
     'linkCreditsCount': 'Kredi',
-    'demoSheetTitle': 'Demo plan',
+    'demoSheetTitle': 'Ücretsiz demo link',
     'demoSheetBodyLoggedIn':
-        'Hesabında tek ücretsiz demo link var (10 dakika, tek yorum). Sonrasında link başına ücret veya abonelikle sınırsız premium link.',
+        'Hesabında tek ücretsiz demo link var (10 dakika, tek yorum). Sonrasında premium link kredisi satın alırsın — her kredi bir adet 24 saatlik, çoklu yorumlu link.',
     'demoSheetBodyGuest':
-        'Giriş yaparak tek ücretsiz demo linkini oluştur. Sonra premium link veya abonelik alabilirsin.',
-    'demoSheetGoPremium': 'Planlar ve satın al',
+        'Giriş yaparak tek ücretsiz demo linkini oluştur. Daha fazla link için premium link kredisi satın al.',
+    'demoSheetGoPremium': 'Link kredisi satın al',
     'demoSheetLoginFirst': 'Giriş yap',
     'headerBadgePremiumTooltip':
-        '24 saatlik link, çoklu yorum (abonelik veya link kredisi).',
+        '24 saatlik premium link, çoklu yorum (link kredisi kullanılır).',
     'premium': 'Premium',
     'createProfile': 'Profilini oluştur',
     'createProfileSubtitle': 'Kendi adınla ücretsiz kişisel feedback linki oluştur.',
@@ -677,7 +678,7 @@ class L10n {
     'settingsPrivacyPolicyHint':
         'Verinin nasıl toplandığı, kullanıldığı ve silme taleplerinin yönetimi.',
     'settingsTerms': 'Kullanım şartları',
-    'settingsTermsHint': 'Abonelik ve ürün kullanım koşulları.',
+    'settingsTermsHint': 'Kullanım şartları ve uygulama içi satın alma bilgisi.',
     'settingsSupport': 'Destek ile iletişim',
     'settingsSupportHint': 'Hesap veya ödeme sorunları için e-posta desteği.',
     'settingsLinkOpenFailed': 'Bağlantı açılamadı.',
@@ -711,7 +712,7 @@ class L10n {
     'linkPlanBannerPremiumSub': '24 saat · Süre dolana kadar birden fazla yorum',
     'linkPlanBannerLegacy': 'ESKİ TİP LİNK',
     'linkPlanBannerLegacySub':
-        'Plan etiketinden önce oluşturuldu · Güncel demo kurallarıyla uyumlu olmayabilir',
+        'Sürüm etiketlerinden önce oluşturuldu · Güncel demo kurallarıyla uyumlu olmayabilir',
     'linkTileDemoHint': 'Demo · 10 dk · tek yanıt',
     'linkTilePremiumUntil': 'Premium · geçerlilik',
     'linkValidUntilShort': 'Son geçerlilik',
@@ -719,12 +720,12 @@ class L10n {
     'linkCountdownCompactPrefix': 'Kalan:',
     'linkCountdownExpired': 'Süre doldu — link artık yorum kabul etmiyor',
     'createdLinkDemoRules':
-        'Demo link: 10 dakika ve tek geri bildirim. Sonraki linkler ücretli premium veya abonelik — premium linkler 24 saat, çoklu yorum.',
+        'Demo link: 10 dakika ve tek geri bildirim. Sonraki linkler için premium link kredisi gerekir — premium linkler 24 saat, çoklu yorum.',
     'createdLinkPremiumRules':
         'Premium link: 24 saat açık; süre dolana kadar birden fazla yorum toplayabilirsiniz.',
     'createdLinkPremiumPitch':
-        'Bu link tek seferlik ücretsiz demo. Sonraki linkler için ücretli premium link veya abonelik gerekir (24 saat, çoklu yorum).',
-    'createdLinkOpenPremium': 'Planlar ve satın al',
+        'Bu link tek seferlik ücretsiz demo. Sonraki linkler için ücretli premium link kredisi gerekir (24 saat, çoklu yorum).',
+    'createdLinkOpenPremium': 'Link kredisi satın al',
     'shareAudienceAnalysis': 'Analizi paylaş',
     'audienceShareSubject': 'Feedback2Me — Takipçi analizi',
     'audienceShareHeading': 'Takipçi yorum analizi',
@@ -834,14 +835,14 @@ class L10n {
     'iapStoreUnavailable':
         'Mağaza kullanılamıyor. İnternet bağlantınızı kontrol edip tekrar deneyin.',
     'iapProductsComingSoon':
-        'Premium planlar hazırlanıyor ve kısa sürede kullanılabilir olacak. Lütfen daha sonra tekrar deneyin.',
+        'Mağazadan link kredisi henüz yüklenemedi. Lütfen daha sonra tekrar deneyin.',
     'iapLoadError': 'Ürünler yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
     'iapLoginRequired': 'Önce giriş yapmalısın.',
     'iapPaymentOpened':
         'Ödeme ekranı açıldı. Tamamlanınca haklar hesabına işlenecek.',
     'iapPurchaseStartFailed': 'Satın alma başlatılamadı.',
     'iapRestoreDone':
-        'Geri yükleme tamamlandı. Abonelik varsa premium güncellenir.',
+        'Geri yükleme tamamlandı. Daha önce satın alınmış link kredileri hesabına işlenir.',
     'iapRestoreError': 'Geri yükleme hatası: {e}',
     'iapScreenTitle': 'Premium',
     'iapCreditTitle': 'Premium link kredisi',

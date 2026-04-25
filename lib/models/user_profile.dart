@@ -28,7 +28,7 @@ class UserProfile {
   /// Satın alınan premium link hakları (her link 24 saat, çoklu yorum); oluşturulunca 1 azalır.
   final int paidLinkCredits;
 
-  /// Abonelik süresi dolmamış gerçek premium (sınırsız premium link, 24 saat).
+  /// Eski / manuel premium bayrağı: süre dolmamışsa premium link oluşturma hakkı (Firestore ile uyum).
   bool get hasActivePremium {
     if (!isPremium) return false;
     final u = premiumUntil;
@@ -39,7 +39,7 @@ class UserProfile {
   /// Henüz ücretsiz demo link hakkı var mı.
   bool get hasFreeDemoAvailable => !freeDemoLinkUsed;
 
-  /// Abonelik veya kredi ile premium link oluşturulabilir mi.
+  /// Aktif premium süresi veya kredi ile premium link oluşturulabilir mi.
   bool get canCreatePaidPremiumLink => hasActivePremium || paidLinkCredits > 0;
 
   UserProfile copyWith({

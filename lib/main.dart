@@ -1112,7 +1112,7 @@ class _FooterNote extends StatelessWidget {
   }
 }
 
-/// Üst çubuk: abonelik / link kredisi → Premium; ücretsiz demo hakkı → Demo; demo bitti → satın alma.
+/// Üst çubuk: aktif premium veya link kredisi → Premium; ücretsiz demo → Demo; demo bitti → satın alma.
 Future<void> _showDemoPlanSheet(BuildContext context, {required bool isLoggedIn}) async {
   final theme = Theme.of(context);
   await showModalBottomSheet<void>(
