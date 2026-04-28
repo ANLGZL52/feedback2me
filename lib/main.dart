@@ -815,7 +815,7 @@ class _LandingScreenState extends State<LandingScreen> {
                 padding: EdgeInsets.only(
                   right: feedbackAppUsesIosTypography ? 0 : 8,
                 ),
-                child: _PlanTierBadge(
+                child: _LinkTierHeaderBadge(
                   isLoggedIn: isLoggedIn,
                   profile: profile,
                   compact: feedbackAppUsesIosTypography,
@@ -1113,7 +1113,7 @@ class _FooterNote extends StatelessWidget {
 }
 
 /// Üst çubuk: aktif premium veya link kredisi → Premium; ücretsiz demo → Demo; demo bitti → satın alma.
-Future<void> _showDemoPlanSheet(BuildContext context, {required bool isLoggedIn}) async {
+Future<void> _showFreeDemoSheet(BuildContext context, {required bool isLoggedIn}) async {
   final theme = Theme.of(context);
   await showModalBottomSheet<void>(
     context: context,
@@ -1262,8 +1262,8 @@ Future<void> _showLinkCreditSheet(BuildContext context) async {
   );
 }
 
-class _PlanTierBadge extends StatelessWidget {
-  const _PlanTierBadge({
+class _LinkTierHeaderBadge extends StatelessWidget {
+  const _LinkTierHeaderBadge({
     required this.isLoggedIn,
     this.profile,
     this.compact = false,
@@ -1324,7 +1324,7 @@ class _PlanTierBadge extends StatelessWidget {
       label = L10n.get(context, 'headerBadgeDemo');
       tip = L10n.get(context, 'headerBadgeDemoTooltip');
       icon = Icons.timer_outlined;
-      onTap = () => _showDemoPlanSheet(context, isLoggedIn: isLoggedIn);
+      onTap = () => _showFreeDemoSheet(context, isLoggedIn: isLoggedIn);
     }
 
     if (compact) {

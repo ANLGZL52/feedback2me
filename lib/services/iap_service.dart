@@ -14,7 +14,7 @@ class IapService {
   }
 
   final List<ProductDetails> _products = [];
-  StreamSubscription<List<PurchaseDetails>>? _subscription;
+  StreamSubscription<List<PurchaseDetails>>? _purchaseUpdatesSub;
 
   final Set<String> _deliveredKeys = <String>{};
 
@@ -80,10 +80,10 @@ class IapService {
 
   void _listenToPurchases() {
     if (kIsWeb) return;
-    _subscription?.cancel();
-    _subscription = InAppPurchase.instance.purchaseStream.listen(
+    _purchaseUpdatesSub?.cancel();
+    _purchaseUpdatesSub = InAppPurchase.instance.purchaseStream.listen(
       _onPurchaseUpdates,
-      onDone: () => _subscription = null,
+      onDone: () => _purchaseUpdatesSub = null,
       onError: (Object e, StackTrace st) {
         debugPrint('IAP purchaseStream error: $e\n$st');
       },
@@ -203,6 +203,6 @@ class IapService {
   }
 
   void dispose() {
-    _subscription?.cancel();
+    _purchaseUpdatesSub?.cancel();
   }
 }

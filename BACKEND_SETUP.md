@@ -25,18 +25,15 @@ Bu komut:
 
 `firebase_options.dart` gerçek değerlerle dolu. Web’de Google girişi `signInWithPopup` ile yapılıyor (ek client ID gerekmez). Mobil için `flutterfire configure` ile proje/uygulama eşleştirilir.
 
-## 3. Ödeme (Premium) — 99 ₺/ay
+## 3. Ödeme — link başına (tüketilebilir IAP)
 
-**Fiyat:** Aylık abonelik **99 TL**. Uygulama içi ekranda ve mağaza fiyatı aynı.
+Model: **Tek seferlik link kredisi** (`premium_link_single`, consumable). Her satın alma hesaba +1 kredi yazar; bir premium link oluşturulunca kredi düşer. Aylık/yinelenen ücret yok.
 
-- **Apple App Store Connect:** Subscriptions → aylık abonelik 99 TRY, ürün ID örn. `premium_monthly`.
-- **Google Play Console:** Subscriptions → aylık 99 TRY, aynı ürün ID.
-- **Flutter:** `in_app_purchase` ile ürünü yükle ve satın alma bağla; onayda Firestore `isPremium` / `premiumUntil` güncelle. Test için Premium ekranında "Test: Premium'u 30 gün aç" var.
+- **Apple:** App Store Connect → In-App Purchases → **Consumable**, ürün kimliği `premium_link_single`. Ürünü oluşturduktan sonra **yeni uygulama sürümünde** bu IAP’yi inceleme paketine **mutlaka ekleyin** (yalnızca binary göndermek Guideline 2.1(b) reddine yol açabilir). Ayrıntılar: `lib/config/iap_products.dart` üst yorumları.
+- **Google:** Play Console → One-time products → aynı ürün kimliği.
+- **Flutter:** `in_app_purchase`; teslimatta Firestore `paidLinkCredits` güncellenir. İsteğe bağlı eski alanlar: `isPremium` / `premiumUntil` (geriye dönük).
 
-- **Apple**: App Store Connect’te uygulama + In-App Purchase (abonelik) tanımlanacak; uygulama içinde `in_app_purchase` paketi ile satın alma yapılacak. Abonelik durumu Firestore’daki kullanıcı dokümanında `isPremium` / `premiumUntil` ile güncellenebilir.
-- **Google**: Google Play Console’da uygulama + abonelik ürünü; yine `in_app_purchase` ile tüketim. Premium bilgisi Firestore’da tutulacak.
-
-Giriş zaten **sadece Apple ve Google** ile; ödeme de tamamen App Store / Google Play üzerinden kalacak şekilde tasarlandı.
+Ödeme yalnızca App Store / Google Play üzerinden.
 
 ## 4. Koleksiyonlar (Firestore)
 

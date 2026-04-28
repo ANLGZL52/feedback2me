@@ -164,7 +164,7 @@ class L10n {
     'feedbackError': 'Could not send feedback.',
     'feedbackFormFooterDiscover': 'Want your own feedback link and AI reports?',
     'feedbackFormOpenApp': 'Open Feedback2Me',
-    'feedbackFormGoPremium': 'Go Premium & try it yourself',
+    'feedbackFormGoPremium': 'Try Feedback2Me with your own link',
     'feedbackFormCouldNotOpenLink': 'Could not open link.',
     'feedbackFormIntroLead':
         'This screen is for sharing honest feedback about the person who sent you the link. They use Feedback2Me to collect comments in one place and turn them into an AI summary—without seeing who wrote each message unless you add your name.',
@@ -418,11 +418,11 @@ class L10n {
     'iapRestoreDone':
         'Restore finished. Any previously purchased link credits will sync to your account.',
     'iapRestoreError': 'Restore error: {e}',
-    'iapScreenTitle': 'Premium',
+    'iapScreenTitle': 'Link credits',
     'iapCreditTitle': 'Premium link credit',
     'iapCreditSubtitle':
         'Adds +1 link credit to your account (one link, 24 hours, multiple comments).',
-    'iapRestoreButton': 'Restore purchases (Apple / Google)',
+    'iapRestoreButton': 'Restore previous purchases',
     'iapAppleFootnote':
         'Payments are processed through your Apple ID.',
     'iapDebugSection': 'Developer (debug only)',
@@ -582,7 +582,8 @@ class L10n {
     'feedbackFormFooterDiscover':
         'Kendi feedback linkin ve AI raporların mı olsun?',
     'feedbackFormOpenApp': 'Feedback2Me uygulamasını aç',
-    'feedbackFormGoPremium': 'Premium ol ve sen de dene',
+    'feedbackFormGoPremium':
+        'Kendi feedback linkinle Feedback2Me’yi dene',
     'feedbackFormCouldNotOpenLink': 'Bağlantı açılamadı.',
     'feedbackFormIntroLead':
         'Bu ekran, sana linki gönderen kişi hakkında düşüncelerini paylaşman içindir. O kişi Feedback2Me ile tüm yorumları tek yerde toplar ve yapay zekâ ile özetler; ismini yazmadığın sürece kim yazdığını bilmez.',
@@ -844,11 +845,11 @@ class L10n {
     'iapRestoreDone':
         'Geri yükleme tamamlandı. Daha önce satın alınmış link kredileri hesabına işlenir.',
     'iapRestoreError': 'Geri yükleme hatası: {e}',
-    'iapScreenTitle': 'Premium',
+    'iapScreenTitle': 'Link kredisi',
     'iapCreditTitle': 'Premium link kredisi',
     'iapCreditSubtitle':
         'Hesabına +1 link kredisi eklenir (bir link, 24 saat, çoklu yorum).',
-    'iapRestoreButton': 'Satın alımları geri yükle (Apple / Google)',
+    'iapRestoreButton': 'Önceki satın alımları geri yükle',
     'iapAppleFootnote':
         'Ödemeler Apple kimliğin üzerinden işlenir.',
     'iapDebugSection': 'Geliştirici (yalnızca debug)',
