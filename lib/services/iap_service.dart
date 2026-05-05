@@ -21,6 +21,9 @@ class IapService {
   bool _available = false;
   String? lastLoadError;
 
+  /// Son StoreKit / Play satın alma akışı hatası (sandbox dahil).
+  String? lastPurchaseError;
+
   bool get isAvailable => _available;
 
   List<ProductDetails> get loadedProducts => List.unmodifiable(_products);
@@ -105,8 +108,11 @@ class IapService {
       if (purchase.status == PurchaseStatus.pending) continue;
 
       if (purchase.status == PurchaseStatus.error) {
+        final code = purchase.error?.code ?? '';
+        final msg = purchase.error?.message ?? '';
+        lastPurchaseError = '$code $msg'.trim();
         debugPrint(
-          'IAP error: ${purchase.error?.code} ${purchase.error?.message}',
+          'IAP error: $code $msg',
         );
         if (purchase.pendingCompletePurchase) {
           await InAppPurchase.instance.completePurchase(purchase);
@@ -115,6 +121,7 @@ class IapService {
       }
 
       if (purchase.status == PurchaseStatus.canceled) {
+        lastPurchaseError = null;
         if (purchase.pendingCompletePurchase) {
           await InAppPurchase.instance.completePurchase(purchase);
         }
@@ -129,20 +136,32 @@ class IapService {
       final key = _deliveryKey(purchase);
       final fresh = !_deliveredKeys.contains(key);
 
+      var shouldComplete = false;
+
       if (fresh) {
         try {
           if (purchase.productID == IapProducts.premiumLinkSingle) {
             await _grantLinkCreditToCurrentUser();
+            _deliveredKeys.add(key);
+            shouldComplete = true;
+            lastPurchaseError = null;
           } else {
             debugPrint('IAP: unknown product ${purchase.productID}');
+            _deliveredKeys.add(key);
+            shouldComplete = true;
           }
-          _deliveredKeys.add(key);
         } catch (e, st) {
           debugPrint('IAP delivery error: $e\n$st');
+          lastPurchaseError =
+              'delivery_failed: $e';
+          // Hesaba yazılamadıysa completePurchase yapma; işlem kuyrukta kalır.
+          shouldComplete = false;
         }
+      } else {
+        shouldComplete = true;
       }
 
-      if (purchase.pendingCompletePurchase) {
+      if (purchase.pendingCompletePurchase && shouldComplete) {
         try {
           await InAppPurchase.instance.completePurchase(purchase);
         } catch (e, st) {
@@ -170,8 +189,10 @@ class IapService {
     if (kIsWeb) return false;
     final uid = authService.uid;
     if (uid == null) return false;
+    lastPurchaseError = null;
     if (!_available) {
       debugPrint('IAP: store not available, cannot purchase');
+      lastPurchaseError = 'store_unavailable';
       return false;
     }
     final param = PurchaseParam(
@@ -185,6 +206,7 @@ class IapService {
       );
     } catch (e, st) {
       debugPrint('IAP startPurchase error: $e\n$st');
+      lastPurchaseError = e.toString();
       rethrow;
     }
   }

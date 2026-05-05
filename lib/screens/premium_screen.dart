@@ -71,7 +71,17 @@ class _PremiumScreenState extends State<PremiumScreen> {
     }
     setState(() => _purchasing = true);
     try {
-      final ok = await iapService.startPurchase(product);
+      await iapService.loadProducts();
+      if (!mounted) return;
+      final fresh = iapService.productById(IapProducts.premiumLinkSingle);
+      if (fresh == null) {
+        setState(() {
+          _purchasing = false;
+          _error = L10n.get(context, 'iapProductsComingSoon');
+        });
+        return;
+      }
+      final ok = await iapService.startPurchase(fresh);
       if (!mounted) return;
       setState(() => _purchasing = false);
       if (ok) {
@@ -79,8 +89,16 @@ class _PremiumScreenState extends State<PremiumScreen> {
           SnackBar(content: Text(L10n.get(context, 'iapPaymentOpened'))),
         );
       } else {
+        final err = iapService.lastPurchaseError;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(L10n.get(context, 'iapPurchaseStartFailed'))),
+          SnackBar(
+            content: Text(
+              err != null && err.isNotEmpty
+                  ? L10n.get(context, 'iapPurchaseStartFailedWithDetail')
+                      .replaceAll('{detail}', err)
+                  : L10n.get(context, 'iapPurchaseStartFailed'),
+            ),
+          ),
         );
       }
     } catch (e) {

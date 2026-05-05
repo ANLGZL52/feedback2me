@@ -415,6 +415,8 @@ class L10n {
     'iapPaymentOpened':
         'Payment sheet opened. Rights will apply to your account when complete.',
     'iapPurchaseStartFailed': 'Purchase could not be started.',
+    'iapPurchaseStartFailedWithDetail':
+        'Purchase could not be started: {detail}',
     'iapRestoreDone':
         'Restore finished. Any previously purchased link credits will sync to your account.',
     'iapRestoreError': 'Restore error: {e}',
@@ -842,6 +844,8 @@ class L10n {
     'iapPaymentOpened':
         'Ödeme ekranı açıldı. Tamamlanınca haklar hesabına işlenecek.',
     'iapPurchaseStartFailed': 'Satın alma başlatılamadı.',
+    'iapPurchaseStartFailedWithDetail':
+        'Satın alma başlatılamadı: {detail}',
     'iapRestoreDone':
         'Geri yükleme tamamlandı. Daha önce satın alınmış link kredileri hesabına işlenir.',
     'iapRestoreError': 'Geri yükleme hatası: {e}',
