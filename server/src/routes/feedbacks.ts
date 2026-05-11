@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 
 const addFeedbackSchema = z.object({
   linkId: z.string().min(1),
-  textRaw: z.string().min(1),
+  textRaw: z.string().min(10),
   mood: z.number().int().min(-1).max(1).optional(),
   relation: z.string().max(500).nullable().optional(),
   responderName: z.string().max(200).nullable().optional(),

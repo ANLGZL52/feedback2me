@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart'
     show kDebugMode, kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
@@ -20,6 +22,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
   String? _error;
   bool _purchasing = false;
   bool _restoring = false;
+  StreamSubscription<int>? _creditGrantedSub;
 
   @override
   void initState() {
@@ -28,7 +31,27 @@ class _PremiumScreenState extends State<PremiumScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _loadProducts();
       });
+      _creditGrantedSub = iapService.onLinkCreditGranted.listen((_) {
+        if (!mounted) return;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(L10n.get(context, 'iapCreditGrantedSnack')),
+            ),
+          );
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop(true);
+          }
+        });
+      });
     }
+  }
+
+  @override
+  void dispose() {
+    _creditGrantedSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadProducts() async {
@@ -301,13 +324,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
                                         profile.paidLinkCredits + 1,
                                   ),
                                 );
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Test: +1 link credit'),
-                                    ),
-                                  );
-                                }
+                                iapService.notifyLinkCreditGrantedForTesting();
                               },
                         style: OutlinedButton.styleFrom(
                           foregroundColor: Colors.white38,

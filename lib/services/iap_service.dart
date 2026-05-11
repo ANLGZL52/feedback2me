@@ -18,6 +18,23 @@ class IapService {
 
   final Set<String> _deliveredKeys = <String>{};
 
+  /// Mağaza akışı veya [notifyLinkCreditGrantedForTesting] ile kredi işlendiğinde artar.
+  final StreamController<int> _linkCreditGranted =
+      StreamController<int>.broadcast();
+  int _linkCreditGrantSeq = 0;
+
+  /// Premium ekranı vb. dinleyebilir (başarılı +1 kredi teslimi).
+  Stream<int> get onLinkCreditGranted => _linkCreditGranted.stream;
+
+  void _emitLinkCreditGranted() {
+    if (!_linkCreditGranted.isClosed) {
+      _linkCreditGranted.add(++_linkCreditGrantSeq);
+    }
+  }
+
+  /// Yerel test / debug: gerçek satın alma olmadan [onLinkCreditGranted] tetiklenir.
+  void notifyLinkCreditGrantedForTesting() => _emitLinkCreditGranted();
+
   bool _available = false;
   String? lastLoadError;
 
@@ -142,6 +159,7 @@ class IapService {
         try {
           if (purchase.productID == IapProducts.premiumLinkSingle) {
             await _grantLinkCreditToCurrentUser();
+            _emitLinkCreditGranted();
             _deliveredKeys.add(key);
             shouldComplete = true;
             lastPurchaseError = null;

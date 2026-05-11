@@ -12,6 +12,15 @@
       "collectionGroup": "links",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "code", "order": "ASCENDING" },
+        { "fieldPath": "linkTier", "order": "ASCENDING" },
+        { "fieldPath": "demoSubmissionUsed", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "links",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "ownerId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]

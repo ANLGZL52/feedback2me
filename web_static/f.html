@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Railway / REST: kök URL’siz, sonda / yok. Örnek: content="https://xxx.up.railway.app" -->
+  <meta name="ftm-public-api" content="">
   <title>Feedback Gönder — FeedbackToMe</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -332,6 +334,20 @@
     firebase.initializeApp(cfg);
     const db = firebase.firestore();
 
+    function resolvePublicApiBase() {
+      var meta = document.querySelector('meta[name="ftm-public-api"]');
+      if (meta) {
+        var mc = (meta.getAttribute('content') || '').trim();
+        if (mc) return mc.replace(/\/+$/, '');
+      }
+      if (typeof window.FTM_PUBLIC_API_BASE === 'string' && window.FTM_PUBLIC_API_BASE.trim()) {
+        return window.FTM_PUBLIC_API_BASE.trim().replace(/\/+$/, '');
+      }
+      return '';
+    }
+    var FTM_PUBLIC_API_BASE = resolvePublicApiBase();
+    window._useRestApi = false;
+
     (function buildLikertRows() {
       document.querySelectorAll('[data-likert]').forEach(function (row) {
         const name = row.getAttribute('data-likert');
@@ -378,11 +394,23 @@
     }
 
     function getCode() {
+      var raw = '';
       var p = location.pathname;
       var m = p.match(/\/f\/([a-zA-Z0-9]+)/);
-      if (m) return m[1];
-      var q = new URLSearchParams(location.search);
-      return q.get('code') || q.get('c') || '';
+      if (m) raw = m[1];
+      else {
+        var q = new URLSearchParams(location.search);
+        raw = q.get('code') || q.get('c') || '';
+      }
+      return (raw || '').trim().toLowerCase();
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
     }
 
     function show(id, html, cls) {
@@ -479,18 +507,65 @@
       show('msg', 'Linkte kod bulunamadı. Örnek: feedbacktome-79655.web.app/f/abc12345', 'err');
     } else {
       show('msg', 'Link kontrol ediliyor...', 'load');
-      db.collection('links')
-        .where('code', '==', code)
-        .limit(1)
-        .get()
-        .then(function (snap) {
-          if (snap.empty) {
+      // Firestore: kurallarla uyumlu sorgu (yalnızca code → permission-denied). REST: Railway `GET /public/links/by-code/:code`.
+      function fetchLinkDocForGuest() {
+        if (FTM_PUBLIC_API_BASE) {
+          return fetch(FTM_PUBLIC_API_BASE + '/public/links/by-code/' + encodeURIComponent(code), {
+            headers: { Accept: 'application/json' }
+          }).then(function (res) {
+            return res.json().catch(function () { return {}; }).then(function (j) {
+              if (res.status === 404) {
+                if (j && j.error === 'demo_used') return { _rest: true, _state: 'demo_used' };
+                return null;
+              }
+              if (!res.ok) throw new Error('Sunucu yanıtı: ' + res.status);
+              if (!j || !j.link) return null;
+              return { _rest: true, link: j.link };
+            });
+          });
+        }
+        return db.collection('links')
+          .where('code', '==', code)
+          .where('isActive', '==', true)
+          .limit(1)
+          .get()
+          .then(function (snap) {
+            if (!snap.empty) return snap.docs[0];
+            return db.collection('links')
+              .where('code', '==', code)
+              .where('linkTier', '==', 'demo')
+              .where('demoSubmissionUsed', '==', true)
+              .limit(1)
+              .get()
+              .then(function (snap2) {
+                return snap2.empty ? null : snap2.docs[0];
+              });
+          });
+      }
+      fetchLinkDocForGuest()
+        .then(function (linkDoc) {
+          if (!linkDoc) {
             hideLinkCountdown();
             show('msg', 'Bu link bulunamadı.', 'err');
             return;
           }
-          var linkDoc = snap.docs[0];
-          var data = linkDoc.data();
+          if (linkDoc._state === 'demo_used') {
+            hideLinkCountdown();
+            show('msg', 'Bu demo link zaten bir kez kullanıldı. Yeni analiz için link sahibinin premium link oluşturması gerekir.', 'err');
+            return;
+          }
+          var data;
+          if (linkDoc._rest === true && linkDoc.link) {
+            window._useRestApi = true;
+            data = linkDoc.link;
+            window._linkId = data.id;
+            window._linkRef = null;
+          } else {
+            window._useRestApi = false;
+            data = linkDoc.data();
+            window._linkId = linkDoc.id;
+            window._linkRef = linkDoc.ref;
+          }
           var st = publicLinkStatus(data);
           if (!st.ok) {
             if (st.reason === 'expired') {
@@ -503,8 +578,6 @@
             hideLinkCountdown();
             return;
           }
-          window._linkId = linkDoc.id;
-          window._linkRef = linkDoc.ref;
           window._linkData = data;
           show('msg', '');
           document.getElementById('form').style.display = 'block';
@@ -518,7 +591,12 @@
         })
         .catch(function (e) {
           hideLinkCountdown();
-          show('msg', 'Bağlantı hatası: ' + e.message, 'err');
+          var msg = e && e.message ? String(e.message) : 'Bilinmeyen hata';
+          var hint = '';
+          if (!FTM_PUBLIC_API_BASE && /permission|insufficient/i.test(msg)) {
+            hint = ' — Son çözüm: projede firebase deploy --only firestore:rules,hosting,firestore:indexes. Railway API kullanıyorsanız sayfada meta ftm-public-api (API kök URL) tanımlayın.';
+          }
+          show('msg', 'Bağlantı hatası: ' + escapeHtml(msg) + escapeHtml(hint), 'err');
         });
     }
 
@@ -529,7 +607,8 @@
         show('msg', 'En az 10 karakter yaz.', 'err');
         return;
       }
-      if (!window._linkId || !window._linkRef) return;
+      if (!window._linkId) return;
+      if (!window._useRestApi && !window._linkRef) return;
       var st = publicLinkStatus(window._linkData);
       if (!st.ok) {
         show('msg', 'Bu link artık kabul etmiyor. Sayfayı yenileyin.', 'err');
@@ -540,28 +619,51 @@
       show('msg', 'Gönderiliyor...', 'load');
       try {
         var mood = parseInt(document.querySelector('input[name="mood"]:checked').value, 10);
-        var payload = {
-          linkId: window._linkId,
-          responderName: document.getElementById('name').value.trim() || null,
-          relation: document.getElementById('relation').value.trim() || null,
-          mood: mood,
-          textRaw: text,
-          createdAt: firebase.firestore.FieldValue.serverTimestamp()
-        };
         var survey = collectCreatorSurvey();
-        if (survey) payload.creatorSurvey = survey;
-        var batch = db.batch();
-        var fr = db.collection('feedbacks').doc();
-        batch.set(fr, payload);
-        if (window._linkData && window._linkData.linkTier === 'demo') {
-          batch.update(window._linkRef, { demoSubmissionUsed: true, isActive: false });
+        if (window._useRestApi && FTM_PUBLIC_API_BASE) {
+          var body = {
+            linkId: window._linkId,
+            responderName: document.getElementById('name').value.trim() || null,
+            relation: document.getElementById('relation').value.trim() || null,
+            mood: mood,
+            textRaw: text
+          };
+          if (survey) body.creatorSurvey = survey;
+          var res = await fetch(FTM_PUBLIC_API_BASE + '/feedbacks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(body)
+          });
+          if (!res.ok) {
+            var errBody = await res.text();
+            if (res.status === 410) {
+              throw new Error('Bu linkin süresi dolmuş.');
+            }
+            throw new Error(errBody || ('HTTP ' + res.status));
+          }
+        } else {
+          var payload = {
+            linkId: window._linkId,
+            responderName: document.getElementById('name').value.trim() || null,
+            relation: document.getElementById('relation').value.trim() || null,
+            mood: mood,
+            textRaw: text,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          };
+          if (survey) payload.creatorSurvey = survey;
+          var batch = db.batch();
+          var fr = db.collection('feedbacks').doc();
+          batch.set(fr, payload);
+          if (window._linkData && window._linkData.linkTier === 'demo') {
+            batch.update(window._linkRef, { demoSubmissionUsed: true, isActive: false });
+          }
+          await batch.commit();
         }
-        await batch.commit();
         hideLinkCountdown();
         document.getElementById('form').style.display = 'none';
         show('msg', 'Teşekkürler! Feedback\'in gönderildi. Link sahibine iletilecek.', 'ok');
       } catch (err) {
-        show('msg', 'Gönderilemedi: ' + err.message, 'err');
+        show('msg', 'Gönderilemedi: ' + (err && err.message ? err.message : err), 'err');
         btn.disabled = false;
       }
     });

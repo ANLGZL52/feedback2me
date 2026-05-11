@@ -412,6 +412,8 @@ class L10n {
         'Link credits are not available from the store yet. Please try again later.',
     'iapLoadError': 'Could not load products. Please check your connection and try again.',
     'iapLoginRequired': 'You must sign in first.',
+    'iapCreditGrantedSnack':
+        '+1 link credit added. Tap «New link» on the home screen to create your link.',
     'iapPaymentOpened':
         'Payment sheet opened. Rights will apply to your account when complete.',
     'iapPurchaseStartFailed': 'Purchase could not be started.',
@@ -841,6 +843,8 @@ class L10n {
         'Mağazadan link kredisi henüz yüklenemedi. Lütfen daha sonra tekrar deneyin.',
     'iapLoadError': 'Ürünler yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
     'iapLoginRequired': 'Önce giriş yapmalısın.',
+    'iapCreditGrantedSnack':
+        '+1 link kredisi eklendi. Link oluşturmak için ana sayfadaki "Yeni link oluştur" düğmesine dokun.',
     'iapPaymentOpened':
         'Ödeme ekranı açıldı. Tamamlanınca haklar hesabına işlenecek.',
     'iapPurchaseStartFailed': 'Satın alma başlatılamadı.',

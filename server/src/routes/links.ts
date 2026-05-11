@@ -92,6 +92,12 @@ export const linksRoutes: FastifyPluginAsync = async (app) => {
   /** Misafir formu — auth yok */
   app.get('/public/links/by-code/:code', async (request, reply) => {
     const code = (request.params as { code: string }).code.toLowerCase().trim();
+    const demoExhausted = await prisma.link.findFirst({
+      where: { code, linkTier: 'demo', demoSubmissionUsed: true },
+    });
+    if (demoExhausted) {
+      return reply.code(404).send({ error: 'demo_used' });
+    }
     const link = await prisma.link.findFirst({
       where: { code, isActive: true },
     });
