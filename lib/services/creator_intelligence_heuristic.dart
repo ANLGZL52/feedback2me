@@ -61,6 +61,8 @@ CreatorIntelligenceReport buildHeuristicCreatorReport({
   required List<MapEntry<String, int>> weakest,
   required List<String> themeOrder,
   CreatorSurveyAggregate? surveyAggregate,
+  Map<String, int> contentSuggestions = const {},
+  List<String> notableComments = const [],
 }) {
   final themeSignalTotal = themeScores.values.fold<int>(0, (a, b) => a + b);
   final maxT = math.max(
@@ -105,7 +107,7 @@ CreatorIntelligenceReport buildHeuristicCreatorReport({
     riskHint: 'İtibar ve ton yönetimi gerektirir; şablonlu yanıt + net düzeltme ile risk düşer.',
   );
 
-  final diagnoses = _topDiagnoses(weakest, topThemes, themeNegWeight, neuPct, negPct);
+  final diagnoses = _topDiagnoses(weakest, topThemes, themeNegWeight, neuPct, negPct, notableComments);
 
   final themeRows = <ThemeInsightRow>[];
   for (final name in themeOrder) {
@@ -170,21 +172,44 @@ CreatorIntelligenceReport buildHeuristicCreatorReport({
 
   final w0 = weakest.isNotEmpty ? weakest.first.key : (topThemes.isNotEmpty ? topThemes.first.key : 'İçerik kalitesi');
 
+  final sortedSuggestions = contentSuggestions.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+  final topSuggestion = sortedSuggestions.isNotEmpty ? sortedSuggestions.first : null;
+  final secondSuggestion = sortedSuggestions.length > 1 ? sortedSuggestions[1] : null;
+
   final action = ActionPlanTiers(
     quickWins7d: [
-      'Bio ve sabit içerikte hesap vaadini tek cümlede netleştir (kime, ne fayda).',
-      'Son 10 içerikte kapak ve ilk cümle dilini tek şablonda hizala.',
-      '“$w0” ile ilgili en sık iki soruyu yorumlardan çıkar; birine 60 sn’lik kısa cevap videosu çek.',
+      if (topSuggestion != null)
+        'Takipçilerin ${topSuggestion.value} yorumda "${topSuggestion.key}" türünde içerik istemiş — bu hafta bu formatta bir paylaşım dene.'
+      else
+        'Bio ve sabit içerikte hesap vaadini tek cümlede netleştir (kime, ne fayda).',
+      if (negPct > 15)
+        'Olumsuz yorumlarda "$w0" teması öne çıkıyor — bu konuda kısa, şeffaf bir açıklama paylaş.'
+      else
+        'Son 10 içerikte kapak ve ilk cümle dilini tek şablonda hizala.',
+      '"$w0" ile ilgili en sık gelen soruya 60 sn\'lik kısa cevap videosu çek.',
     ],
     medium30d: [
-      'Haftalık 3 içeriklik tekrarlayan mini seri seç (aynı gün / aynı format).',
-      'Yorumlardan en çok geçen 2 konuya özel 2’şer parçalık mini seri.',
+      if (secondSuggestion != null)
+        'İkinci en çok istenen format "${secondSuggestion.key}" (${secondSuggestion.value} yorum) — haftada 1 bu formatta içerik paylaşmayı dene.'
+      else
+        'Haftalık 3 içeriklik tekrarlayan mini seri seç (aynı gün / aynı format).',
+      if (negPct > 0)
+        'Eleştirel yorumlardaki spesifik şikayetleri ele alan 2 parçalık "düzeltme/gelişim" serisi yap.'
+      else
+        'Yorumlardan en çok geçen 2 konuya özel mini seri başlat.',
       'CTA dilini tek sistemde topla (soru / yorum / kaydet).',
     ],
     brand60d: [
-      'İçerik kategorilerini 3–4 ana başlıkta netleştir.',
+      if (sortedSuggestions.length >= 3)
+        'Takipçilerin istediği formatlar: ${sortedSuggestions.take(3).map((e) => e.key).join(', ')} — içerik takvimini bunlara göre düzenle.'
+      else
+        'İçerik kategorilerini 3–4 ana başlıkta netleştir.',
+      if (negPct > 20)
+        'Güven krizi sinyalleri var — haftalık şeffaflık turu veya "sorularınızı yanıtlıyorum" serisi ile itibarı onar.'
+      else
+        'Güven inşa eden düzenli seri (ör. haftalık şeffaflık turu).',
       'Ton rehberi: cümle uzunluğu, emoji, mizah sınırı.',
-      'Güven inşa eden düzenli seri (ör. haftalık şeffaflık turu).',
     ],
   );
 
@@ -209,11 +234,23 @@ CreatorIntelligenceReport buildHeuristicCreatorReport({
     ),
   ];
 
-  final opp = neuPct >= 45
-      ? 'Kararsız kitlenin yüksek olması: doğru içerik düzeni ve net vaat ile hızlıca olumlu tarafa çekilebilir bir havuz.'
-      : 'Olumlu çekirdek güçlü; vaadi büyütmek için tekrarlayan format ve seri ile ölçeklenebilir.';
+  String opp;
+  if (sortedSuggestions.isNotEmpty) {
+    opp = 'Takipçiler "${sortedSuggestions.first.key}" türünde içerik istemiş — bu formatta paylaşım yapmak takipçi artışını ve etkileşimini doğrudan artırabilir.';
+  } else if (neuPct >= 45) {
+    opp = 'Kararsız kitlenin yüksek olması (%$neuPct nötr): doğru içerik düzeni ve net vaat ile hızlıca olumlu tarafa çekilebilir bir havuz.';
+  } else {
+    opp = 'Olumlu çekirdek güçlü (%$posPct olumlu); vaadi büyütmek için tekrarlayan format ve seri ile ölçeklenebilir.';
+  }
 
-  final risk = negPct > 18
+  final negQuotesForRisk = notableComments
+      .where((c) => c.startsWith('[-]'))
+      .map((c) => c.substring(4).trim())
+      .toList();
+
+  final risk = negPct > 30 && negQuotesForRisk.isNotEmpty
+      ? 'Ciddi itibar riski: Yorumlarda "${negQuotesForRisk.first.length > 60 ? '${negQuotesForRisk.first.substring(0, 60)}...' : negQuotesForRisk.first}" gibi ifadeler var. Bu tür yorumlar görmezden gelinirse güven kaybı büyür.'
+      : negPct > 18
       ? '"${weakest.isNotEmpty ? weakest.first.key : 'İçerik kalitesi'}" eleştirilerinin zamanla profesyonellik algısını aşağı çekme riski — küçük ama tutarlı düzeltmelerle kırılır.'
       : 'Belirgin bir itibar riski görünmüyor; tutarlılığı koruyarak büyümeye devam edilebilir.';
 
@@ -248,19 +285,41 @@ CreatorIntelligenceReport buildHeuristicCreatorReport({
     ),
   ];
 
+  final positiveQuotes = notableComments
+      .where((c) => c.startsWith('[+]'))
+      .map((c) => c.substring(4).trim())
+      .toList();
+  final negativeQuotes = notableComments
+      .where((c) => c.startsWith('[-]'))
+      .map((c) => c.substring(4).trim())
+      .toList();
+
   final exec = StringBuffer()
     ..writeln(
-      '$total benzersiz yorum incelendi. Genel tablo, kitlenin seni tamamen reddetmediğini; ',
-    )
-    ..write(
-      neuPct >= 40
-          ? 'içerik vaadinin ve mesaj netliğinin daha görünür olmasını beklediğini gösteriyor. '
-          : 'duygu dengesinin taşınabilir bir temel oluşturduğunu gösteriyor. ',
-    )
-    ..writeln(
-      'En güçlü sinyal "${topThemes.isNotEmpty ? topThemes.first.key : '—'}", gelişim odağı "${weakest.isNotEmpty ? weakest.first.key : '—'}". '
-      'Bu, büyüme için felaket değil; doğru önceliklendirme ile hızlı iyileşme potansiyeli taşır.',
+      '$total benzersiz yorum incelendi. Duygu dağılımı: %$posPct olumlu, %$neuPct nötr, %$negPct olumsuz.',
     );
+
+  if (negativeQuotes.isNotEmpty) {
+    exec.writeln(
+      'Olumsuz yorumlardan örnek: "${negativeQuotes.first.length > 80 ? '${negativeQuotes.first.substring(0, 80)}...' : negativeQuotes.first}"',
+    );
+  }
+  if (positiveQuotes.isNotEmpty) {
+    exec.writeln(
+      'Olumlu yorumlardan örnek: "${positiveQuotes.first.length > 80 ? '${positiveQuotes.first.substring(0, 80)}...' : positiveQuotes.first}"',
+    );
+  }
+
+  exec.write(
+    negPct > 30
+        ? 'Ciddi olumsuz sinyal mevcut — öncelikli olarak güven ve itibar yönetimi gerekiyor. '
+        : neuPct >= 40
+            ? 'Kararsız kitle oranı yüksek — net vaat ve tutarlı format ile bu kitleyi kazanabilirsin. '
+            : 'Duygu dengesi taşınabilir bir temel oluşturuyor. ',
+  );
+  exec.writeln(
+    'En güçlü sinyal "${topThemes.isNotEmpty ? topThemes.first.key : '—'}", gelişim odağı "${weakest.isNotEmpty ? weakest.first.key : '—'}".',
+  );
 
   final digest = StringBuffer()
     ..writeln('▸ Algı özeti')
@@ -268,10 +327,23 @@ CreatorIntelligenceReport buildHeuristicCreatorReport({
       'Takipçiler seni "${trustT >= clarityT ? 'önce güvenilir' : 'önce içerik tarafında'}" okuyor; '
       'öncelik ${neuPct > 35 ? 'nötr kitlenin net vaat ile olumluya çekilmesi' : 'olumlu tabanı büyütüp zayıf temayı sadeleştirmek'}.',
     )
-    ..writeln()
+    ..writeln();
+
+  if (sortedSuggestions.isNotEmpty) {
+    digest.writeln('▸ Takipçilerin istediği içerik türleri');
+    for (final s in sortedSuggestions.take(3)) {
+      digest.writeln('  • ${s.key} (${s.value} yorumda bahsedilmiş)');
+    }
+    digest.writeln('Bu türlerde paylaşım yapmak takipçi artışını ve bağlılığı doğrudan etkileyebilir.');
+    digest.writeln();
+  }
+
+  digest
     ..writeln('▸ Stratejik öncelik')
     ..writeln(
-      'Sonraki 14 günde tek bir alt başlıkta (ör. "$w0") standart seri ve aynı kapak dilini test et; ardından yeniden ölç.',
+      negPct > 20
+          ? 'Olumsuz yorum oranı yüksek — önce güven tamir et, sonra büyüme odaklan. "$w0" temasında yapıcı bir seri başlat.'
+          : 'Sonraki 14 günde tek bir alt başlıkta (ör. "$w0") standart seri ve aynı kapak dilini test et; ardından yeniden ölç.',
     );
 
   final execStr = exec.toString().trim();
@@ -289,6 +361,8 @@ CreatorIntelligenceReport buildHeuristicCreatorReport({
     execSummary: execStr,
     surveyAggregate: surveyAggregate,
     priorityTheme: w0,
+    contentSuggestions: sortedSuggestions,
+    notableComments: notableComments,
   );
 
   return CreatorIntelligenceReport(
@@ -356,28 +430,58 @@ String _heuristicCoachLetter({
   required String execSummary,
   required CreatorSurveyAggregate? surveyAggregate,
   required String priorityTheme,
+  List<MapEntry<String, int>> contentSuggestions = const [],
+  List<String> notableComments = const [],
 }) {
   final buf = StringBuffer()
     ..writeln('Bu bölüm sana doğrudan hitap eder; $total yorumun birleşik fotoğrafıdır.')
     ..writeln()
-    ..writeln(execSummary)
-    ..writeln()
-    ..writeln(
-      'Ayrıntılı stratejik brifing ve ▸ bölümleri bu raporda “Stratejik özet” kartında; burada ise özet + yön veren bir kapanış.',
-    );
+    ..writeln(execSummary);
 
-  if (surveyAggregate != null && !surveyAggregate.isEmpty) {
+  if (negPct > 25) {
     buf.writeln();
     buf.writeln(
-      'Anket dolduran izleyiciler platform, sıklık ve “hangi içerik türünde daha iyi olabilir” önerileriyle sinyal verdi; '
-      'bunu sadece sayı değil, içerik deneylerinin önceliği olarak kullan.',
+      'Sana karşı dürüst olmam gerekiyor: yorumların %$negPct\'i olumsuz tonda. '
+      'Bu görmezden gelinecek bir şey değil. Takipçilerin sana bir şey söylemeye çalışıyor \u2014 dinle ve yanıt ver.',
     );
+    final negQuotes = notableComments
+        .where((c) => c.startsWith('[-]'))
+        .map((c) => c.substring(4).trim())
+        .take(2)
+        .toList();
+    if (negQuotes.isNotEmpty) {
+      buf.writeln('İşte takipçilerinin söyledikleri:');
+      for (final q in negQuotes) {
+        buf.writeln('  \u2022 "$q"');
+      }
+    }
   }
 
   buf.writeln();
+  if (contentSuggestions.isNotEmpty) {
+    buf.writeln('Takipçilerin senden spesifik şeyler istiyor:');
+    for (final s in contentSuggestions.take(3)) {
+      buf.writeln('  \u2022 ${s.key} türünde içerik paylaş \u2014 bu takipçi artışını ve etkileşimini doğrudan artırabilir.');
+    }
+    buf.writeln();
+  }
+
+  if (surveyAggregate != null && !surveyAggregate.isEmpty) {
+    buf.writeln(
+      'Anket dolduran izleyiciler platform, sıklık ve içerik türü önerileriyle sinyal verdi; '
+      'bunu sadece sayı değil, içerik deneylerinin önceliği olarak kullan.',
+    );
+    buf.writeln();
+  }
+
   buf.writeln(
-    'Önce “$priorityTheme” ekseninde küçük ve ölçülebilir tek bir deney seç; 10–14 gün uygula; aynı linkle yeniden geri bildirim topla. '
-    'Tablo: olumlu %$posPct · nötr %$neuPct · olumsuz %$negPct — bu bir sınav sonucu değil; bir harita.',
+    negPct > 20
+        ? 'Önce güveni onar. "$priorityTheme" ekseninde küçük ama samimi bir adım at \u2014 şeffaflık ve dürüstlük. '
+            '10\u201314 gün uygula; aynı linkle yeniden geri bildirim topla.'
+        : 'Önce "$priorityTheme" ekseninde küçük ve ölçülebilir tek bir deney seç; 10\u201314 gün uygula; aynı linkle yeniden geri bildirim topla.',
+  );
+  buf.writeln(
+    'Tablo: olumlu %$posPct \u00b7 nötr %$neuPct \u00b7 olumsuz %$negPct \u2014 bu bir sınav sonucu değil; bir harita.',
   );
 
   return buf.toString().trim();
@@ -405,36 +509,60 @@ List<CriticalDiagnosis> _topDiagnoses(
   Map<String, int> themeNegWeight,
   int neuPct,
   int negPct,
+  List<String> notableComments,
 ) {
   final out = <CriticalDiagnosis>[];
+
+  final negativeQuotes = notableComments
+      .where((c) => c.startsWith('[-]'))
+      .map((c) => c.substring(4).trim())
+      .toList();
+
   final w = weakest.take(3).toList();
   for (var i = 0; i < w.length && out.length < 3; i++) {
     final e = w[i];
     final heavyNeg = (themeNegWeight[e.key] ?? 0) > (e.value * 0.25).ceil();
-    out.add(
-      CriticalDiagnosis(
-        title: '${e.key} baskısı',
-        detail: heavyNeg
-            ? 'Bu başlıkta olumsuz ton birikimi görülüyor; hedef daha fazla içerik değil, aynı vaatte sunum ve format standardını yükseltmek.'
-            : 'Bu eksen izleyicide tekrar ediyor; mesajı sadeleştirip tek bir vaat cümlesine bağlamak büyümeyi hızlandırır.',
-      ),
-    );
+
+    String detail;
+    if (heavyNeg && negativeQuotes.isNotEmpty) {
+      final quote = negativeQuotes.first;
+      detail = 'Olumsuz yorumlardan örnek: "$quote" — Bu tür geri bildirimleri ciddiye al. '
+          'Hedef daha fazla içerik değil, mevcut içerik kalitesini ve tonunu düzeltmek.';
+    } else if (heavyNeg) {
+      detail = 'Bu başlıkta olumsuz ton birikimi var. Takipçiler bu konuda rahatsızlık ifade ediyor — '
+          'somut düzeltme adımlarıyla (net açıklama, format değişikliği) güveni geri kazanabilirsin.';
+    } else {
+      detail = 'Bu eksen izleyicide tekrar ediyor; mesajı sadeleştirip tek bir vaat cümlesine bağlamak büyümeyi hızlandırır.';
+    }
+
+    out.add(CriticalDiagnosis(title: '${e.key} baskısı', detail: detail));
   }
+
   if (out.length < 3 && neuPct > 42) {
     out.add(
       CriticalDiagnosis(
-        title: 'Kararsız kitle yüksek',
+        title: 'Kararsız kitle yüksek (%$neuPct)',
         detail:
-            'Nötr çoğunluk “henüz ikna olmadım” demektir; ilk 3 saniye ve kapak dilinde tek vaat ile test yap.',
+            'Nötr yorum oranı %$neuPct — bu kitle "henüz ikna olmadım" diyor. '
+            'Net bir vaat cümlesi ve tutarlı format ile bu kitleyi olumluya çevirmen mümkün.',
       ),
     );
   }
-  if (out.length < 3 && topThemes.isNotEmpty) {
+  if (out.length < 3 && negPct > 10 && negativeQuotes.length > 1) {
+    out.add(
+      CriticalDiagnosis(
+        title: 'Tekrarlayan olumsuz sinyaller',
+        detail:
+            '${negativeQuotes.length} olumsuz yorum tespit edildi. '
+            'Bu tür yorumlar itibar riski oluşturur; şeffaf ve yapıcı yanıtlarla ele al.',
+      ),
+    );
+  } else if (out.length < 3 && topThemes.isNotEmpty) {
     out.add(
       CriticalDiagnosis(
         title: 'İçerik çerçevesi',
         detail:
-            '“${topThemes.first.key}” en görünür eksen; tüm serilerde aynı sözü vermek profesyonellik algısını yükseltir.',
+            '"${topThemes.first.key}" en görünür eksen; tüm serilerde aynı sözü vermek profesyonellik algısını yükseltir.',
       ),
     );
   }

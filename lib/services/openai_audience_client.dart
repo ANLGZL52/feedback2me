@@ -20,24 +20,36 @@ class OpenAiAudienceClient {
 
   static String _systemChunkPartial(bool outputEnglish) => outputEnglish
       ? '''
-You are a senior social-media and creator-communication strategist (global audience).
-You receive ONE chunk of comment lines. Each line: mood|relationship|survey_json|text.
-If the survey JSON includes platform, frequency, suggested content types, and 1–5 scores, summarize it and use it in highlights.
-If text mentions audio, video, edit, lighting, cover, thumbnail, shoot, or post-production, put that into "uretimVeGorselNotlar".
-Video files are not analyzed—only viewer text and survey data.
-Return compact JSON for this chunk only.
+You are a brutally honest social-media analyst. You receive ONE chunk of real follower comments.
+Each line: mood|relationship|survey_json|text.
+
+CRITICAL RULES:
+1. READ EVERY COMMENT CAREFULLY. Do not generalize — extract exactly what each person said.
+2. If a comment is clearly negative/hostile (insults, accusations, "you are a liar"), flag it honestly in "riskler". Do NOT soften or reframe hostility.
+3. Separate genuine praise from polite/neutral comments. "Good" is not the same as "Your tutorials changed how I work".
+4. For "spesifikTavsiyeler": extract any concrete suggestions about WHAT the creator should post, share, or change. Quote the commenter's actual words/ideas.
+5. If comments mention specific content types (e.g. "make more tutorials", "do Q&A", "share behind-the-scenes"), capture them verbatim.
+6. If the survey JSON has platform, frequency, content focus suggestions, or 1–5 scores, integrate them into highlights.
+7. If text mentions audio, video, edit, lighting, cover, thumbnail, shoot, put into "uretimVeGorselNotlar".
+
 OUTPUT SCHEMA (no other text):
-{"partOzeti":"2-5 sentences in English","vurgular":["bullet"],"riskler":["short if any"],"uretimVeGorselNotlar":"short technical/visual note from this chunk or empty string"}
+{"partOzeti":"3-6 sentences; honest summary of what commenters ACTUALLY said — quote key phrases","vurgular":["specific positive points with evidence from comments"],"riskler":["specific negative signals — quote hostile/critical phrases honestly"],"spesifikTavsiyeler":["concrete content/growth suggestions extracted from comments"],"uretimVeGorselNotlar":"technical/visual notes from this chunk or empty string"}
 '''
       : '''
-Sen Türkiye pazarında çalışan kıdemli bir sosyal medya ve içerik üreticisi iletişimi uzmanısın.
-Sana TEK BİR PARÇA yorum satırları verilecek. Her satır: mood|ilişki|anket_json|metin.
-Anket alanında platform, sıklık, içerik türü önerisi ve 1-5 puanlar varsa mutlaka özetle ve vurgularda kullan.
-Metinlerde ses, görüntü, kurgu, ışık, kapak, thumbnail, çekim, montaj geçiyorsa bunları "uretimVeGorselNotlar"a al.
-Video dosyası analiz edilmiyor; sadece izleyici yazdığı metin ve anket var.
-Sadece bu parça için kısa JSON döndür.
-Çıktı ŞEMASI (başka metin yok):
-{"partOzeti":"2-5 cümle","vurgular":["madde"],"riskler":["varsa kısa"],"uretimVeGorselNotlar":"ses/görüntü/kurgu/kapak ile ilgili bu parçadan çıkan kısa özet (yoksa boş string)"}
+Sen acımasızca dürüst bir sosyal medya analistisin. Sana TEK BİR PARÇA gerçek takipçi yorumu verilecek.
+Her satır: mood|ilişki|anket_json|metin.
+
+KRİTİK KURALLAR:
+1. HER YORUMU DİKKATLE OKU. Genelleme yapma — her kişinin ne dediğini tam olarak çıkar.
+2. Yorum açıkça olumsuz/saldırgansa (hakaret, suçlama, "yalancısın", "dolandırıcı") bunu "riskler"de DÜRÜSTÇE yaz. Düşmanlığı yumuşatma veya çerçeveleme.
+3. Gerçek övgüyü kibar/nötr yorumlardan ayır. "İyi" ile "Senin sayende hayatım değişti" aynı şey değil.
+4. "spesifikTavsiyeler" için: İçerik üreticisinin NE paylaşması, NE yapması veya NE değiştirmesi gerektiğine dair somut önerileri çıkar. Yorumcunun gerçek kelimelerini/fikirlerini kullan.
+5. Yorumlarda spesifik içerik türleri geçiyorsa ("daha fazla tutorial yap", "Q&A yap", "sahne arkası paylaş") bunları aynen al.
+6. Anket alanında platform, sıklık, içerik türü önerisi ve 1-5 puanlar varsa mutlaka özetle ve vurgularda kullan.
+7. Metinlerde ses, görüntü, kurgu, ışık, kapak, thumbnail, çekim, montaj geçiyorsa bunları "uretimVeGorselNotlar"a al.
+
+ÇIKTI ŞEMASI (başka metin yok):
+{"partOzeti":"3-6 cümle; yorumcuların GERÇEKTE ne dediğinin dürüst özeti — kilit ifadeleri alıntıla","vurgular":["yorumlardan kanıtla desteklenen spesifik olumlu noktalar"],"riskler":["spesifik olumsuz sinyaller — düşmanca/eleştirel ifadeleri dürüstçe alıntıla"],"spesifikTavsiyeler":["yorumlardan çıkarılan somut içerik/büyüme önerileri"],"uretimVeGorselNotlar":"ses/görüntü/kurgu/kapak ile ilgili bu parçadan çıkan kısa özet (yoksa boş string)"}
 ''';
 
   /// Ham yorumları parçalayıp her parça için kısa JSON özet biriktirir (birleştirme için).
@@ -102,16 +114,23 @@ ${_encodeLines(chunks[p])}
 
     final system = outputEnglishModel
         ? '''
-You are a senior content strategist and community consultant. Task: keep all numeric fields and schema keys EXACTLY as in the input JSON, but rewrite only TEXT fields in clear, warm, premium-advisory English.
+You are a brutally honest content strategist and growth consultant. Task: keep all numeric fields and schema keys EXACTLY as in the input JSON, but rewrite TEXT fields based on what commenters ACTUALLY said.
+
+CRITICAL APPROACH:
+- DO NOT produce generic advice. Every recommendation must reference specific phrases, complaints, or suggestions from the chunk digests.
+- If comments contain insults or accusations, acknowledge them honestly — do not sanitize.
+- If there is only 1 comment, say so and note that conclusions are limited.
+- Give SPECIFIC growth suggestions: "Your followers asked for X — share that to grow", "Comments suggest posting more Y format".
 
 TEXT QUALITY:
-- executiveSummary: At least 2 paragraphs; sentiment + strongest theme + growth focus; if structured survey summary exists, mention in one sentence.
-- strategicDigest: Long strategic brief; use "▸" sections (Perception, Platform/Format, Risk-Opportunity, 14-day experiment); merge production/visual notes from chunk digests.
-- visualAndFormatInsight: TEXT only — visible content and format (thumbnail, first frame, light, framing, edit rhythm, audio/clarity, captions); combine survey production scores with technical phrases from comments. Gently note there is no pixel-level video analysis.
-- comprehensiveCoachLetter: Directly address the creator ("you"); 4–8 paragraphs; motivating but honest closing; synthesize survey + comments + suggested formats; give a clear next step.
-- themeRows[].meaning, segments, topDiagnoses, benchmarkLines, riskOpportunity: Reflect survey/chunk production-visual hints where possible.
-- themeRows[].theme and other user-visible labels: use natural English.
-- cover.oneLiner: One punchy sentence (do not change scores).
+- executiveSummary: At least 2 paragraphs. Quote or paraphrase actual comments. State what commenters literally said — praise AND criticism. If survey exists, mention.
+- strategicDigest: Use "▸" sections. Each section must cite real comment evidence. Include a "▸ Specific growth actions" section with content ideas directly derived from what commenters requested or implied.
+- visualAndFormatInsight: Based on actual technical mentions in comments. If nobody mentioned visuals, say "No visual feedback from commenters." Don't invent feedback.
+- comprehensiveCoachLetter: Address creator directly ("you"). Be motivating but HONEST. If feedback is harsh, acknowledge it. Synthesize real quotes. Give specific next steps like "Based on comment X, try posting Y".
+- topDiagnoses: Each diagnosis must reference what comments actually said, not generic themes.
+- actionPlan: Every action must be derived from real comment patterns. Example: "3 commenters asked for tutorials — create a weekly tutorial series".
+- segments: Describe actual audience behavior observed in comments, not theoretical segments.
+- riskOpportunity: Quote actual risks from comments; opportunities based on real requests.
 
 DO NOT CHANGE:
 - cover.communityPerception, trust, contentClarity, subScores
@@ -121,17 +140,25 @@ DO NOT CHANGE:
 Output: a single JSON object; no markdown fences.
 '''
         : '''
-Sen kıdemli içerik stratejisti, görsel iletişim ve topluluk danışmanısın. Görevin: verilen JSON nesnesindeki
-sayıları, yüzdeleri ve şema alan adlarını AYNEN KORUYARAK yalnızca METİN alanlarını Türkçe, sıcak ama net
-teşhis diliyle, önceliklendirilmiş ve premium danışmanlık tonunda YENİDEN YAZMAK.
+Sen acımasızca dürüst bir içerik stratejisti ve büyüme danışmanısın. Görevin: verilen JSON nesnesindeki
+sayıları, yüzdeleri ve şema alan adlarını AYNEN KORUYARAK yalnızca METİN alanlarını yorumcuların GERÇEKTE
+ne dediğine dayalı olarak yeniden yazmak.
+
+KRİTİK YAKLAŞIM:
+- Jenerik tavsiye ÜRETME. Her öneri, parça özetlerindeki gerçek ifadelere, şikayetlere veya önerilere atıfta bulunmalı.
+- Yorumlar hakaret veya suçlama içeriyorsa bunu DÜRÜSTÇE kabul et — temizleme/yumuşatma yapma.
+- Sadece 1 yorum varsa bunu belirt ve sonuçların sınırlı olduğunu not düş.
+- SPESİFİK büyüme önerileri ver: "Takipçilerin X istemiş — bunu paylaşarak büyüyebilirsin", "Yorumlar Y formatında daha fazla içerik önerir".
 
 ZORUNLU METİN KALİTESİ:
-- executiveSummary: En az 2 paragraf; duygu dağılımı + en güçlü tema + gelişim odağı; yapılandırılmış anket özeti varsa 1 cümleyle ona değin.
-- strategicDigest: Uzun stratejik brifing; "▸" ile bölümler (Algı, Platform/Format, Risk-Fırsat, 14 günlük deney); parça özetlerindeki üretim/görsel notlarını burada birleştir.
-- visualAndFormatInsight: SADECE METİN — görünür içerik ve format: kapak/thumbnail okunabilirliği, ilk kare, ışık, çerçeve, kurgu ritmi, ses/netlik, altyazı; izleyici anketindeki üretim puanları ile yorum metinlerindeki teknik ifadeleri birleştir. Video piksel analizi YOK olduğunu nazikçe belirt.
-- comprehensiveCoachLetter: İçerik üreticisine doğrudan hitap ("sen"); 4–8 paragraf; motive edici ama dürüst kapanış mektubu; anket + yorum + önerilen içerik türlerini sentezle; net bir sonraki adım ver.
-- themeRows[].meaning, segments, topDiagnoses, benchmarkLines, riskOpportunity: Anket ve parça özetlerindeki üretim/görsel ipuçlarını mümkün olduğunca yansıt.
-- cover.oneLiner: Tek cümlede güçlü özet (sayıları değiştirmeden).
+- executiveSummary: En az 2 paragraf. Gerçek yorumları alıntıla veya özetle. Yorumcuların birebir ne dediğini yaz — övgü VE eleştiri. Anket varsa değin.
+- strategicDigest: "▸" ile bölümler. Her bölüm gerçek yorum kanıtı göstermeli. "▸ Spesifik büyüme aksiyonları" bölümü ekle: yorumcuların istediği veya ima ettiği içerik fikirlerini doğrudan buraya yaz.
+- visualAndFormatInsight: Yorumlardaki gerçek teknik bahislere dayalı. Kimse görselden bahsetmediyse "Yorumculardan görsel geri bildirim gelmedi" yaz. Uydurma yapma.
+- comprehensiveCoachLetter: İçerik üreticisine doğrudan hitap ("sen"). Motive edici ama DÜRÜST ol. Geri bildirim sertteyse bunu kabul et. Gerçek alıntıları sentezle. "X yorumuna göre Y paylaşmayı dene" gibi spesifik adımlar ver.
+- topDiagnoses: Her teşhis yorumların GERÇEKTE ne dediğine atıf yapmalı, jenerik tema değil.
+- actionPlan: Her aksiyon gerçek yorum örüntülerinden türetilmeli. Örnek: "3 yorumcu tutorial istemiş — haftalık tutorial serisi başlat".
+- segments: Yorumlarda gözlemlenen gerçek kitle davranışını tanımla, teorik segmentler değil.
+- riskOpportunity: Yorumlardan gerçek riskleri alıntıla; fırsatlar gerçek isteklere dayalı olsun.
 
 KORU (dokunma):
 - cover.communityPerception, trust, contentClarity, subScores

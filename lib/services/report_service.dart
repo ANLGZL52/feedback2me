@@ -163,6 +163,17 @@ const Map<String, List<String>> _kThemeKeywords = {
     'cümle',
     'konuş',
     'şeffaf',
+    'anlamadım',
+    'kafa karıştır',
+    'belirsiz',
+    'belli değil',
+    'ne demek iste',
+    'dağınık',
+    'toparlayamıyor',
+    'sade',
+    'okunur',
+    'anlatım',
+    'iletişim',
   ],
   'Güven ve samimiyet': [
     'samimi',
@@ -176,6 +187,24 @@ const Map<String, List<String>> _kThemeKeywords = {
     'maskeli',
     'otantik',
     'gerçek',
+    'yalancı',
+    'yalan',
+    'dolandırıcı',
+    'dolandır',
+    'kandır',
+    'sahte',
+    'riyakâr',
+    'ikiyüzlü',
+    'güvenilmez',
+    'inanmıyorum',
+    'inanılmaz',
+    'aldatma',
+    'şüphe',
+    'sömürü',
+    'para tuzağı',
+    'sadece para',
+    'reklam',
+    'sponsor',
   ],
   'İçerik kalitesi': [
     'içerik',
@@ -183,7 +212,6 @@ const Map<String, List<String>> _kThemeKeywords = {
     'değer',
     'boş',
     'bilgi',
-    'yorum',
     'sıkıcı',
     'ilham',
     'özgün',
@@ -192,6 +220,28 @@ const Map<String, List<String>> _kThemeKeywords = {
     'fikir',
     'konu',
     'başlık',
+    'eğitici',
+    'öğren',
+    'öğret',
+    'tutorial',
+    'rehber',
+    'tavsiye',
+    'öneri',
+    'yararlı',
+    'işe yara',
+    'vasat',
+    'harika',
+    'muhteşem',
+    'berbat',
+    'çöp',
+    'beğen',
+    'süper',
+    'mükemmel',
+    'kötü',
+    'rezalet',
+    'saçmalık',
+    'anlamsız',
+    'zaman kaybı',
   ],
   'Tutarlılık ve süreklilik': [
     'düzenli',
@@ -204,11 +254,20 @@ const Map<String, List<String>> _kThemeKeywords = {
     'sıklık',
     'program',
     'planlı',
+    'nerede kaldın',
+    'bekliyoruz',
+    'daha fazla',
+    'devamını',
+    'seri',
+    'yeni video',
+    'ne zaman',
+    'kaybol',
+    'gelmiyorsun',
+    'bırak',
   ],
   'Teknik ve sunum': [
     'ses',
     'görüntü',
-    'kalite',
     'montaj',
     'kamera',
     'ışık',
@@ -216,7 +275,49 @@ const Map<String, List<String>> _kThemeKeywords = {
     'altyazı',
     'mikrofon',
     'çözünürlük',
+    'thumbnail',
+    'kapak',
+    'edit',
+    'efekt',
+    'renk',
+    'müzik',
+    'arka plan',
+    'çekim',
+    'prodüksiyon',
+    'kalitesiz',
   ],
+};
+
+/// Negatif ton belirten kelimeler — mood tespiti olmadığında yedek sinyal.
+const Set<String> _kNegativeIndicators = {
+  'yalancı', 'yalan', 'dolandırıcı', 'dolandır', 'kandır', 'sahte',
+  'berbat', 'çöp', 'rezalet', 'saçmalık', 'kötü', 'vasat', 'kalitesiz',
+  'zaman kaybı', 'anlamsız', 'boş', 'sıkıcı', 'güvenilmez',
+  'ikiyüzlü', 'riyakâr', 'maskeli', 'samimiyetsiz', 'sömürü',
+  'nefret', 'iğrenç', 'utanç', 'utanmaz', 'ahlaksız', 'hırsız',
+};
+
+/// Olumlu ton belirten kelimeler.
+const Set<String> _kPositiveIndicators = {
+  'harika', 'muhteşem', 'süper', 'mükemmel', 'eğitici', 'faydalı',
+  'ilham', 'özgün', 'samimi', 'doğal', 'güvenilir', 'başarılı',
+  'yararlı', 'işe yarar', 'tavsiye ederim', 'devamını', 'bayılıyorum',
+  'severim', 'en iyi', 'favorim', 'bravo', 'tebrik', 'teşekkür',
+  'helal', 'aferin', 'eline sağlık', 'müthiş', 'enfes', 'olağanüstü',
+};
+
+/// İçerik türü önerileri çıkarmak için anahtar kelimeler.
+const Map<String, List<String>> _kContentSuggestionKeywords = {
+  'Tutorial / Eğitim içeriği': ['tutorial', 'eğitim', 'öğret', 'nasıl yapılır', 'rehber', 'ders'],
+  'Q&A / Soru-Cevap': ['soru', 'cevap', 'q&a', 'sor', 'merak'],
+  'Sahne arkası': ['sahne arkası', 'behind', 'arka plan', 'süreç', 'nasıl çekiyorsun'],
+  'Günlük vlog': ['vlog', 'günlük', 'rutin', 'bir gün'],
+  'Canlı yayın': ['canlı', 'live', 'yayın', 'stream'],
+  'Daha kısa içerik': ['kısa', 'shorts', 'reel', 'tiktok', 'kısa video'],
+  'Daha uzun içerik': ['uzun', 'detaylı', 'derinlemesine', 'kapsamlı'],
+  'İşbirliği / Collab': ['işbirliği', 'collab', 'birlikte', 'konuk', 'feat'],
+  'Liste / Sıralama': ['liste', 'top', 'en iyi', 'sıralama', 'ranking'],
+  'Hikaye anlatımı': ['hikaye', 'story', 'anlat', 'deneyim', 'tecrübe'],
 };
 
 /// Sosyal medya / kişilik bağlamı (ek sinyal).
@@ -254,12 +355,6 @@ class ReportService {
 
   final AppDataBackend _data;
 
-  int _moodBucket(int? mood) {
-    if (mood == 1) return 1;
-    if (mood == -1) return -1;
-    return 0;
-  }
-
   Future<ReportResult> generateReport(
     String linkId, {
     String languageCode = 'tr',
@@ -284,7 +379,7 @@ class ReportService {
     var socialHits = 0;
 
     for (final e in entries) {
-      final m = _moodBucket(e.mood);
+      final m = _calibratedMood(e.mood, e.textRaw);
       if (m == 1) {
         pos++;
       } else if (m == -1) {
@@ -451,9 +546,11 @@ class ReportService {
     final themeNegWeight = <String, int>{
       for (final k in _kThemeKeywords.keys) k: 0,
     };
+    final commentTexts = <String>[];
+    final commentMoods = <int>[];
 
     for (final e in entries) {
-      final m = _moodBucket(e.mood);
+      final m = _calibratedMood(e.mood, e.textRaw);
       if (m == 1) {
         pos++;
       } else if (m == -1) {
@@ -461,6 +558,8 @@ class ReportService {
       } else {
         neu++;
       }
+      commentTexts.add(e.textRaw);
+      commentMoods.add(m);
 
       final relation = (e.relation ?? 'Belirsiz').trim();
       final relationKey = relation.isEmpty ? 'Belirsiz' : relation;
@@ -475,6 +574,9 @@ class ReportService {
         }
       }
     }
+
+    final contentSuggestions = ReportService.extractContentSuggestions(commentTexts);
+    final notableComments = ReportService.extractNotableComments(commentTexts, commentMoods);
 
     final total = entries.length;
     final topThemes = themeScores.entries.toList()
@@ -516,6 +618,8 @@ class ReportService {
       weakest: weakest,
       themeOrder: _kThemeKeywords.keys.toList(),
       surveyAggregate: surveyAgg,
+      contentSuggestions: contentSuggestions,
+      notableComments: notableComments,
     );
 
     final oa = OpenAiAudienceClient();
@@ -675,6 +779,67 @@ class ReportService {
       }
     }
     return out;
+  }
+
+  /// Yorumlardan içerik türü önerilerini çıkar.
+  static Map<String, int> extractContentSuggestions(List<String> commentTexts) {
+    final hits = <String, int>{};
+    for (final raw in commentTexts) {
+      final text = raw.toLowerCase();
+      for (final e in _kContentSuggestionKeywords.entries) {
+        for (final kw in e.value) {
+          if (text.contains(kw)) {
+            hits[e.key] = (hits[e.key] ?? 0) + 1;
+            break;
+          }
+        }
+      }
+    }
+    return hits;
+  }
+
+  /// Negatif/pozitif ton kalibrasyonu: mood eksikse metin bazlı yedek.
+  int _calibratedMood(int? mood, String text) {
+    if (mood != null && (mood == 1 || mood == -1)) return mood;
+    final lower = text.toLowerCase();
+    int negHits = 0, posHits = 0;
+    for (final w in _kNegativeIndicators) {
+      if (lower.contains(w)) negHits++;
+    }
+    for (final w in _kPositiveIndicators) {
+      if (lower.contains(w)) posHits++;
+    }
+    if (negHits > posHits && negHits > 0) return -1;
+    if (posHits > negHits && posHits > 0) return 1;
+    return mood ?? 0;
+  }
+
+  /// Yorumlardan en sert/eleştirel olanları çıkar (raporda alıntı için).
+  static List<String> extractNotableComments(
+    List<String> texts,
+    List<int> moods, {
+    int maxCount = 5,
+  }) {
+    final negative = <String>[];
+    final positive = <String>[];
+    for (var i = 0; i < texts.length; i++) {
+      final t = texts[i].trim();
+      if (t.isEmpty) continue;
+      final m = i < moods.length ? moods[i] : 0;
+      if (m == -1) {
+        negative.add(t);
+      } else if (m == 1) {
+        positive.add(t);
+      }
+    }
+    final result = <String>[];
+    for (final n in negative.take(maxCount ~/ 2 + 1)) {
+      result.add('[-] ${n.length > 120 ? '${n.substring(0, 120)}…' : n}');
+    }
+    for (final p in positive.take(maxCount ~/ 2)) {
+      result.add('[+] ${p.length > 120 ? '${p.substring(0, 120)}…' : p}');
+    }
+    return result.take(maxCount).toList();
   }
 
   void _applyThemeScores(Map<String, int> themeScores, String raw, int mood) {
