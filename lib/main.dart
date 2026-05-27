@@ -1791,12 +1791,23 @@ Future<void> _createLink(BuildContext context, String uid) async {
           content: Text(L10n.get(context, 'linkRequiresCredit')),
           action: SnackBarAction(
             label: L10n.get(context, 'creditSheetOpenPremium'),
-            onPressed: () {
-              Navigator.of(context).push<void>(
-                MaterialPageRoute<void>(
+            onPressed: () async {
+              final purchased = await Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
                   builder: (_) => const PremiumScreen(),
                 ),
               );
+              if (purchased == true && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(L10n.get(context, 'creditPurchasedCreateLink')),
+                    action: SnackBarAction(
+                      label: L10n.get(context, 'newLink'),
+                      onPressed: () => _createLink(context, uid),
+                    ),
+                  ),
+                );
+              }
             },
           ),
         ),
@@ -3170,7 +3181,7 @@ class _ActiveLinkPoolContent extends StatelessWidget {
                     style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
                   )
                 else ...[
-                  ...entries.take(6).map(
+                  ...entries.take(10).map(
                     (e) => Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Text(
@@ -3180,11 +3191,23 @@ class _ActiveLinkPoolContent extends StatelessWidget {
                       ),
                     ),
                   ),
-                  if (entries.length > 6)
-                    Text(
-                      L10n.get(context, 'poolMore')
-                          .replaceAll('{n}', '${entries.length - 6}'),
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+                  if (entries.length > 10)
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => _AllCommentsScreen(
+                              linkId: link.id,
+                              title: L10n.get(context, 'allCommentsTitle'),
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.expand_more, size: 18),
+                      label: Text(
+                        L10n.get(context, 'viewAllComments')
+                            .replaceAll('{n}', '${entries.length}'),
+                      ),
                     ),
                 ],
                 const SizedBox(height: 12),
@@ -3277,6 +3300,104 @@ class _ExpiredLinkPoolContent extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+class _AllCommentsScreen extends StatelessWidget {
+  const _AllCommentsScreen({required this.linkId, required this.title});
+
+  final String linkId;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: StreamBuilder<List<FeedbackEntry>>(
+        stream: appData.feedbacksForLinkStream(linkId),
+        builder: (context, snap) {
+          final entries = snap.data ?? const <FeedbackEntry>[];
+          if (snap.connectionState == ConnectionState.waiting && entries.isEmpty) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (entries.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  L10n.get(context, 'poolEmptyHint'),
+                  style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            );
+          }
+          return ListView.separated(
+            padding: const EdgeInsets.all(16),
+            itemCount: entries.length,
+            separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
+            itemBuilder: (context, i) {
+              final e = entries[i];
+              final date = e.createdAt != null
+                  ? MaterialLocalizations.of(context).formatShortDate(e.createdAt!)
+                  : '';
+              final relation = e.relation?.trim().isNotEmpty == true
+                  ? e.relation!
+                  : L10n.get(context, 'relationUnknown');
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      e.textRaw,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(
+                          e.mood == 1
+                              ? Icons.sentiment_satisfied_alt
+                              : e.mood == -1
+                                  ? Icons.sentiment_dissatisfied
+                                  : Icons.sentiment_neutral,
+                          size: 16,
+                          color: e.mood == 1
+                              ? Colors.green.shade300
+                              : e.mood == -1
+                                  ? Colors.red.shade300
+                                  : Colors.white54,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          '$relation · ${_moodLabel(context, e.mood)}',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: Colors.white54,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (date.isNotEmpty)
+                          Text(
+                            date,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white38,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }
