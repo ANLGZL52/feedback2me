@@ -2015,7 +2015,19 @@ class DashboardScreen extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 8),
                                 if (firstLink != null)
-                                  FeedbackLinkTile(link: firstLink)
+                                  FeedbackLinkTile(
+                                    link: firstLink,
+                                    onAnalyze: (lid) {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => AudienceAnalysisScreen(
+                                            ownerId: effectiveDataOwnerId(uid) ?? uid,
+                                            linkId: lid,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  )
                                 else
                                   Text(
                                     L10n.get(context, 'noLinksYet'),
@@ -2063,7 +2075,19 @@ class DashboardScreen extends StatelessWidget {
                                   ...links.skip(1).map(
                                         (l) => Padding(
                                           padding: const EdgeInsets.only(bottom: 8),
-                                          child: FeedbackLinkTile(link: l),
+                                          child: FeedbackLinkTile(
+                                            link: l,
+                                            onAnalyze: (lid) {
+                                              Navigator.of(context).push(
+                                                MaterialPageRoute(
+                                                  builder: (_) => AudienceAnalysisScreen(
+                                                    ownerId: effectiveDataOwnerId(uid) ?? uid,
+                                                    linkId: lid,
+                                                  ),
+                                                ),
+                                              );
+                                            },
+                                          ),
                                         ),
                                       ),
                                 ],
@@ -2817,7 +2841,19 @@ class _ProfileTabState extends State<_ProfileTab> {
                         ...links.map(
                           (l) => Padding(
                             padding: const EdgeInsets.only(bottom: 8),
-                            child: FeedbackLinkTile(link: l),
+                            child: FeedbackLinkTile(
+                              link: l,
+                              onAnalyze: (lid) {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => AudienceAnalysisScreen(
+                                      ownerId: oid!,
+                                      linkId: lid,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
                           ),
                         ),
                       ],
@@ -2846,18 +2882,37 @@ class _FeedbackPoolCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return FutureBuilder<(List<FeedbackEntry>, int)>(
-      key: ValueKey('pool_${ownerId}_$refreshTick'),
-      future: () async {
-        final entries =
-            await appData.getFeedbackPoolForOwner(ownerId, limit: 80);
-        final total = await appData.countAllFeedbacksForOwner(ownerId);
-        return (entries, total);
-      }(),
-      builder: (context, snap) {
-        final errorText = snap.error?.toString();
-        final entries = snap.data?.$1 ?? const <FeedbackEntry>[];
-        final totalAll = snap.data?.$2 ?? 0;
+    return StreamBuilder<List<FeedbackLink>>(
+      stream: appData.linksForOwnerStream(ownerId),
+      builder: (context, linksSnap) {
+        final links = linksSnap.data ?? [];
+        final activeLink = links.cast<FeedbackLink?>().firstWhere(
+              (l) => l!.acceptsPublicFeedback,
+              orElse: () => null,
+            );
+        final expiredWithComments = links.cast<FeedbackLink?>().firstWhere(
+              (l) => l!.isPastValidWindow && !l.isDemoTier,
+              orElse: () => null,
+            );
+
+        if (activeLink != null) {
+          return _ActiveLinkPoolContent(
+            theme: theme,
+            ownerId: ownerId,
+            link: activeLink,
+            onRefresh: onRefresh,
+          );
+        }
+
+        if (expiredWithComments != null) {
+          return _ExpiredLinkPoolContent(
+            theme: theme,
+            ownerId: ownerId,
+            link: expiredWithComments,
+            onRefresh: onRefresh,
+          );
+        }
+
         return Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -2868,11 +2923,7 @@ class _FeedbackPoolCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        totalAll > 0
-                            ? '${L10n.get(context, 'poolTotal').replaceAll('{n}', '$totalAll')}'
-                                '${entries.length < totalAll ? L10n.get(context, 'poolPreview').replaceAll('{m}', '${entries.length}') : ''}'
-                            : L10n.get(context, 'poolGrowing')
-                                .replaceAll('{n}', '${entries.length}'),
+                        L10n.get(context, 'poolNoActiveLink'),
                         style: theme.textTheme.bodyMedium
                             ?.copyWith(fontWeight: FontWeight.w600),
                       ),
@@ -2885,19 +2936,66 @@ class _FeedbackPoolCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                if (snap.connectionState == ConnectionState.waiting)
+                Text(
+                  L10n.get(context, 'poolNoActiveLinkHint'),
+                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ActiveLinkPoolContent extends StatelessWidget {
+  const _ActiveLinkPoolContent({
+    required this.theme,
+    required this.ownerId,
+    required this.link,
+    required this.onRefresh,
+  });
+
+  final ThemeData theme;
+  final String ownerId;
+  final FeedbackLink link;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<FeedbackEntry>>(
+      stream: appData.feedbacksForLinkStream(link.id),
+      builder: (context, snap) {
+        final entries = snap.data ?? const <FeedbackEntry>[];
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        L10n.get(context, 'poolActiveLink')
+                            .replaceAll('{n}', '${entries.length}'),
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: onRefresh,
+                      icon: const Icon(Icons.refresh),
+                      tooltip: L10n.get(context, 'refreshTooltip'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (snap.connectionState == ConnectionState.waiting && entries.isEmpty)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 8),
                     child: LinearProgressIndicator(minHeight: 2),
-                  ),
-                if (snap.hasError)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      L10n.get(context, 'poolReadError').replaceAll('{e}', '$errorText'),
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: Colors.orangeAccent),
-                    ),
                   ),
                 if (entries.isEmpty)
                   Text(
@@ -2923,17 +3021,90 @@ class _FeedbackPoolCard extends StatelessWidget {
                     ),
                 ],
                 const SizedBox(height: 12),
-                FilledButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AudienceAnalysisScreen(ownerId: ownerId),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.auto_awesome),
-                  label: Text(L10n.get(context, 'aiAudienceAnalysisRun')),
+                Text(
+                  L10n.get(context, 'poolCollecting'),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.amber.shade300,
+                    fontStyle: FontStyle.italic,
+                  ),
                 ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ExpiredLinkPoolContent extends StatelessWidget {
+  const _ExpiredLinkPoolContent({
+    required this.theme,
+    required this.ownerId,
+    required this.link,
+    required this.onRefresh,
+  });
+
+  final ThemeData theme;
+  final String ownerId;
+  final FeedbackLink link;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<int>(
+      future: appData.feedbackCountForLink(link.id),
+      builder: (context, snap) {
+        final count = snap.data ?? 0;
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        L10n.get(context, 'poolExpiredLink')
+                            .replaceAll('{n}', '$count'),
+                        style: theme.textTheme.bodyMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: onRefresh,
+                      icon: const Icon(Icons.refresh),
+                      tooltip: L10n.get(context, 'refreshTooltip'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (count > 0) ...[
+                  Text(
+                    L10n.get(context, 'poolExpiredReady'),
+                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => AudienceAnalysisScreen(
+                            ownerId: ownerId,
+                            linkId: link.id,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.auto_awesome),
+                    label: Text(L10n.get(context, 'aiAudienceAnalysisRun')),
+                  ),
+                ] else
+                  Text(
+                    L10n.get(context, 'poolExpiredNoComments'),
+                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+                  ),
               ],
             ),
           ),
@@ -3256,9 +3427,10 @@ class _ReportSharePreviewCard extends StatelessWidget {
 }
 
 class AudienceAnalysisScreen extends StatefulWidget {
-  const AudienceAnalysisScreen({super.key, required this.ownerId});
+  const AudienceAnalysisScreen({super.key, required this.ownerId, this.linkId});
 
   final String ownerId;
+  final String? linkId;
 
   @override
   State<AudienceAnalysisScreen> createState() => _AudienceAnalysisScreenState();
@@ -3271,38 +3443,69 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
   Future<AudienceAnalysisResult> _loadOrCreateAnalysis(String lang) async {
     final fbUid = FirebaseAuth.instance.currentUser?.uid ?? widget.ownerId;
     final recordKey = audienceRecordsOwnerKey(fbUid, widget.ownerId);
-    List<FeedbackLink> links = const <FeedbackLink>[];
-    try {
-      links = await appData
-          .getLinksForOwner(widget.ownerId)
-          .timeout(const Duration(seconds: 6));
-    } catch (_) {
-      links = const <FeedbackLink>[];
-    }
-    final latestLinkId = links.isNotEmpty ? links.first.id : null;
-    if (latestLinkId != null && latestLinkId.isNotEmpty) {
+
+    final targetLinkId = widget.linkId;
+
+    if (targetLinkId == null) {
+      List<FeedbackLink> links = const <FeedbackLink>[];
       try {
-        final history = await appData
-            .audienceScoreHistoryStream(recordKey, limit: 36)
-            .first
+        links = await appData
+            .getLinksForOwner(widget.ownerId)
             .timeout(const Duration(seconds: 6));
-        final existing = history.where((s) => s.analyzedLinkId == latestLinkId);
-        if (existing.isNotEmpty) {
-          final newest = existing.first;
-          final full = await appData
-              .loadAudienceScoreSnapshotWithBody(recordKey, newest.id)
-              .timeout(const Duration(seconds: 6));
-          if (full != null) {
-            return AudienceAnalysisResult.fromHistorySnapshot(full);
-          }
-        }
       } catch (_) {
-        // History fetch timed out/failed; continue with fresh analysis.
+        links = const <FeedbackLink>[];
       }
+      final latestLinkId = links.isNotEmpty ? links.first.id : null;
+      if (latestLinkId != null && latestLinkId.isNotEmpty) {
+        try {
+          final history = await appData
+              .audienceScoreHistoryStream(recordKey, limit: 36)
+              .first
+              .timeout(const Duration(seconds: 6));
+          final existing = history.where((s) => s.analyzedLinkId == latestLinkId);
+          if (existing.isNotEmpty) {
+            final newest = existing.first;
+            final full = await appData
+                .loadAudienceScoreSnapshotWithBody(recordKey, newest.id)
+                .timeout(const Duration(seconds: 6));
+            if (full != null) {
+              return AudienceAnalysisResult.fromHistorySnapshot(full);
+            }
+          }
+        } catch (_) {}
+      }
+      return reportService.generateAudienceAnalysis(
+        widget.ownerId,
+        analyzedLinkId: latestLinkId,
+        languageCode: lang,
+        onLoadUpdate: (s) {
+          if (mounted) setState(() => _loadState = s);
+        },
+      );
     }
+
+    // Per-link mode: check cache, then run per-link analysis
+    try {
+      final history = await appData
+          .audienceScoreHistoryStream(recordKey, limit: 36)
+          .first
+          .timeout(const Duration(seconds: 6));
+      final existing = history.where((s) => s.analyzedLinkId == targetLinkId);
+      if (existing.isNotEmpty) {
+        final newest = existing.first;
+        final full = await appData
+            .loadAudienceScoreSnapshotWithBody(recordKey, newest.id)
+            .timeout(const Duration(seconds: 6));
+        if (full != null) {
+          return AudienceAnalysisResult.fromHistorySnapshot(full);
+        }
+      }
+    } catch (_) {}
+
     return reportService.generateAudienceAnalysis(
       widget.ownerId,
-      analyzedLinkId: latestLinkId,
+      analyzedLinkId: targetLinkId,
+      linkId: targetLinkId,
       languageCode: lang,
       onLoadUpdate: (s) {
         if (mounted) setState(() => _loadState = s);

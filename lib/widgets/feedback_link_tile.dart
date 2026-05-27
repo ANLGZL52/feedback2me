@@ -8,9 +8,10 @@ import 'link_plan_banner.dart';
 
 /// Profil / panel: tek link satırı — özet, kopyala, detay, sil.
 class FeedbackLinkTile extends StatefulWidget {
-  const FeedbackLinkTile({super.key, required this.link});
+  const FeedbackLinkTile({super.key, required this.link, this.onAnalyze});
 
   final FeedbackLink link;
+  final void Function(String linkId)? onAnalyze;
 
   static String formatDate(BuildContext context, DateTime? d) {
     if (d == null) return '—';
@@ -197,11 +198,35 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
                       future: _countFuture,
                       builder: (context, snap) {
                         final n = snap.data ?? 0;
-                        return Text(
-                          '$created · $n ${L10n.get(context, 'feedbacksShort')}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.45),
-                          ),
+                        final isExpired = widget.link.isPastValidWindow;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '$created · $n ${L10n.get(context, 'feedbacksShort')}',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: Colors.white.withValues(alpha: 0.45),
+                              ),
+                            ),
+                            if (isExpired && n > 0 && widget.onAnalyze != null) ...[
+                              const SizedBox(height: 6),
+                              SizedBox(
+                                height: 28,
+                                child: FilledButton.icon(
+                                  onPressed: () => widget.onAnalyze!(widget.link.id),
+                                  icon: const Icon(Icons.auto_awesome, size: 14),
+                                  label: Text(
+                                    L10n.get(context, 'analyzeLink'),
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                  style: FilledButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                                    textStyle: const TextStyle(fontSize: 11),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         );
                       },
                     ),

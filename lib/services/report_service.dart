@@ -464,6 +464,7 @@ class ReportService {
   Future<AudienceAnalysisResult> generateAudienceAnalysis(
     String ownerId, {
     String? analyzedLinkId,
+    String? linkId,
     void Function(AudienceAnalysisLoadState state)? onLoadUpdate,
     String languageCode = 'tr',
   }) async {
@@ -471,14 +472,17 @@ class ReportService {
     onLoadUpdate?.call(
       AudienceAnalysisLoadState(
         phase: AudienceAnalysisLoadPhase.fetchingComments,
-        title: t('Yorum havuzu yükleniyor', 'Loading comment pool'),
-        subtitle: t(
-          'Sunucudan tüm geri bildirimler alınıyor…',
-          'Fetching all feedback from the server…',
-        ),
+        title: linkId != null
+            ? t('Link yorumları yükleniyor', 'Loading link comments')
+            : t('Yorum havuzu yükleniyor', 'Loading comment pool'),
+        subtitle: linkId != null
+            ? t('Bu linke gelen geri bildirimler alınıyor…', 'Fetching feedback for this link…')
+            : t('Sunucudan tüm geri bildirimler alınıyor…', 'Fetching all feedback from the server…'),
       ),
     );
-    final entries = await _data.getAllFeedbacksForOwner(ownerId);
+    final entries = linkId != null
+        ? await _data.getFeedbacksForLink(linkId)
+        : await _data.getAllFeedbacksForOwner(ownerId);
     if (entries.isEmpty) {
       return AudienceAnalysisResult(
         feedbackCount: 0,
