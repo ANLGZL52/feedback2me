@@ -875,9 +875,10 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   Widget _buildHomeContent({required bool isLoggedIn, String? uid}) {
-    final theme = Theme.of(context);
     final ios = feedbackAppUsesIosTypography;
     final cardPad = ios ? 24.0 : 20.0;
+    final oid = uid != null ? effectiveDataOwnerId(uid) : null;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -886,42 +887,183 @@ class _LandingScreenState extends State<LandingScreen> {
         SizedBox(height: ios ? 28 : 24),
         const _Tagline(),
         SizedBox(height: ios ? 36 : 32),
-        Card(
-          child: Padding(
-            padding: EdgeInsets.all(cardPad),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  L10n.get(context, 'createLinkCardTitle'),
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                SizedBox(height: ios ? 12 : 8),
-                Text(
-                  L10n.get(context, 'createLinkCardSubtitle'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.82),
-                  ),
-                ),
-                SizedBox(height: ios ? 14 : 8),
-                Text(
-                  L10n.get(context, 'createLinkTierHint'),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.48),
-                    height: 1.4,
-                  ),
-                ),
-                SizedBox(height: ios ? 22 : 16),
-                _PrimaryActions(isLoggedIn: isLoggedIn, uid: uid),
-              ],
-            ),
+        if (isLoggedIn && oid != null)
+          StreamBuilder<List<FeedbackLink>>(
+            stream: appData.linksForOwnerStream(oid),
+            builder: (context, linksSnap) {
+              final links = linksSnap.data ?? [];
+              final activeLink = links.cast<FeedbackLink?>().firstWhere(
+                    (l) => l!.acceptsPublicFeedback,
+                    orElse: () => null,
+                  );
+
+              if (activeLink != null) {
+                return _ActiveLinkHomeCard(
+                  link: activeLink,
+                  uid: uid!,
+                  cardPad: cardPad,
+                );
+              }
+
+              return _CreateLinkHomeCard(
+                isLoggedIn: isLoggedIn,
+                uid: uid,
+                cardPad: cardPad,
+              );
+            },
+          )
+        else
+          _CreateLinkHomeCard(
+            isLoggedIn: isLoggedIn,
+            uid: uid,
+            cardPad: cardPad,
           ),
-        ),
         SizedBox(height: ios ? 36 : 32),
         const _FooterNote(),
       ],
+    );
+  }
+}
+
+class _CreateLinkHomeCard extends StatelessWidget {
+  const _CreateLinkHomeCard({
+    required this.isLoggedIn,
+    required this.uid,
+    required this.cardPad,
+  });
+
+  final bool isLoggedIn;
+  final String? uid;
+  final double cardPad;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final ios = feedbackAppUsesIosTypography;
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(cardPad),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              L10n.get(context, 'createLinkCardTitle'),
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            SizedBox(height: ios ? 12 : 8),
+            Text(
+              L10n.get(context, 'createLinkCardSubtitle'),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.82),
+              ),
+            ),
+            SizedBox(height: ios ? 14 : 8),
+            Text(
+              L10n.get(context, 'createLinkTierHint'),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: Colors.white.withValues(alpha: 0.48),
+                height: 1.4,
+              ),
+            ),
+            SizedBox(height: ios ? 22 : 16),
+            _PrimaryActions(isLoggedIn: isLoggedIn, uid: uid),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ActiveLinkHomeCard extends StatelessWidget {
+  const _ActiveLinkHomeCard({
+    required this.link,
+    required this.uid,
+    required this.cardPad,
+  });
+
+  final FeedbackLink link;
+  final String uid;
+  final double cardPad;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(cardPad),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.link_rounded, color: theme.colorScheme.primary, size: 22),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    L10n.get(context, 'homeLinkActive'),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            LinkPlanBanner(link: link),
+            const SizedBox(height: 12),
+            StreamBuilder<List<FeedbackEntry>>(
+              stream: appData.feedbacksForLinkStream(link.id),
+              builder: (context, snap) {
+                final count = snap.data?.length ?? 0;
+                return Row(
+                  children: [
+                    Icon(Icons.comment_outlined, size: 16, color: Colors.white70),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$count ${L10n.get(context, 'feedbacksShort')}',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            SelectableText(
+              link.shareUrl,
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: link.shareUrl));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+                      );
+                    },
+                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    label: Text(L10n.get(context, 'copyLink')),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _createLink(context, uid),
+                    icon: const Icon(Icons.add_link, size: 18),
+                    label: Text(L10n.get(context, 'newLink')),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1560,6 +1702,31 @@ Future<void> _createLink(BuildContext context, String uid) async {
     );
     return;
   }
+
+  try {
+    final existingLinks = await appData.getLinksForOwner(owner);
+    final hasActiveLink = existingLinks.any((l) => l.acceptsPublicFeedback);
+    if (hasActiveLink && context.mounted) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(L10n.get(ctx, 'activeLinkExistsTitle')),
+          content: Text(L10n.get(ctx, 'activeLinkExistsBody')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(L10n.get(ctx, 'cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(L10n.get(ctx, 'activeLinkExistsConfirm')),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true || !context.mounted) return;
+    }
+  } catch (_) {}
 
   if (!BackendConfig.isRailwayBackendConfigured) {
     final cu = FirebaseAuth.instance.currentUser;
