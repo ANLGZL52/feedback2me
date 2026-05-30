@@ -44,6 +44,8 @@ workflows:
       - name: CocoaPods
         script: |
           set -e
+          # Podfile ios/ altında; önce flutter pub get Generated.xcconfig üretir.
+          test -f ios/Podfile || { echo "ERROR: ios/Podfile eksik — repoya commit edin."; exit 1; }
           cd ios
           pod install
       # Sıra: keychain → sertifikaları ekle → use-profiles (Manuel imza + export_options.plist) → flutter ipa
