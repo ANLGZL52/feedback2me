@@ -7,6 +7,7 @@ import { usersRoutes } from './routes/users.js';
 import { linksRoutes } from './routes/links.js';
 import { feedbacksRoutes } from './routes/feedbacks.js';
 import { snapshotsRoutes } from './routes/snapshots.js';
+import { aiRoutes } from './routes/ai.js';
 
 function resolveJwtSecret(): string | undefined {
   const raw = process.env.JWT_SECRET;
@@ -61,6 +62,7 @@ async function buildApp() {
   await app.register(linksRoutes);
   await app.register(feedbacksRoutes);
   await app.register(snapshotsRoutes);
+  await app.register(aiRoutes);
 
   return app;
 }

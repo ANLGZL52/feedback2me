@@ -12,16 +12,21 @@ class OpenAiAudienceClient {
 
   static const _apiKey = String.fromEnvironment('OPENAI_API_KEY', defaultValue: '');
   static const _model = 'gpt-4o-mini';
-  // Web'de tarayıcı CORS'unu aşmak için yerel/uzak proxy'ye yönlendirilebilir.
-  // Mobilde varsayılan doğrudan OpenAI (CORS yok). dart-define: OPENAI_BASE_URL
-  static const _url = String.fromEnvironment(
+  // Doğrudan OpenAI çağrısı (mobil). Web'de CORS için OPENAI_BASE_URL ile proxy'lenebilir.
+  static const _directUrl = String.fromEnvironment(
     'OPENAI_BASE_URL',
     defaultValue: 'https://api.openai.com/v1/chat/completions',
   );
+  // Sunucu-tarafı AI proxy (ör. Railway /ai/chat). Ayarlıysa anahtar İSTEMCİDE TUTULMAZ:
+  // istek sunucuya gider, OpenAI anahtarını sunucu ekler. dart-define: AI_PROXY_URL
+  static const _aiProxyUrl = String.fromEnvironment('AI_PROXY_URL', defaultValue: '');
+
+  bool get _proxied => _aiProxyUrl.isNotEmpty;
+  String get _endpoint => _proxied ? _aiProxyUrl : _directUrl;
 
   static const int chunkSize = 90;
 
-  bool get isConfigured => _apiKey.isNotEmpty;
+  bool get isConfigured => _apiKey.isNotEmpty || _proxied;
 
   static String _systemChunkPartial(bool outputEnglish) => outputEnglish
       ? '''
@@ -454,10 +459,10 @@ KURALLAR:
 
       final res = await http
           .post(
-            Uri.parse(_url),
+            Uri.parse(_endpoint),
             headers: {
-              'Authorization': 'Bearer $_apiKey',
               'Content-Type': 'application/json',
+              if (!_proxied) 'Authorization': 'Bearer $_apiKey',
             },
             body: jsonEncode(body),
           )
