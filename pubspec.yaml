@@ -73,9 +73,14 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/app_icon.png"
   min_sdk_android: 21
-  adaptive_icon_background: "#0D1117"
+  # iOS/App Store icons must be fully opaque (no alpha) — flatten any transparency.
+  remove_alpha_ios: true
+  # Design already fills the square with black rounded-rect corners; use it full-bleed
+  # as the adaptive foreground (inset 0). Background matches the design's black corners
+  # so no visible seam; on circle launchers only the decorative frame/ring corners trim
+  # (the F2M wordmark stays inside the safe zone).
+  adaptive_icon_background: "#000000"
   adaptive_icon_foreground: "assets/app_icon.png"
-  # 16% default inset shrinks foreground and showed white side bars when source PNG was non-square.
   adaptive_icon_foreground_inset: 0
 
 flutter_native_splash:
