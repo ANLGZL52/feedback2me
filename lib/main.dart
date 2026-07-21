@@ -29,6 +29,7 @@ import 'models/user_profile.dart';
 import 'screens/premium_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/report_service.dart';
+import 'services/simple_summary_store.dart';
 import 'widgets/app_onboarding.dart';
 import 'widgets/audience_score_widgets.dart';
 import 'widgets/creator_intelligence_report_view.dart';
@@ -36,6 +37,8 @@ import 'widgets/creator_survey_section.dart';
 import 'theme/app_theme.dart';
 import 'theme/feedback_material_theme.dart';
 import 'widgets/feedback_link_tile.dart';
+import 'widgets/simple_request_summary_view.dart';
+import 'widgets/link_validity_countdown.dart';
 import 'widgets/link_plan_banner.dart';
 import 'package:feedback_to_me/utils/reload_stub.dart' if (dart.library.html) 'package:feedback_to_me/utils/reload_web.dart' as reload_util;
 import 'package:feedback_to_me/utils/link_create_error.dart';
@@ -884,9 +887,7 @@ class _LandingScreenState extends State<LandingScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _AppBrand(),
-        SizedBox(height: ios ? 28 : 24),
-        const _Tagline(),
-        SizedBox(height: ios ? 36 : 32),
+        SizedBox(height: ios ? 24 : 20),
         if (isLoggedIn && oid != null)
           StreamBuilder<List<FeedbackLink>>(
             stream: appData.linksForOwnerStream(oid),
@@ -898,10 +899,39 @@ class _LandingScreenState extends State<LandingScreen> {
                   );
 
               if (activeLink != null) {
+                // Aktif link: tek kart — geri sayım + büyük Paylaş + tek satır canlı önizleme.
                 return _ActiveLinkHomeCard(
                   link: activeLink,
                   uid: uid!,
+                  ownerId: oid!,
                   cardPad: cardPad,
+                );
+              }
+
+              // Aktif link yok: en son link süresi dolmuşsa FİNAL özet (önbellekli).
+              final latest = links.isNotEmpty ? links.first : null;
+              final expired =
+                  (latest != null && latest.isPastValidWindow) ? latest : null;
+              if (expired != null) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _LinkSummaryCard(
+                      key: ValueKey('sum-final-${expired.id}'),
+                      link: expired,
+                      ownerId: oid!,
+                      cardPad: cardPad,
+                      isExpired: true,
+                      cacheable: true,
+                    ),
+                    const SizedBox(height: 16),
+                    _CreateLinkHomeCard(
+                      isLoggedIn: isLoggedIn,
+                      uid: uid,
+                      cardPad: cardPad,
+                    ),
+                  ],
                 );
               }
 
@@ -976,15 +1006,32 @@ class _CreateLinkHomeCard extends StatelessWidget {
   }
 }
 
+Future<void> _shareLink(BuildContext context, String url) async {
+  try {
+    await Share.share(url, subject: L10n.get(context, 'appTitle'));
+  } catch (_) {
+    Clipboard.setData(ClipboardData(text: url));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+      );
+    }
+  }
+}
+
+/// Aktif link kartı: geri sayım + yorum sayısı + BÜYÜK "Paylaş" (asıl eylem) +
+/// tek satır canlı önizleme + "süre bitince özet" ipucu.
 class _ActiveLinkHomeCard extends StatelessWidget {
   const _ActiveLinkHomeCard({
     required this.link,
     required this.uid,
+    required this.ownerId,
     required this.cardPad,
   });
 
   final FeedbackLink link;
   final String uid;
+  final String ownerId;
   final double cardPad;
 
   @override
@@ -998,56 +1045,66 @@ class _ActiveLinkHomeCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.link_rounded, color: theme.colorScheme.primary, size: 22),
+                Icon(Icons.link_rounded,
+                    color: theme.colorScheme.primary, size: 22),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     L10n.get(context, 'homeLinkActive'),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
+                if (link.validUntil != null)
+                  LinkValidityCountdown(
+                    validUntil: link.validUntil!,
+                    compact: true,
+                    foreground: theme.colorScheme.primary,
+                  ),
               ],
             ),
-            const SizedBox(height: 12),
-            LinkPlanBanner(link: link),
-            const SizedBox(height: 12),
+            const SizedBox(height: 6),
             StreamBuilder<List<FeedbackEntry>>(
               stream: appData.feedbacksForLinkStream(link.id),
               builder: (context, snap) {
                 final count = snap.data?.length ?? 0;
-                return Row(
-                  children: [
-                    Icon(Icons.comment_outlined, size: 16, color: Colors.white70),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$count ${L10n.get(context, 'feedbacksShort')}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
+                return Text(
+                  '$count ${L10n.get(context, 'feedbacksShort')}',
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: Colors.white70),
                 );
               },
             ),
-            const SizedBox(height: 12),
-            SelectableText(
-              link.shareUrl,
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
-            ),
             const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => _shareLink(context, link.shareUrl),
+                icon: const Icon(Icons.ios_share_rounded, size: 20),
+                label: Text(
+                  L10n.get(context, 'shareLink'),
+                  style: const TextStyle(fontSize: 16),
+                ),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
             Row(
               children: [
                 Expanded(
-                  child: FilledButton.icon(
+                  child: OutlinedButton.icon(
                     onPressed: () {
                       Clipboard.setData(ClipboardData(text: link.shareUrl));
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
                       );
                     },
-                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    icon: const Icon(Icons.copy_rounded, size: 16),
                     label: Text(L10n.get(context, 'copyLink')),
                   ),
                 ),
@@ -1055,12 +1112,337 @@ class _ActiveLinkHomeCard extends StatelessWidget {
                 Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () => _createLink(context, uid),
-                    icon: const Icon(Icons.add_link, size: 18),
+                    icon: const Icon(Icons.add_link, size: 16),
                     label: Text(L10n.get(context, 'newLink')),
                   ),
                 ),
               ],
             ),
+            const SizedBox(height: 14),
+            _LiveSummaryLine(link: link, ownerId: ownerId),
+            const SizedBox(height: 8),
+            Text(
+              L10n.get(context, 'homeSummaryHint'),
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: Colors.white54, height: 1.3),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Aktif linkte tek satır canlı önizleme ("N kişi — çıkarım"); dokununca tam özet.
+class _LiveSummaryLine extends StatefulWidget {
+  const _LiveSummaryLine({required this.link, required this.ownerId});
+
+  final FeedbackLink link;
+  final String ownerId;
+
+  @override
+  State<_LiveSummaryLine> createState() => _LiveSummaryLineState();
+}
+
+class _LiveSummaryLineState extends State<_LiveSummaryLine> {
+  SimpleRequestSummary? _summary;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() => _loading = true);
+    try {
+      final lang = mounted ? L10n.languageCodeForApp(context) : 'tr';
+      final s = await reportService.generateSimpleRequestSummary(
+        widget.ownerId,
+        linkId: widget.link.id,
+        languageCode: lang,
+      );
+      if (!mounted) return;
+      setState(() {
+        _summary = s;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _open() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AudienceAnalysisScreen(
+          ownerId: widget.ownerId,
+          linkId: widget.link.id,
+          cacheable: false,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (_loading) {
+      return Row(
+        children: [
+          const SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            L10n.get(context, 'expiredSummaryPreparing'),
+            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+          ),
+        ],
+      );
+    }
+    final s = _summary;
+    if (s == null || s.feedbackCount == 0) return const SizedBox.shrink();
+    final top = s.topRequests.isNotEmpty ? s.topRequests : s.otherRequests;
+    final line = top.isEmpty
+        ? L10n.get(context, 'liveSummaryTitle')
+        : '${top.first.count} ${L10n.get(context, 'simpleSummaryPeopleWord')} — ${top.first.label}';
+    return InkWell(
+      onTap: _open,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            const Icon(Icons.auto_awesome, size: 16, color: AppTheme.gold),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                line,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              L10n.get(context, 'expiredSummaryOpen'),
+              style: theme.textTheme.labelSmall?.copyWith(color: AppTheme.gold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Link özet kartı: aktifken "canlı özet" (yorum geldikçe), süre dolunca "final özet".
+/// Kısa çıkarımları (istek + gözlem) üretir; tam özete "Özeti gör" ile götürür.
+class _LinkSummaryCard extends StatefulWidget {
+  const _LinkSummaryCard({
+    super.key,
+    required this.link,
+    required this.ownerId,
+    required this.cardPad,
+    required this.isExpired,
+    this.cacheable = true,
+  });
+
+  final FeedbackLink link;
+  final String ownerId;
+  final double cardPad;
+
+  /// true: link süresi doldu → "final özet". false: aktif link → "canlı özet".
+  final bool isExpired;
+
+  /// true: özet cihazda önbelleğe alınır (final özet — bir kez üret).
+  /// false: her seferinde taze üret (canlı özet, yorum geldikçe).
+  final bool cacheable;
+
+  @override
+  State<_LinkSummaryCard> createState() => _LinkSummaryCardState();
+}
+
+class _LinkSummaryCardState extends State<_LinkSummaryCard> {
+  SimpleRequestSummary? _summary;
+  bool _loading = true;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+  }
+
+  Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = false;
+      });
+    }
+    try {
+      SimpleRequestSummary? summary = widget.cacheable
+          ? await SimpleSummaryStore.instance.load(widget.link.id)
+          : null;
+      if (summary == null) {
+        final lang = mounted ? L10n.languageCodeForApp(context) : 'tr';
+        summary = await reportService.generateSimpleRequestSummary(
+          widget.ownerId,
+          linkId: widget.link.id,
+          languageCode: lang,
+        );
+        if (widget.cacheable) {
+          await SimpleSummaryStore.instance.save(widget.link.id, summary);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _summary = summary;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = true;
+      });
+    }
+  }
+
+  void _openSummary() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AudienceAnalysisScreen(
+          ownerId: widget.ownerId,
+          linkId: widget.link.id,
+          cacheable: widget.cacheable,
+        ),
+      ),
+    );
+  }
+
+  String _preview(BuildContext context, SimpleRequestSummary s) {
+    final top = s.topRequests.isNotEmpty ? s.topRequests : s.otherRequests;
+    if (top.isEmpty) {
+      return L10n.get(context, 'summaryPreviewNone')
+          .replaceAll('{count}', '${s.feedbackCount}');
+    }
+    final first = top.first;
+    return L10n.get(context, 'summaryPreviewLine')
+        .replaceAll('{count}', '${first.count}')
+        .replaceAll('{people}', L10n.get(context, 'simpleSummaryPeopleWord'))
+        .replaceAll('{label}', first.label);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // Canlı özet + henüz yorum yok → kartı gizle (aktif link kartı zaten sayaç gösterir).
+    final s = _summary;
+    if (!_loading &&
+        !_error &&
+        s != null &&
+        !widget.isExpired &&
+        s.feedbackCount == 0) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+      child: Padding(
+        padding: EdgeInsets.all(widget.cardPad),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  widget.isExpired
+                      ? Icons.timer_off_outlined
+                      : Icons.insights_outlined,
+                  color: theme.colorScheme.primary,
+                  size: 22,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    L10n.get(
+                      context,
+                      widget.isExpired
+                          ? 'expiredSummaryTitle'
+                          : 'liveSummaryTitle',
+                    ),
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.refresh, size: 20),
+                  tooltip: L10n.get(context, 'retry'),
+                  onPressed: _loading ? null : _load,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (_loading)
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      L10n.get(context, 'expiredSummaryPreparing'),
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: Colors.white70),
+                    ),
+                  ),
+                ],
+              )
+            else if (_error)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    L10n.get(context, 'expiredSummaryError'),
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: Text(L10n.get(context, 'retry')),
+                  ),
+                ],
+              )
+            else ...[
+              Text(
+                _preview(context, _summary!),
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: Colors.white70, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _openSummary,
+                  icon: const Icon(Icons.list_alt_rounded, size: 18),
+                  label: Text(L10n.get(context, 'expiredSummaryOpen')),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1122,21 +1504,6 @@ class _AppBrand extends StatelessWidget {
           ],
         ),
       ],
-    );
-  }
-}
-
-class _Tagline extends StatelessWidget {
-  const _Tagline();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      L10n.get(context, 'tagline'),
-      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            height: 1.4,
-            color: Colors.white.withOpacity(0.9),
-          ),
     );
   }
 }
@@ -3714,17 +4081,184 @@ class _ReportSharePreviewCard extends StatelessWidget {
   }
 }
 
+/// Basit geri bildirim (varsayılan): "N kişi şunu istiyor" listesi + tek satır duygu.
+/// Süre sonunda ve elle açıldığında gösterilen sade özet. Ağır analiz "Detaylı
+/// raporu gör" ile [DetailedAudienceReportScreen]'e devreder.
 class AudienceAnalysisScreen extends StatefulWidget {
-  const AudienceAnalysisScreen({super.key, required this.ownerId, this.linkId});
+  const AudienceAnalysisScreen({
+    super.key,
+    required this.ownerId,
+    this.linkId,
+    this.cacheable = false,
+  });
 
   final String ownerId;
   final String? linkId;
+
+  /// true: süresi dolmuş link — özet cihazda önbelleğe alınır, tekrar AI çağrısı olmaz.
+  /// false: aktif link / havuz — her açılışta taze üretilir.
+  final bool cacheable;
 
   @override
   State<AudienceAnalysisScreen> createState() => _AudienceAnalysisScreenState();
 }
 
 class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
+  Future<SimpleRequestSummary>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _run();
+    });
+  }
+
+  void _run() {
+    final lang = L10n.languageCodeForApp(context);
+    setState(() {
+      _future = _loadOrGenerate(lang);
+    });
+  }
+
+  Future<SimpleRequestSummary> _loadOrGenerate(String lang) async {
+    final linkId = widget.linkId;
+    final canCache = widget.cacheable && linkId != null && linkId.isNotEmpty;
+    if (canCache) {
+      final cached = await SimpleSummaryStore.instance.load(linkId);
+      if (cached != null) return cached;
+    }
+    final summary = await reportService.generateSimpleRequestSummary(
+      widget.ownerId,
+      linkId: widget.linkId,
+      languageCode: lang,
+    );
+    if (canCache) {
+      await SimpleSummaryStore.instance.save(linkId, summary);
+    }
+    return summary;
+  }
+
+  void _openDetailed() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DetailedAudienceReportScreen(
+          ownerId: widget.ownerId,
+          linkId: widget.linkId,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final future = _future;
+    return Scaffold(
+      appBar: AppBar(title: Text(L10n.get(context, 'audienceAppBarTitle'))),
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: future == null
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppTheme.gold),
+                )
+              : FutureBuilder<SimpleRequestSummary>(
+                  future: future,
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const CircularProgressIndicator(color: AppTheme.gold),
+                            const SizedBox(height: 16),
+                            Text(
+                              L10n.get(context, 'audienceLoadingTitle'),
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    if (snap.hasError) {
+                      return Center(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.error_outline,
+                                  size: 48, color: Color(0xFFF87171)),
+                              const SizedBox(height: 16),
+                              SelectableText(
+                                snap.error.toString(),
+                                textAlign: TextAlign.center,
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(color: Colors.white70),
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton.icon(
+                                onPressed: _run,
+                                icon: const Icon(Icons.refresh),
+                                label: Text(L10n.get(context, 'retry')),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    final summary = snap.data;
+                    if (summary == null) {
+                      return Center(
+                        child: FilledButton(
+                          onPressed: _run,
+                          child: Text(L10n.get(context, 'retry')),
+                        ),
+                      );
+                    }
+                    return SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SimpleRequestSummaryView(summary: summary),
+                          const SizedBox(height: 16),
+                          OutlinedButton.icon(
+                            onPressed: _openDetailed,
+                            icon: const Icon(Icons.insights_outlined, size: 18),
+                            label: Text(L10n.get(context, 'detailedReportOpen')),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Detaylı Creator Intelligence raporu (ağır iki-aşamalı analiz).
+/// Artık varsayılan değil; basit özetin "Detaylı raporu gör" bağlantısından açılır.
+class DetailedAudienceReportScreen extends StatefulWidget {
+  const DetailedAudienceReportScreen({
+    super.key,
+    required this.ownerId,
+    this.linkId,
+  });
+
+  final String ownerId;
+  final String? linkId;
+
+  @override
+  State<DetailedAudienceReportScreen> createState() =>
+      _DetailedAudienceReportScreenState();
+}
+
+class _DetailedAudienceReportScreenState
+    extends State<DetailedAudienceReportScreen> {
   Future<AudienceAnalysisResult>? _future;
   AudienceAnalysisLoadState? _loadState;
 

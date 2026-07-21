@@ -240,6 +240,40 @@ class ReMeasureItem {
       );
 }
 
+/// Basit geri bildirim: "N kişi şunu istiyor" — yorumlardan çıkarılan somut istek + kişi sayısı.
+class AudienceRequest {
+  const AudienceRequest({
+    required this.label,
+    required this.count,
+    this.examples = const [],
+  });
+
+  /// Kısa emir-kipi istek etiketi (ör. "Saçını boyat").
+  final String label;
+
+  /// Bu isteği dile getiren kişi sayısı.
+  final int count;
+
+  /// Güven için 1–2 gerçek yorum alıntısı.
+  final List<String> examples;
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'count': count,
+        if (examples.isNotEmpty) 'examples': examples,
+      };
+
+  factory AudienceRequest.fromJson(Map<String, dynamic> j) => AudienceRequest(
+        label: j['label']?.toString() ?? '',
+        count: (j['count'] as num?)?.round() ?? 0,
+        examples: (j['examples'] as List?)
+                ?.map((e) => e.toString())
+                .where((s) => s.isNotEmpty)
+                .toList() ??
+            const [],
+      );
+}
+
 /// Tam rapor — UI blokları.
 class CreatorIntelligenceReport {
   const CreatorIntelligenceReport({
@@ -260,6 +294,7 @@ class CreatorIntelligenceReport {
     this.strategicDigest,
     this.visualAndFormatInsight = '',
     this.comprehensiveCoachLetter = '',
+    this.requests = const [],
   });
 
   final CreatorCoverScores cover;
@@ -286,6 +321,9 @@ class CreatorIntelligenceReport {
   /// Sana hitap eden, kapanış “koç mektubu”: tüm sinyallerin sentezi.
   final String comprehensiveCoachLetter;
 
+  /// Basit geri bildirim: "N kişi şunu istiyor" listesi (çoktan aza sıralı).
+  final List<AudienceRequest> requests;
+
   Map<String, dynamic> toJson() => {
         'cover': cover.toJson(),
         'executiveSummary': executiveSummary,
@@ -304,6 +342,7 @@ class CreatorIntelligenceReport {
         'strategicDigest': strategicDigest,
         'visualAndFormatInsight': visualAndFormatInsight,
         'comprehensiveCoachLetter': comprehensiveCoachLetter,
+        'requests': requests.map((e) => e.toJson()).toList(),
       };
 
   factory CreatorIntelligenceReport.fromJson(Map<String, dynamic> j) {
@@ -330,6 +369,7 @@ class CreatorIntelligenceReport {
       strategicDigest: j['strategicDigest']?.toString(),
       visualAndFormatInsight: j['visualAndFormatInsight']?.toString() ?? '',
       comprehensiveCoachLetter: j['comprehensiveCoachLetter']?.toString() ?? '',
+      requests: listMap('requests').map(AudienceRequest.fromJson).toList(),
     );
   }
 
@@ -364,5 +404,6 @@ class CreatorIntelligenceReport {
         strategicDigest: null,
         visualAndFormatInsight: '',
         comprehensiveCoachLetter: '',
+        requests: const [],
       );
 }

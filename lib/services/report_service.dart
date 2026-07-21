@@ -122,6 +122,70 @@ class AudienceAnalysisResult {
   }
 }
 
+/// Basit geri bildirim özeti: "N kişi şunu istiyor" listesi + tek satır duygu.
+class SimpleRequestSummary {
+  SimpleRequestSummary({
+    required this.feedbackCount,
+    required this.positiveCount,
+    required this.neutralCount,
+    required this.negativeCount,
+    required this.topRequests,
+    required this.otherRequests,
+    required this.aiUsed,
+  });
+
+  final int feedbackCount;
+  final int positiveCount;
+  final int neutralCount;
+  final int negativeCount;
+
+  /// Eşik ve üst sınırı geçen ana istekler (çoktan aza).
+  final List<AudienceRequest> topRequests;
+
+  /// Tek-tük gelen istekler ("diğer istekler" altında toplanır).
+  final List<AudienceRequest> otherRequests;
+
+  /// İstekler AI ile mi (true) yoksa yerel anahtar kelime yedeğiyle mi (false) çıkarıldı.
+  final bool aiUsed;
+
+  int get supportivePct =>
+      feedbackCount <= 0 ? 0 : ((100 * positiveCount) / feedbackCount).round();
+  int get neutralPct =>
+      feedbackCount <= 0 ? 0 : ((100 * neutralCount) / feedbackCount).round();
+  int get riskPct =>
+      feedbackCount <= 0 ? 0 : ((100 * negativeCount) / feedbackCount).round();
+
+  bool get hasRequests => topRequests.isNotEmpty || otherRequests.isNotEmpty;
+
+  Map<String, dynamic> toJson() => {
+        'feedbackCount': feedbackCount,
+        'positiveCount': positiveCount,
+        'neutralCount': neutralCount,
+        'negativeCount': negativeCount,
+        'topRequests': topRequests.map((e) => e.toJson()).toList(),
+        'otherRequests': otherRequests.map((e) => e.toJson()).toList(),
+        'aiUsed': aiUsed,
+      };
+
+  factory SimpleRequestSummary.fromJson(Map<String, dynamic> j) {
+    List<AudienceRequest> reqs(String key) =>
+        (j[key] as List?)
+            ?.whereType<Map>()
+            .map((e) => AudienceRequest.fromJson(Map<String, dynamic>.from(e)))
+            .toList() ??
+        const [];
+    return SimpleRequestSummary(
+      feedbackCount: (j['feedbackCount'] as num?)?.round() ?? 0,
+      positiveCount: (j['positiveCount'] as num?)?.round() ?? 0,
+      neutralCount: (j['neutralCount'] as num?)?.round() ?? 0,
+      negativeCount: (j['negativeCount'] as num?)?.round() ?? 0,
+      topRequests: reqs('topRequests'),
+      otherRequests: reqs('otherRequests'),
+      aiUsed: j['aiUsed'] == true,
+    );
+  }
+}
+
 /// Takipçi analizi yükleme ekranı için aşama + metin.
 enum AudienceAnalysisLoadPhase {
   fetchingComments,
@@ -763,6 +827,125 @@ class ReportService {
       strengths: strengths,
       developmentAreas: developmentAreas,
       socialPersonalityGuidance: socialPersonalityGuidance,
+    );
+  }
+
+  /// Basit geri bildirim: yorumlardan somut istekleri çıkarıp "N kişi şunu istiyor"
+  /// listesine dönüştürür. Ağır iki-aşamalı analizi ÇAĞIRMAZ (tek AI çağrısı).
+  Future<SimpleRequestSummary> generateSimpleRequestSummary(
+    String ownerId, {
+    String? linkId,
+    String languageCode = 'tr',
+  }) async {
+    final entries = linkId != null
+        ? await _data.getFeedbacksForLink(linkId)
+        : await _data.getAllFeedbacksForOwner(ownerId);
+
+    if (entries.isEmpty) {
+      return SimpleRequestSummary(
+        feedbackCount: 0,
+        positiveCount: 0,
+        neutralCount: 0,
+        negativeCount: 0,
+        topRequests: const [],
+        otherRequests: const [],
+        aiUsed: false,
+      );
+    }
+
+    String clip(String s) => s.length > 140 ? '${s.substring(0, 140)}…' : s;
+
+    int pos = 0, neu = 0, neg = 0;
+    final texts = <String>[];
+    // Gerçek yorum örnekleri (duyguya göre) — "otomatik hissi" oluşmasın diye alıntılanır.
+    String? posSample, negSample, neuSample;
+    for (final e in entries) {
+      final m = _calibratedMood(e.mood, e.textRaw);
+      final txt = e.textRaw.trim();
+      if (m == 1) {
+        pos++;
+        if (posSample == null && txt.isNotEmpty) posSample = clip(txt);
+      } else if (m == -1) {
+        neg++;
+        if (negSample == null && txt.isNotEmpty) negSample = clip(txt);
+      } else {
+        neu++;
+        if (neuSample == null && txt.isNotEmpty) neuSample = clip(txt);
+      }
+      if (txt.isNotEmpty) texts.add(e.textRaw);
+    }
+
+    final oa = OpenAiAudienceClient();
+    List<AudienceRequest> requests = const [];
+    var aiUsed = false;
+    if (oa.isConfigured) {
+      requests = await oa.extractRequests(
+        entries,
+        outputEnglishModel: languageCode == 'en',
+      );
+      aiUsed = requests.isNotEmpty;
+    }
+
+    // Yedek: AI yoksa/boşsa DAİMA kısa çıkarım üret — "yorum ne gelirse gelsin".
+    // Önce anahtar kelime içerik önerileri, sonra duygu-temelli gözlemler (asla boş kalmaz).
+    if (requests.isEmpty) {
+      String t(String tr, String en) => languageCode == 'en' ? en : tr;
+      final fb = <AudienceRequest>[];
+      final cat = ReportService.extractContentSuggestions(texts);
+      for (final e in cat.entries) {
+        fb.add(AudienceRequest(label: e.key, count: e.value));
+      }
+      if (pos > 0) {
+        fb.add(AudienceRequest(
+          label: t('İçeriğini beğeniyor', 'Likes your content'),
+          count: pos,
+          examples: posSample != null ? [posSample] : const [],
+        ));
+      }
+      if (neg > 0) {
+        fb.add(AudienceRequest(
+          label: t('Eleştiri / iyileştirme belirtiyor', 'Raises criticism / improvement'),
+          count: neg,
+          examples: negSample != null ? [negSample] : const [],
+        ));
+      }
+      if (neu > 0) {
+        fb.add(AudienceRequest(
+          label: t('Nötr / kararsız', 'Neutral / undecided'),
+          count: neu,
+          examples: neuSample != null ? [neuSample] : const [],
+        ));
+      }
+      requests = fb..sort((a, b) => b.count.compareTo(a.count));
+    }
+
+    const threshold = 2;
+    const topCap = 8;
+    final top = <AudienceRequest>[];
+    final other = <AudienceRequest>[];
+    for (final r in requests) {
+      if (r.count >= threshold && top.length < topCap) {
+        top.add(r);
+      } else {
+        other.add(r);
+      }
+    }
+    // Hiçbiri eşiği geçmediyse (hepsi tek kişilik) en güçlü birkaçını yine de üste al —
+    // başlık alanı boş kalmasın, "her yorumda kısa çıkarım" garantisi.
+    if (top.isEmpty && requests.isNotEmpty) {
+      final n = requests.length < 5 ? requests.length : 5;
+      top.addAll(requests.take(n));
+      other.removeWhere((r) => top.contains(r));
+    }
+
+    return SimpleRequestSummary(
+      feedbackCount: entries.length,
+      positiveCount: pos,
+      neutralCount: neu,
+      negativeCount: neg,
+      topRequests: top,
+      otherRequests: other,
+      aiUsed: aiUsed,
     );
   }
 

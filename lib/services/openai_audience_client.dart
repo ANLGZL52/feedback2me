@@ -12,7 +12,12 @@ class OpenAiAudienceClient {
 
   static const _apiKey = String.fromEnvironment('OPENAI_API_KEY', defaultValue: '');
   static const _model = 'gpt-4o-mini';
-  static const _url = 'https://api.openai.com/v1/chat/completions';
+  // Web'de tarayıcı CORS'unu aşmak için yerel/uzak proxy'ye yönlendirilebilir.
+  // Mobilde varsayılan doğrudan OpenAI (CORS yok). dart-define: OPENAI_BASE_URL
+  static const _url = String.fromEnvironment(
+    'OPENAI_BASE_URL',
+    defaultValue: 'https://api.openai.com/v1/chat/completions',
+  );
 
   static const int chunkSize = 90;
 
@@ -212,6 +217,203 @@ ${jsonEncode(heuristic.toJson())}
     } catch (_) {
       return null;
     }
+  }
+
+  /// Basit geri bildirim için üst sınır: tek çağrıda gönderilecek yorum sayısı.
+  /// Tek çağrıda gönderilecek yorum sayısı (parça).
+  static const int _takeawayChunk = 60;
+  /// İşlenecek üst sınır (en yeni N yorum) — maliyet/gecikme sınırı.
+  static const int _maxComments = 300;
+  /// Kümelemeye gönderilecek en fazla farklı etiket.
+  static const int _maxClusterLabels = 160;
+
+  /// Yorumlardan konuya-özel çıkarımları çıkarır; **eş anlamlıları KÜMELER** ve
+  /// sayımı KOD yapar. Binlerce yorumda "her kişi tek tek" yerine tek "N kişi — …"
+  /// satırı üretir: (1) parçalı çıkarım, (2) AI kümeleme, (3) canonical'e göre sayım.
+  Future<List<AudienceRequest>> extractRequests(
+    List<FeedbackEntry> entries, {
+    bool outputEnglishModel = false,
+  }) async {
+    if (!isConfigured || entries.isEmpty) return const [];
+    final sample = entries.length > _maxComments
+        ? entries.sublist(0, _maxComments)
+        : entries;
+
+    final system = outputEnglishModel
+        ? '''
+You turn follower comments into SHORT, TOPIC-SPECIFIC takeaways. You receive numbered comments.
+EVERY meaningful comment must produce at least one takeaway — a REQUEST or an OBSERVATION.
+
+MOST IMPORTANT RULE: Each takeaway must name the SPECIFIC SUBJECT the comment is about.
+Generic labels are BANNED — never write vague things like "likes your content" or "raises criticism".
+Name the actual subject: "Loves your hair", "Loves your food videos — wants more", "Criticizes your audio",
+"Wants more vlogs", "Loves your smile", "Finds your editing too fast".
+
+RULES:
+1. REQUEST (explicit/implied): short imperative + subject — "Post shorter videos", "Improve audio quality".
+2. OBSERVATION (praise/criticism/opinion): subject + view — "Loves your hair", "Finds your delivery confusing".
+3. Label = 2–8 words; reflect the comment's REAL topic (take the actual subject/theme mentioned).
+4. Merge takeaways that mean the same thing into ONE label; reuse a fitting label.
+5. If one comment carries several takeaways, add a separate item for each.
+6. Skip ONLY empty/spam/meaningless comments.
+7. Do NOT count; each item = one takeaway from one comment.
+
+OUTPUT (a single JSON object, no other text):
+{"items":[{"label":"Loves your food videos — wants more","quote":"short quote"}]}
+'''
+        : '''
+Sen takipçi yorumlarını KISA ama KONUYA ÖZEL çıkarımlara çeviren bir analistsin. Sana numaralı yorumlar verilecek.
+HER anlamlı yorum en az bir çıkarım üretmeli — bir İSTEK ya da bir GÖZLEM.
+
+EN ÖNEMLİ KURAL: Her çıkarım, yorumun HANGİ KONUYA dair olduğunu SOMUT belirtmeli.
+Jenerik etiket YASAK — "içeriğini beğeniyor", "eleştiri belirtiyor" gibi belirsiz ifadeler ASLA yazma.
+Konuyu adlandır: "Saçını beğeniyor", "Yemek videolarını çok seviyor — devamını istiyor", "Ses kalitesini eleştiriyor",
+"Daha çok vlog istiyor", "Gülüşünü beğeniyor", "Kurguyu çok hızlı buluyor".
+
+KURALLAR:
+1. İSTEK (açık/ima): kısa emir + konu — "Daha kısa video çek", "Ses kalitesini artır".
+2. GÖZLEM (övgü/eleştiri/görüş): konu + görüş — "Saçını beğeniyor", "Anlatımını karışık buluyor".
+3. Etiket = 2–8 kelime; yorumun GERÇEK konusunu yansıt (yorumdaki asıl özneyi/temayı al).
+4. Aynı anlama gelen çıkarımları TEK etiketle birleştir; uygun etiketi tekrar kullan.
+5. Bir yorumda birden çok çıkarım varsa her biri için ayrı öğe ekle.
+6. YALNIZCA boş/spam/anlamsız yorumları atla.
+7. Sayma YAPMA; her öğe = bir yorumdaki bir çıkarım.
+
+ÇIKTI (tek bir JSON nesnesi, başka metin yok):
+{"items":[{"label":"Yemek videolarını çok seviyor — devamını istiyor","quote":"kısa alıntı"}]}
+''';
+
+    // 1) Parçalı çıkarım: her yorumdan {label, quote}. Ölçeklenir (parça parça).
+    final raw = <({String label, String quote})>[];
+    for (var start = 0; start < sample.length; start += _takeawayChunk) {
+      final end = (start + _takeawayChunk) < sample.length
+          ? (start + _takeawayChunk)
+          : sample.length;
+      final chunk = sample.sublist(start, end);
+      final buf = StringBuffer();
+      for (var j = 0; j < chunk.length; j++) {
+        var t = chunk[j].textRaw.replaceAll('\n', ' ').trim();
+        if (t.isEmpty) continue;
+        if (t.length > 300) t = '${t.substring(0, 300)}…';
+        final s = chunk[j].creatorSurvey;
+        final survey = (s != null && !s.isEffectivelyEmpty)
+            ? ' [anket: ${s.toCompactJson()}]'
+            : '';
+        buf.writeln('${j + 1}) $t$survey');
+      }
+      final user = outputEnglishModel
+          ? 'COMMENTS:\n${buf.toString()}'
+          : 'YORUMLAR:\n${buf.toString()}';
+      final resp = await _chat(
+        system: system,
+        user: user,
+        jsonMode: true,
+        maxTokens: 2000,
+      );
+      if (resp == null) continue;
+      final map = _parseJsonObject(resp);
+      final items = map?['items'];
+      if (items is! List) continue;
+      for (final it in items) {
+        if (it is! Map) continue;
+        final label = (it['label'] ?? '').toString().trim();
+        if (label.isEmpty) continue;
+        final quote = (it['quote'] ?? '').toString().trim();
+        raw.add((label: label, quote: quote));
+      }
+    }
+    if (raw.isEmpty) return const [];
+
+    // 2) Kümeleme: eş anlamlı etiketleri tek canonical'e indir (tek tek satır olmasın).
+    final distinct = <String>{for (final r in raw) r.label}.toList();
+    final canonical = await _clusterLabels(distinct, outputEnglishModel);
+    String canon(String label) => canonical[label.toLowerCase()] ?? label;
+
+    // 3) Sayımı KOD yapar: canonical etikete göre grupla + gerçek yorum alıntısı topla.
+    final groups = <String, ({String label, int count, List<String> examples})>{};
+    for (final r in raw) {
+      final c = canon(r.label);
+      final key = c.toLowerCase();
+      final g = groups[key];
+      if (g == null) {
+        groups[key] = (
+          label: c,
+          count: 1,
+          examples: r.quote.isEmpty ? <String>[] : <String>[r.quote],
+        );
+      } else {
+        if (r.quote.isNotEmpty &&
+            g.examples.length < 2 &&
+            !g.examples.contains(r.quote)) {
+          g.examples.add(r.quote);
+        }
+        groups[key] = (label: g.label, count: g.count + 1, examples: g.examples);
+      }
+    }
+
+    final list = groups.values
+        .map((g) => AudienceRequest(label: g.label, count: g.count, examples: g.examples))
+        .toList()
+      ..sort((a, b) => b.count.compareTo(a.count));
+    return list;
+  }
+
+  /// Eş anlamlı çıkarım etiketlerini tek "canonical" etikete indiren AI kümelemesi.
+  /// Dönüş: her (küçük harf) etiket → temsili etiket eşlemesi.
+  Future<Map<String, String>> _clusterLabels(
+    List<String> labels,
+    bool english,
+  ) async {
+    if (labels.length <= 1) return const {};
+    final capped = labels.length > _maxClusterLabels
+        ? labels.sublist(0, _maxClusterLabels)
+        : labels;
+    final system = english
+        ? 'Merge ONLY labels about the SAME specific subject with the same opinion. '
+            'NEVER merge different subjects. The canonical label MUST name the subject; '
+            'generic labels like "Praise", "Criticism", "Suggestion" are BANNED. '
+            'Example: "Suggests dyeing your hair" + "Says dyed hair would look good" '
+            '→ canonical "Suggests you dye your hair". But "Praises your success" and '
+            '"Likes your food content" are DIFFERENT subjects → keep them separate. '
+            'Every label appears in exactly one group; a unique label is its own group. '
+            'Output a single JSON object only: '
+            '{"clusters":[{"canonical":"...","members":["...","..."]}]}'
+        : 'Sadece AYNI SPESİFİK KONU ve aynı görüşü ifade eden etiketleri tek gruba birleştir. '
+            'FARKLI konuları ASLA birleştirme. Canonical etiket KONUYU içermeli; '
+            '"Övgü", "Eleştiri", "Öneri" gibi GENEL etiket YASAK. '
+            'Örnek: "Saçını boyatmasını öneriyor" + "Saçını boyamasını öneriyor" '
+            '→ canonical "Saçını boyatmanı öneriyor". Ama "Başarılarını övüyor" ile '
+            '"Yemek içeriklerini beğeniyor" FARKLI konu → ayrı kalır. '
+            'Her etiket tam olarak bir grupta; tekil etiket kendi grubudur. '
+            'Yalnızca tek bir JSON nesnesi döndür: '
+            '{"clusters":[{"canonical":"...","members":["...","..."]}]}';
+    final user = (english ? 'LABELS:\n' : 'ETİKETLER:\n') +
+        capped.map((l) => '- $l').join('\n');
+    final resp = await _chat(
+      system: system,
+      user: user,
+      jsonMode: true,
+      maxTokens: 3000,
+    );
+    if (resp == null) return const {};
+    final map = _parseJsonObject(resp);
+    final clusters = map?['clusters'];
+    if (clusters is! List) return const {};
+    final out = <String, String>{};
+    for (final c in clusters) {
+      if (c is! Map) continue;
+      final canonicalLabel = (c['canonical'] ?? '').toString().trim();
+      if (canonicalLabel.isEmpty) continue;
+      out[canonicalLabel.toLowerCase()] = canonicalLabel;
+      final members = c['members'];
+      if (members is List) {
+        for (final m in members) {
+          final ms = m.toString().trim();
+          if (ms.isNotEmpty) out[ms.toLowerCase()] = canonicalLabel;
+        }
+      }
+    }
+    return out;
   }
 
   String _encodeLines(List<FeedbackEntry> chunk) {
