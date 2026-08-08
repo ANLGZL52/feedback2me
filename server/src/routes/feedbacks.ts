@@ -6,6 +6,7 @@ const addFeedbackSchema = z.object({
   linkId: z.string().min(1),
   textRaw: z.string().min(10),
   mood: z.number().int().min(-1).max(1).optional(),
+  reaction: z.string().max(40).nullable().optional(),
   relation: z.string().max(500).nullable().optional(),
   responderName: z.string().max(200).nullable().optional(),
   creatorSurvey: z.record(z.string(), z.unknown()).nullable().optional(),
@@ -18,7 +19,7 @@ export const feedbacksRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'validation', details: parsed.error.flatten() });
     }
-    const { linkId, textRaw, mood, relation, responderName, creatorSurvey } = parsed.data;
+    const { linkId, textRaw, mood, reaction, relation, responderName, creatorSurvey } = parsed.data;
 
     try {
       const fb = await prisma.$transaction(async (tx) => {
@@ -41,6 +42,7 @@ export const feedbacksRoutes: FastifyPluginAsync = async (app) => {
             linkId,
             textRaw: textRaw.trim(),
             mood: mood ?? null,
+            reaction: reaction ?? null,
             relation: relation ?? null,
             responderName: responderName?.trim() || null,
             creatorSurvey: creatorSurvey ? (creatorSurvey as object) : undefined,
@@ -130,6 +132,7 @@ function feedbackToDto(f: {
   responderName: string | null;
   relation: string | null;
   mood: number | null;
+  reaction: string | null;
   textRaw: string;
   textClean: string | null;
   creatorSurvey: unknown;
@@ -141,6 +144,7 @@ function feedbackToDto(f: {
     responderName: f.responderName,
     relation: f.relation,
     mood: f.mood,
+    reaction: f.reaction,
     textRaw: f.textRaw,
     textClean: f.textClean,
     creatorSurvey: f.creatorSurvey,

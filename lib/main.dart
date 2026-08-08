@@ -18,10 +18,13 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_state.dart';
 import 'services/auth_service.dart' show firebaseAuthUserMessage;
 import 'config/backend_config.dart';
+import 'config/feature_flags.dart';
+import 'config/feedback_reactions.dart';
 import 'services/api_session.dart' show ApiSession;
 import 'services/railway_backend_sync.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
+import 'models/community_feedback_summary.dart';
 import 'models/feedback_entry.dart';
 import 'models/feedback_link.dart';
 import 'models/audience_score.dart';
@@ -29,15 +32,15 @@ import 'models/user_profile.dart';
 import 'screens/premium_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/report_service.dart';
-import 'services/simple_summary_store.dart';
+import 'services/community_summary_store.dart';
 import 'widgets/app_onboarding.dart';
 import 'widgets/audience_score_widgets.dart';
+import 'widgets/community_feedback_view.dart';
 import 'widgets/creator_intelligence_report_view.dart';
 import 'widgets/creator_survey_section.dart';
 import 'theme/app_theme.dart';
 import 'theme/feedback_material_theme.dart';
 import 'widgets/feedback_link_tile.dart';
-import 'widgets/simple_request_summary_view.dart';
 import 'widgets/link_validity_countdown.dart';
 import 'widgets/link_plan_banner.dart';
 import 'package:feedback_to_me/utils/reload_stub.dart' if (dart.library.html) 'package:feedback_to_me/utils/reload_web.dart' as reload_util;
@@ -1145,7 +1148,7 @@ class _LiveSummaryLine extends StatefulWidget {
 }
 
 class _LiveSummaryLineState extends State<_LiveSummaryLine> {
-  SimpleRequestSummary? _summary;
+  CommunityFeedbackSummary? _summary;
   bool _loading = true;
 
   @override
@@ -1160,7 +1163,7 @@ class _LiveSummaryLineState extends State<_LiveSummaryLine> {
     if (mounted) setState(() => _loading = true);
     try {
       final lang = mounted ? L10n.languageCodeForApp(context) : 'tr';
-      final s = await reportService.generateSimpleRequestSummary(
+      final s = await reportService.generateCommunitySummary(
         widget.ownerId,
         linkId: widget.link.id,
         languageCode: lang,
@@ -1208,10 +1211,11 @@ class _LiveSummaryLineState extends State<_LiveSummaryLine> {
     }
     final s = _summary;
     if (s == null || s.feedbackCount == 0) return const SizedBox.shrink();
-    final top = s.topRequests.isNotEmpty ? s.topRequests : s.otherRequests;
-    final line = top.isEmpty
-        ? L10n.get(context, 'liveSummaryTitle')
-        : '${top.first.count} ${L10n.get(context, 'simpleSummaryPeopleWord')} — ${top.first.label}';
+    final line = s.headline.isNotEmpty
+        ? s.headline
+        : (s.mostMentioned.isNotEmpty
+            ? s.mostMentioned.first
+            : L10n.get(context, 'liveSummaryTitle'));
     return InkWell(
       onTap: _open,
       borderRadius: BorderRadius.circular(10),
@@ -1270,7 +1274,7 @@ class _LinkSummaryCard extends StatefulWidget {
 }
 
 class _LinkSummaryCardState extends State<_LinkSummaryCard> {
-  SimpleRequestSummary? _summary;
+  CommunityFeedbackSummary? _summary;
   bool _loading = true;
   bool _error = false;
 
@@ -1290,18 +1294,18 @@ class _LinkSummaryCardState extends State<_LinkSummaryCard> {
       });
     }
     try {
-      SimpleRequestSummary? summary = widget.cacheable
-          ? await SimpleSummaryStore.instance.load(widget.link.id)
+      CommunityFeedbackSummary? summary = widget.cacheable
+          ? await CommunitySummaryStore.instance.load(widget.link.id)
           : null;
       if (summary == null) {
         final lang = mounted ? L10n.languageCodeForApp(context) : 'tr';
-        summary = await reportService.generateSimpleRequestSummary(
+        summary = await reportService.generateCommunitySummary(
           widget.ownerId,
           linkId: widget.link.id,
           languageCode: lang,
         );
         if (widget.cacheable) {
-          await SimpleSummaryStore.instance.save(widget.link.id, summary);
+          await CommunitySummaryStore.instance.save(widget.link.id, summary);
         }
       }
       if (!mounted) return;
@@ -1330,17 +1334,11 @@ class _LinkSummaryCardState extends State<_LinkSummaryCard> {
     );
   }
 
-  String _preview(BuildContext context, SimpleRequestSummary s) {
-    final top = s.topRequests.isNotEmpty ? s.topRequests : s.otherRequests;
-    if (top.isEmpty) {
-      return L10n.get(context, 'summaryPreviewNone')
-          .replaceAll('{count}', '${s.feedbackCount}');
-    }
-    final first = top.first;
-    return L10n.get(context, 'summaryPreviewLine')
-        .replaceAll('{count}', '${first.count}')
-        .replaceAll('{people}', L10n.get(context, 'simpleSummaryPeopleWord'))
-        .replaceAll('{label}', first.label);
+  String _preview(BuildContext context, CommunityFeedbackSummary s) {
+    if (s.headline.isNotEmpty) return s.headline;
+    if (s.shortSummary.isNotEmpty) return s.shortSummary;
+    return L10n.get(context, 'summaryPreviewNone')
+        .replaceAll('{count}', '${s.feedbackCount}');
   }
 
   @override
@@ -4104,7 +4102,7 @@ class AudienceAnalysisScreen extends StatefulWidget {
 }
 
 class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
-  Future<SimpleRequestSummary>? _future;
+  Future<CommunityFeedbackSummary>? _future;
 
   @override
   void initState() {
@@ -4121,20 +4119,20 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
     });
   }
 
-  Future<SimpleRequestSummary> _loadOrGenerate(String lang) async {
+  Future<CommunityFeedbackSummary> _loadOrGenerate(String lang) async {
     final linkId = widget.linkId;
     final canCache = widget.cacheable && linkId != null && linkId.isNotEmpty;
     if (canCache) {
-      final cached = await SimpleSummaryStore.instance.load(linkId);
+      final cached = await CommunitySummaryStore.instance.load(linkId);
       if (cached != null) return cached;
     }
-    final summary = await reportService.generateSimpleRequestSummary(
+    final summary = await reportService.generateCommunitySummary(
       widget.ownerId,
       linkId: widget.linkId,
       languageCode: lang,
     );
     if (canCache) {
-      await SimpleSummaryStore.instance.save(linkId, summary);
+      await CommunitySummaryStore.instance.save(linkId, summary);
     }
     return summary;
   }
@@ -4162,7 +4160,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
               ? const Center(
                   child: CircularProgressIndicator(color: AppTheme.gold),
                 )
-              : FutureBuilder<SimpleRequestSummary>(
+              : FutureBuilder<CommunityFeedbackSummary>(
                   future: future,
                   builder: (context, snap) {
                     if (snap.connectionState == ConnectionState.waiting) {
@@ -4221,13 +4219,15 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          SimpleRequestSummaryView(summary: summary),
-                          const SizedBox(height: 16),
-                          OutlinedButton.icon(
-                            onPressed: _openDetailed,
-                            icon: const Icon(Icons.insights_outlined, size: 18),
-                            label: Text(L10n.get(context, 'detailedReportOpen')),
-                          ),
+                          CommunityFeedbackView(summary: summary),
+                          if (kShowDetailedReport) ...[
+                            const SizedBox(height: 16),
+                            OutlinedButton.icon(
+                              onPressed: _openDetailed,
+                              icon: const Icon(Icons.insights_outlined, size: 18),
+                              label: Text(L10n.get(context, 'detailedReportOpen')),
+                            ),
+                          ],
                           const SizedBox(height: 8),
                         ],
                       ),
@@ -4939,7 +4939,8 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   final _nameController = TextEditingController();
   final _relationController = TextEditingController();
   final _feedbackController = TextEditingController();
-  int _selectedMood = 0; // -1 kötü, 0 nötr, 1 iyi
+  int _selectedMood = 0; // -1 kötü, 0 nötr, 1 iyi (reaction'dan türetilir)
+  String? _selectedReaction; // FeedbackToMe 2.0 reaction anahtarı (ör. "fire")
 
   @override
   void initState() {
@@ -5035,6 +5036,7 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
         responderName: _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
         relation: _relationController.text.trim().isEmpty ? null : _relationController.text.trim(),
         mood: _selectedMood,
+        reaction: _selectedReaction,
         textRaw: _feedbackController.text.trim(),
         creatorSurvey: _creatorSurveyKey.currentState?.buildPayload(),
       );
@@ -5248,37 +5250,28 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
                     L10n.get(context, 'feedbackFormMoodQuestion'),
                     style: theme.textTheme.bodyMedium,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      ChoiceChip(
-                        label: Text(L10n.get(context, 'moodNegative')),
-                        selected: _selectedMood == -1,
-                        onSelected: (_) {
-                          setState(() {
-                            _selectedMood = -1;
-                          });
-                        },
-                      ),
-                      ChoiceChip(
-                        label: Text(L10n.get(context, 'moodNeutral')),
-                        selected: _selectedMood == 0,
-                        onSelected: (_) {
-                          setState(() {
-                            _selectedMood = 0;
-                          });
-                        },
-                      ),
-                      ChoiceChip(
-                        label: Text(L10n.get(context, 'moodPositive')),
-                        selected: _selectedMood == 1,
-                        onSelected: (_) {
-                          setState(() {
-                            _selectedMood = 1;
-                          });
-                        },
-                      ),
+                      for (final r in kDefaultReactions)
+                        ChoiceChip(
+                          label: Text('${r.emoji}  ${r.label(L10n.languageCodeForApp(context) == 'en')}'),
+                          selected: _selectedReaction == r.key,
+                          onSelected: (_) {
+                            setState(() {
+                              if (_selectedReaction == r.key) {
+                                // Tekrar dokunma → seçimi kaldır (nötr).
+                                _selectedReaction = null;
+                                _selectedMood = 0;
+                              } else {
+                                _selectedReaction = r.key;
+                                _selectedMood = r.sentiment;
+                              }
+                            });
+                          },
+                        ),
                     ],
                   ),
                   const SizedBox(height: 24),

@@ -10,6 +10,7 @@ class FeedbackEntry {
     this.responderName,
     this.relation,
     this.mood,
+    this.reaction,
     required this.textRaw,
     this.textClean,
     this.createdAt,
@@ -21,6 +22,10 @@ class FeedbackEntry {
   final String? responderName;
   final String? relation;
   final int? mood; // -1, 0, 1
+
+  /// FeedbackToMe 2.0 reaction anahtarı (ör. "fire"). Eski kayıtlarda null;
+  /// duygu [mood]'dan türetilir. Bkz. config/feedback_reactions.dart.
+  final String? reaction;
   final String textRaw;
   final String? textClean;
   final DateTime? createdAt;
@@ -52,6 +57,7 @@ class FeedbackEntry {
       responderName: data['responderName'] as String?,
       relation: data['relation'] as String?,
       mood: data['mood'] as int?,
+      reaction: data['reaction'] as String?,
       textRaw: data['textRaw'] as String? ?? '',
       textClean: data['textClean'] as String?,
       createdAt: _parseCreatedAt(data['createdAt']),
@@ -67,6 +73,7 @@ class FeedbackEntry {
       'responderName': responderName,
       'relation': relation,
       'mood': mood,
+      if (reaction != null) 'reaction': reaction,
       'textRaw': textRaw,
       'textClean': textClean,
       'createdAt': createdAt?.toIso8601String(),

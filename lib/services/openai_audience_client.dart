@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/community_feedback_summary.dart';
 import '../models/creator_intelligence_report.dart';
 import '../models/feedback_entry.dart';
 
@@ -420,6 +421,152 @@ KURALLAR:
     }
     return out;
   }
+
+  /// FeedbackToMe 2.0 — Topluluk özeti.
+  ///
+  /// AI'ye YAPILANDIRILMIŞ GERÇEK VERİ verilir (kümelenmiş istekler + sayılar +
+  /// örnek yorumlar). AI YALNIZCA sıcak metin alanlarını (mood/headline/
+  /// mostLiked/mostMentioned/mixedOpinions/hotTake/shortSummary/confidence)
+  /// yazar; içerik hakkında BAĞIMSIZ/teknik değerlendirme ÜRETMEZ.
+  ///
+  /// Meta alanları (crowdScore, sayımlar, reaction dağılımı, realComments)
+  /// çağıran tarafından koddan doldurulur. AI başarısızsa `null` döner.
+  Future<CommunityFeedbackSummary?> summarizeCommunity({
+    required List<AudienceRequest> requests,
+    required int feedbackCount,
+    required int positive,
+    required int neutral,
+    required int negative,
+    Map<String, int> reactionCounts = const {},
+    double? crowdScore,
+    List<String> sampleComments = const [],
+    bool outputEnglishModel = false,
+  }) async {
+    if (!isConfigured || feedbackCount <= 0) return null;
+
+    // Yapılandırılmış girdi: kümelenmiş istekler (sayı+örnek) + duygu + örnek yorumlar.
+    final buf = StringBuffer();
+    buf.writeln(
+        '${english(outputEnglishModel, 'FEEDBACK COUNT', 'YORUM SAYISI')}: $feedbackCount');
+    buf.writeln(
+        '${english(outputEnglishModel, 'SENTIMENT', 'DUYGU')}: +$positive / =$neutral / -$negative');
+    if (reactionCounts.isNotEmpty) {
+      final rc = reactionCounts.entries.map((e) => '${e.key}:${e.value}').join(' ');
+      buf.writeln(
+          '${english(outputEnglishModel, 'REACTIONS', 'REAKSİYONLAR')}: $rc');
+    }
+    if (crowdScore != null) {
+      buf.writeln(
+          '${english(outputEnglishModel, 'CROWD SCORE', 'TOPLULUK SKORU')}: ${crowdScore.toStringAsFixed(1)}/10');
+    }
+    if (requests.isNotEmpty) {
+      buf.writeln();
+      buf.writeln(english(outputEnglishModel,
+          'CLUSTERED TOPICS (how many people, with a real quote):',
+          'GRUPLANMIŞ KONULAR (kaç kişi söyledi, gerçek alıntıyla):'));
+      for (final r in requests.take(24)) {
+        final ex = r.examples.isNotEmpty ? ' — "${r.examples.first}"' : '';
+        buf.writeln('- ${r.label} (${r.count})$ex');
+      }
+    }
+    if (sampleComments.isNotEmpty) {
+      buf.writeln();
+      buf.writeln(english(outputEnglishModel,
+          'SAMPLE REAL COMMENTS (verbatim):', 'ÖRNEK GERÇEK YORUMLAR (birebir):'));
+      for (final c in sampleComments.take(12)) {
+        var t = c.replaceAll('\n', ' ').trim();
+        if (t.isEmpty) continue;
+        if (t.length > 240) t = '${t.substring(0, 240)}…';
+        buf.writeln('- $t');
+      }
+    }
+
+    final system = outputEnglishModel
+        ? '''
+You turn REAL community feedback into a SHORT, SOCIAL, FUN summary for the content owner.
+You are NOT a design critic, UX consultant or technical evaluator.
+
+HARD RULES:
+1. NEVER judge the content on your own. You did not see it. Only interpret the feedback provided.
+2. Use ONLY the real feedback given. Do not invent problems nobody mentioned.
+3. No technical/UX/design jargon. No academic or corporate report tone.
+4. Keep it short, warm, natural — like a friend texting.
+5. Do not distort the feedback. Do not exaggerate.
+6. With few comments, avoid firm verdicts. Say things like "a few people seem unsure".
+7. Never generalize from a single negative comment.
+8. If opinions clearly split, say so in mixedOpinions ("the crowd is a bit divided").
+9. hotTake MUST be a real comment quoted from the input (pick a striking/funny one), or "".
+10. mostLiked / mostMentioned come from the clustered topics — name the actual subject.
+11. confidence: "low" for few/thin feedback, "high" only with clear, plentiful signal.
+
+OUTPUT (a single JSON object, no other text):
+{"overallMood":"positive|mixed|neutral|negative","headline":"...","mostLiked":["..."],"mostMentioned":["..."],"mixedOpinions":["..."],"hotTake":"...","shortSummary":"...","confidence":"low|medium|high"}
+'''
+        : '''
+Sen GERÇEK topluluk geri bildirimini KISA, SOSYAL ve EĞLENCELİ bir özete çeviren birisin.
+Tasarım eleştirmeni, UX danışmanı ya da teknik değerlendirici DEĞİLSİN.
+
+KATI KURALLAR:
+1. İçeriği ASLA kendi başına değerlendirme. Onu görmedin. Yalnızca verilen geri bildirimi yorumla.
+2. YALNIZCA verilen gerçek geri bildirimi kullan. Kimsenin söylemediği sorun UYDURMA.
+3. Teknik/UX/tasarım jargonu YOK. Akademik veya kurumsal rapor dili YOK.
+4. Kısa, sıcak, doğal tut — bir arkadaşın mesaj atması gibi.
+5. Geri bildirimi çarpıtma, abartma.
+6. Az yorum varsa kesin yargı kullanma. "Birkaç kişi kararsız görünüyor" gibi söyle.
+7. Tek bir olumsuz yorumdan ASLA genelleme yapma.
+8. Görüşler açıkça ikiye bölündüyse bunu mixedOpinions'ta belirt ("topluluk biraz ikiye bölünmüş").
+9. hotTake, girdideki GERÇEK bir yorumdan alıntı OLMALI (çarpıcı/eğlenceli olanı seç) ya da "".
+10. mostLiked / mostMentioned gruplanmış konulardan gelir — asıl konuyu adlandır.
+11. confidence: az/zayıf veride "low", yalnızca net ve bol sinyalde "high".
+
+ÇIKTI (tek bir JSON nesnesi, başka metin yok):
+{"overallMood":"positive|mixed|neutral|negative","headline":"...","mostLiked":["..."],"mostMentioned":["..."],"mixedOpinions":["..."],"hotTake":"...","shortSummary":"...","confidence":"low|medium|high"}
+''';
+
+    final user =
+        (outputEnglishModel ? 'COMMUNITY FEEDBACK DATA:\n' : 'TOPLULUK GERİ BİLDİRİM VERİSİ:\n') +
+            buf.toString();
+
+    final resp = await _chat(
+      system: system,
+      user: user,
+      jsonMode: true,
+      maxTokens: 900,
+    );
+    if (resp == null) return null;
+    final map = _parseJsonObject(resp);
+    if (map == null) return null;
+
+    List<String> strList(dynamic v) => (v is List)
+        ? v.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList()
+        : const [];
+
+    return CommunityFeedbackSummary(
+      mood: communityMoodFromString(map['overallMood']?.toString()),
+      headline: map['headline']?.toString().trim() ?? '',
+      mostLiked: strList(map['mostLiked']),
+      mostMentioned: strList(map['mostMentioned']),
+      mixedOpinions: strList(map['mixedOpinions']),
+      hotTake: map['hotTake']?.toString().trim() ?? '',
+      shortSummary: map['shortSummary']?.toString().trim() ?? '',
+      confidence: summaryConfidenceFromString(map['confidence']?.toString()),
+      crowdScore: crowdScore,
+      feedbackCount: feedbackCount,
+      positive: positive,
+      neutral: neutral,
+      negative: negative,
+      reactionCounts: reactionCounts,
+      realComments: sampleComments
+          .map((c) => c.replaceAll('\n', ' ').trim())
+          .where((c) => c.isNotEmpty)
+          .take(6)
+          .toList(),
+      aiUsed: true,
+    );
+  }
+
+  /// Küçük dil yardımcıları (EN/TR seçimi).
+  static String english(bool en, String a, String b) => en ? a : b;
 
   String _encodeLines(List<FeedbackEntry> chunk) {
     final buf = StringBuffer();

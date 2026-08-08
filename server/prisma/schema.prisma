@@ -67,6 +67,7 @@ model Feedback {
   responderName   String?  @map("responder_name")
   relation        String?
   mood            Int?
+  reaction        String?
   textRaw         String   @map("text_raw") @db.Text
   textClean       String?  @map("text_clean") @db.Text
   creatorSurvey   Json?    @map("creator_survey")
