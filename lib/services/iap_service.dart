@@ -1,11 +1,12 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart'
+    show debugPrint, defaultTargetPlatform, kIsWeb, TargetPlatform;
 import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../app_state.dart';
 import '../config/iap_products.dart';
-import '../models/user_profile.dart';
 
 /// App Store / Google Play IAP — sadece consumable (link basina odeme).
 class IapService {
@@ -158,7 +159,7 @@ class IapService {
       if (fresh) {
         try {
           if (purchase.productID == IapProducts.premiumLinkSingle) {
-            await _grantLinkCreditToCurrentUser();
+            await _verifyAndGrant(purchase);
             _emitLinkCreditGranted();
             _deliveredKeys.add(key);
             shouldComplete = true;
@@ -189,17 +190,32 @@ class IapService {
     }
   }
 
-  Future<void> _grantLinkCreditToCurrentUser() async {
+  /// Sunucu-yetkili kredi verme: mağaza makbuzunu Cloud Function `iapVerify`'e
+  /// gönderir; kredi YALNIZCA sunucuda (Admin SDK) doğrulama sonrası yazılır.
+  /// İstemci artık `paidLinkCredits`'i doğrudan yazmaz (firestore.rules kilitli).
+  /// Yerel profil, Firestore stream'inden otomatik güncellenir.
+  ///
+  /// Hata fırlatırsa çağıran `completePurchase` yapmaz → işlem kuyrukta kalır,
+  /// bir sonraki açılışta yeniden denenir (idempotent: sunucu replay'i engeller).
+  Future<void> _verifyAndGrant(PurchaseDetails purchase) async {
     final uid = authService.uid;
-    if (uid == null) return;
-    final existing = await appData.getUserProfile(uid);
-    final profile = existing ?? UserProfile(uid: uid);
-    await appData.setUserProfile(
-      uid,
-      profile.copyWith(
-        paidLinkCredits: profile.paidLinkCredits + 1,
-      ),
-    );
+    if (uid == null) {
+      throw StateError('not_signed_in');
+    }
+    final platform =
+        defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
+    final callable = FirebaseFunctions.instance.httpsCallable('iapVerify');
+    final res = await callable.call(<String, dynamic>{
+      'platform': platform,
+      'productId': purchase.productID,
+      'verificationData': purchase.verificationData.serverVerificationData,
+      'transactionId': purchase.purchaseID,
+    });
+    final data = res.data;
+    final ok = data is Map && data['ok'] == true;
+    if (!ok) {
+      throw StateError('verify_failed');
+    }
   }
 
   /// Consumable satin alma (link kredisi).

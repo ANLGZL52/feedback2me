@@ -2,15 +2,15 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 
+// GÜVENLİK: kredi/premium/demo alanları İSTEMCİDEN yazılamaz (bedava-premium
+// açığı). Bu alanlar yalnızca sunucu-tarafı yönetilir: kredi verme IAP
+// doğrulamasıyla, demo/kredi tüketimi links.ts içindeki link oluşturma ile.
+// Şemada olmayan alanlar zod tarafından atılır (strip) → sessizce yok sayılır.
 const profileSchema = z.object({
   displayName: z.string().nullable().optional(),
   email: z.string().email().nullable().optional(),
   photoUrl: z.string().url().nullable().optional(),
   handle: z.string().nullable().optional(),
-  isPremium: z.boolean().optional(),
-  premiumUntil: z.string().datetime().nullable().optional(),
-  freeDemoLinkUsed: z.boolean().optional(),
-  paidLinkCredits: z.number().int().min(0).optional(),
 });
 
 export const usersRoutes: FastifyPluginAsync = async (app) => {
@@ -37,12 +37,6 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
         ...(b.email !== undefined && { email: b.email }),
         ...(b.photoUrl !== undefined && { photoUrl: b.photoUrl }),
         ...(b.handle !== undefined && { handle: b.handle }),
-        ...(b.isPremium !== undefined && { isPremium: b.isPremium }),
-        ...(b.premiumUntil !== undefined && {
-          premiumUntil: b.premiumUntil ? new Date(b.premiumUntil) : null,
-        }),
-        ...(b.freeDemoLinkUsed !== undefined && { freeDemoLinkUsed: b.freeDemoLinkUsed }),
-        ...(b.paidLinkCredits !== undefined && { paidLinkCredits: b.paidLinkCredits }),
       },
     });
     return { user: userToProfile(user) };
