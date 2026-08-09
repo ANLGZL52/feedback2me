@@ -17,3 +17,24 @@ const bool kShowDetailedReport = bool.fromEnvironment(
   'SHOW_DETAILED_REPORT',
   defaultValue: false,
 );
+
+/// TEST MODU — iç test kolaylığı. Açıkken oluşturulan link:
+///   • uzun ömürlü (24 saat / 10 dk süre sınırı KALKAR — bkz. [kTestLinkValidDays]),
+///   • premium (çok yorum kabul eder, demo tek-yorum sınırı yok),
+///   • ücretsiz (kredi/demo tüketmez).
+///
+/// ⚠️ ÜRETİMDE KAPALI OLMALI: açıkken kredi kapısı bypass edilir (P0.2 güvenlik
+/// kilidiyle çelişir). Yalnızca iç test derlemesinde aç:
+///   flutter build ... --dart-define=TEST_MODE=true
+/// Genel yayına çıkmadan önce bayrağı verme (varsayılan `false`).
+const bool kTestMode = bool.fromEnvironment(
+  'TEST_MODE',
+  defaultValue: false,
+);
+
+/// TEST MODU link ömrü (gün). Süre sonu akışını manuel tetikleyecek asıl test
+/// sistemini sonra kuracağız; şimdilik pratikte "süre sınırı yok" demek için uzun.
+const int kTestLinkValidDays = int.fromEnvironment(
+  'TEST_LINK_DAYS',
+  defaultValue: 3650,
+);

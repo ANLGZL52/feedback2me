@@ -1058,7 +1058,23 @@ class _ActiveLinkHomeCard extends StatelessWidget {
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
-                if (link.validUntil != null)
+                if (kTestMode)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withValues(alpha: 0.18),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '🧪 TEST',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: Colors.orangeAccent,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  )
+                else if (link.validUntil != null)
                   LinkValidityCountdown(
                     validUntil: link.validUntil!,
                     compact: true,
