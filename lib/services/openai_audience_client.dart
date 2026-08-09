@@ -6,28 +6,28 @@ import '../models/community_feedback_summary.dart';
 import '../models/creator_intelligence_report.dart';
 import '../models/feedback_entry.dart';
 
-/// Parça özetleri + Creator Intelligence JSON iyileştirme.
-/// API: `--dart-define=OPENAI_API_KEY=sk-...`
+/// Yorum özetleme / kümeleme (topluluk özeti).
+///
+/// P0.1 — AI YALNIZCA sunucu-tarafı proxy üzerinden çağrılır; OpenAI anahtarı
+/// İSTEMCİDE TUTULMAZ (anahtarı sunucu ekler). İstemcide doğrudan OpenAI çağrısı
+/// veya gömülü anahtar YOKTUR. Proxy ayarlı değilse AI kapalı sayılır ve
+/// çağıranlar sezgisel yedeğe düşer (uygulama kırılmaz).
+///
+/// Yapılandırma: `--dart-define=AI_PROXY_URL=https://<host>/ai/chat`
 class OpenAiAudienceClient {
   OpenAiAudienceClient();
 
-  static const _apiKey = String.fromEnvironment('OPENAI_API_KEY', defaultValue: '');
   static const _model = 'gpt-4o-mini';
-  // Doğrudan OpenAI çağrısı (mobil). Web'de CORS için OPENAI_BASE_URL ile proxy'lenebilir.
-  static const _directUrl = String.fromEnvironment(
-    'OPENAI_BASE_URL',
-    defaultValue: 'https://api.openai.com/v1/chat/completions',
-  );
-  // Sunucu-tarafı AI proxy (ör. Railway /ai/chat). Ayarlıysa anahtar İSTEMCİDE TUTULMAZ:
-  // istek sunucuya gider, OpenAI anahtarını sunucu ekler. dart-define: AI_PROXY_URL
+
+  /// Sunucu-tarafı AI proxy (Railway `/ai/chat`). AI'nın tek çıkış noktası.
   static const _aiProxyUrl = String.fromEnvironment('AI_PROXY_URL', defaultValue: '');
 
-  bool get _proxied => _aiProxyUrl.isNotEmpty;
-  String get _endpoint => _proxied ? _aiProxyUrl : _directUrl;
+  String get _endpoint => _aiProxyUrl;
 
   static const int chunkSize = 90;
 
-  bool get isConfigured => _apiKey.isNotEmpty || _proxied;
+  /// AI yalnızca proxy ayarlıysa kullanılabilir (istemcide anahtar yok).
+  bool get isConfigured => _aiProxyUrl.isNotEmpty;
 
   static String _systemChunkPartial(bool outputEnglish) => outputEnglish
       ? '''
@@ -592,6 +592,8 @@ KATI KURALLAR:
     required bool jsonMode,
     int maxTokens = 2000,
   }) async {
+    // AI yalnızca sunucu proxy'si üzerinden; anahtar istemcide yok.
+    if (_aiProxyUrl.isEmpty) return null;
     try {
       final body = <String, dynamic>{
         'model': _model,
@@ -607,10 +609,7 @@ KATI KURALLAR:
       final res = await http
           .post(
             Uri.parse(_endpoint),
-            headers: {
-              'Content-Type': 'application/json',
-              if (!_proxied) 'Authorization': 'Bearer $_apiKey',
-            },
+            headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body),
           )
           .timeout(const Duration(seconds: 180));
