@@ -1058,23 +1058,7 @@ class _ActiveLinkHomeCard extends StatelessWidget {
                         ?.copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),
-                if (kTestMode)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '🧪 TEST',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: Colors.orangeAccent,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  )
-                else if (link.validUntil != null)
+                if (link.validUntil != null)
                   LinkValidityCountdown(
                     validUntil: link.validUntil!,
                     compact: true,
@@ -4168,8 +4152,10 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
   Widget build(BuildContext context) {
     final future = _future;
     return Scaffold(
+      backgroundColor: Colors.transparent,
       appBar: AppBar(title: Text(L10n.get(context, 'audienceAppBarTitle'))),
-      body: SafeArea(
+      body: _DarkMysticalBackground(
+        child: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: future == null
@@ -4250,6 +4236,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
                     );
                   },
                 ),
+        ),
         ),
       ),
     );

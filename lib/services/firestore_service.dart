@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:uuid/uuid.dart';
 
-import '../config/feature_flags.dart';
 import '../models/audience_score.dart';
 import '../models/creator_intelligence_report.dart';
 import '../models/creator_survey.dart';
@@ -164,25 +163,6 @@ class FirestoreService implements AppDataBackend {
   }) {
     final profile = UserProfile.fromMap(ownerId, userSnapData);
     final now = DateTime.now();
-
-    // TEST MODU: 24 saat/10 dk süre sınırı, demo tek-yorum ve kredi kapısı KALKAR.
-    // Uzun ömürlü, ücretsiz, çok-yorumlu premium link üretir (iç test kolaylığı).
-    // ⚠️ Üretimde kapalı olmalı (bkz. kTestMode).
-    if (kTestMode) {
-      final link = FeedbackLink(
-        id: id,
-        ownerId: ownerId,
-        code: code,
-        title: title,
-        createdAt: now,
-        isActive: true,
-        linkTier: 'premium',
-        validUntil: now.add(Duration(days: kTestLinkValidDays)),
-        demoSubmissionUsed: false,
-      );
-      txSet(linkRef, link.toFirestoreMap());
-      return link;
-    }
 
     late final String tier;
     late final DateTime validUntil;
