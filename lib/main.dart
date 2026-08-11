@@ -13,7 +13,6 @@ import 'package:device_preview/device_preview.dart';
 import 'package:gal/gal.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
 import 'design_system/design_system.dart';
@@ -43,7 +42,6 @@ import 'theme/app_theme.dart';
 import 'theme/feedback_material_theme.dart';
 import 'widgets/feedback_link_tile.dart';
 import 'widgets/link_validity_countdown.dart';
-import 'widgets/link_plan_banner.dart';
 import 'package:feedback_to_me/utils/reload_stub.dart' if (dart.library.html) 'package:feedback_to_me/utils/reload_web.dart' as reload_util;
 import 'package:feedback_to_me/utils/link_create_error.dart';
 import 'package:feedback_to_me/utils/unwrap_web_future_error.dart';
@@ -322,6 +320,40 @@ class _WebInitWrapperState extends State<_WebInitWrapper> {
 }
 
 /// İlk açılışta onboarding; tamamlanınca veya atlanınca normal akış.
+/// Paylaşılan feedback linki (`.../f/<code>`) ile açıldıysa kodu döndürür.
+/// Backend/router değişmez; yalnızca launch URL'i istemci tarafında okunur.
+/// Path stratejisi (`/f/x`) ve hash stratejisi (`#/f/x`) desteklenir.
+String? _feedbackDeepLinkCode() {
+  if (!kIsWeb) return null;
+  try {
+    String? fromSegments(List<String> segs) {
+      final i = segs.indexWhere((s) => s.toLowerCase() == 'f');
+      if (i != -1 && i + 1 < segs.length) {
+        final c = segs[i + 1].trim();
+        return c.isEmpty ? null : c;
+      }
+      return null;
+    }
+
+    final uri = Uri.base;
+    final direct = fromSegments(uri.pathSegments);
+    if (direct != null) return direct;
+
+    final frag = uri.fragment;
+    if (frag.isNotEmpty) {
+      final fragUri =
+          Uri.tryParse(frag.startsWith('/') ? frag.substring(1) : frag);
+      if (fragUri != null) {
+        final f = fromSegments(fragUri.pathSegments);
+        if (f != null) return f;
+      }
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 class _AppLaunchGate extends StatefulWidget {
   const _AppLaunchGate();
 
@@ -331,10 +363,12 @@ class _AppLaunchGate extends StatefulWidget {
 
 class _AppLaunchGateState extends State<_AppLaunchGate> {
   bool? _onboardingDone;
+  String? _deepLinkCode;
 
   @override
   void initState() {
     super.initState();
+    _deepLinkCode = _feedbackDeepLinkCode();
     _load();
   }
 
@@ -352,6 +386,11 @@ class _AppLaunchGateState extends State<_AppLaunchGate> {
 
   @override
   Widget build(BuildContext context) {
+    // Paylaşılan feedback linki: onboarding/giriş atlanır, doğrudan public akış.
+    // (Feedback vermek anonim; owner girişi gerekmez.)
+    if (_deepLinkCode != null) {
+      return FeedbackFormScreen(linkCode: _deepLinkCode);
+    }
     if (_onboardingDone == null) {
       return Scaffold(
         backgroundColor: const Color(0xFF141210),
@@ -1952,100 +1991,134 @@ class CreatedLinkScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(L10n.get(context, 'yourLinks'))),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        L10n.get(context, 'linkCreated'),
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 12),
-                      LinkPlanBanner(link: link),
-                      const SizedBox(height: 12),
-                      SelectableText(
-                        link.shareUrl,
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodyMedium
-                            ?.copyWith(color: Colors.white70),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          await Clipboard.setData(ClipboardData(text: link.shareUrl));
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
-                          );
-                        },
-                        icon: const Icon(Icons.copy),
-                        label: Text(L10n.get(context, 'linkCopied')),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await Share.share(link.shareUrl);
-                        },
-                        icon: const Icon(Icons.share_outlined),
-                        label: Text(L10n.get(context, 'shareLink')),
-                      ),
-                      if (link.isDemoTier) ...[
-                        const SizedBox(height: 20),
-                        Divider(color: Colors.white.withValues(alpha: 0.12)),
-                        const SizedBox(height: 12),
-                        Text(
-                          L10n.get(context, 'createdLinkPremiumPitch'),
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: Colors.white60, height: 1.4),
-                        ),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push<void>(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const PremiumScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.workspace_premium_outlined),
-                          label: Text(L10n.get(context, 'createdLinkOpenPremium')),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Theme.of(context).colorScheme.primary,
-                            side: BorderSide(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withValues(alpha: 0.7),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+    final demo = link.isDemoTier;
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context, title: L10n.get(context, 'yourLinks')),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.l),
+            Center(
+              child: Container(
+                width: 72,
+                height: 72,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  shape: BoxShape.circle,
+                  boxShadow: AppShadows.primaryGlow,
                 ),
+                child: const Icon(Icons.check_rounded,
+                    color: AppColors.onPrimary, size: 40),
               ),
             ),
-          ),
+            const SizedBox(height: AppSpacing.m),
+            Text(L10n.get(context, 'linkCreatedV2Title'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'linkCreatedV2Sub'),
+                style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xl),
+            FeedbackCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      FeedbackStatusBadge(
+                        label: demo
+                            ? L10n.get(context, 'tierDemo')
+                            : L10n.get(context, 'tierPremium'),
+                        tone: demo ? BadgeTone.neutral : BadgeTone.primary,
+                      ),
+                      const Spacer(),
+                      Icon(
+                          demo
+                              ? Icons.science_rounded
+                              : Icons.workspace_premium_rounded,
+                          color: AppColors.primary,
+                          size: 20),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SelectableText(link.shareUrl, style: AppType.bodyStrong),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    children: [
+                      _tierInfo(
+                          Icons.schedule_rounded,
+                          demo
+                              ? L10n.get(context, 'tierDemoF1')
+                              : L10n.get(context, 'tierPremiumF1')),
+                      const SizedBox(width: AppSpacing.m),
+                      _tierInfo(
+                          Icons.forum_rounded,
+                          demo
+                              ? L10n.get(context, 'tierDemoF2')
+                              : L10n.get(context, 'tierPremiumF2')),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.m),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'shareLink'),
+              icon: Icons.ios_share_rounded,
+              onPressed: () => Share.share(link.shareUrl),
+            ),
+            const SizedBox(height: AppSpacing.s),
+            FeedbackSecondaryButton(
+              label: L10n.get(context, 'copyLink'),
+              icon: Icons.copy_rounded,
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: link.shareUrl));
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+                );
+              },
+            ),
+            if (demo) ...[
+              const SizedBox(height: AppSpacing.l),
+              FeedbackCard(
+                color: AppColors.primarySoft,
+                shadow: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(L10n.get(context, 'createdLinkPremiumPitch'),
+                        style: AppType.secondary),
+                    const SizedBox(height: AppSpacing.sm),
+                    FeedbackSecondaryButton(
+                      label: L10n.get(context, 'createdLinkOpenPremium'),
+                      icon: Icons.workspace_premium_rounded,
+                      onPressed: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const PremiumScreen()),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.xl),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _tierInfo(IconData icon, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: AppColors.textSecondary),
+        const SizedBox(width: 5),
+        Text(label, style: AppType.caption),
+      ],
     );
   }
 }
@@ -4672,11 +4745,65 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   int _selectedMood = 0; // -1 kötü, 0 nötr, 1 iyi (reaction'dan türetilir)
   String? _selectedReaction; // FeedbackToMe 2.0 reaction anahtarı (ör. "fire")
 
+  // V2 akış durumu — yalnızca UI. Submit'e kadar Firestore'a hiçbir ara kayıt atılmaz.
+  FeedbackLink? _resolvedLink;
+  bool _resolving = false;
+  bool _resolveError = false; // getLinkByCode null → geçersiz/süresi dolmuş
+  bool _closedError = false; // submit anında link kapandıysa (yarış)
+  bool _forceManual = false; // hata sonrası manuel giriş ekranına düş
+  bool _entered = false; // giriş ekranından akışa geçildi
+  int _step = 0; // 0=reaction, 1=comment (yalnızca UI adımı)
+  bool _submitting = false;
+  bool _submitted = false;
+
+  bool get _needsManualCode =>
+      widget.linkCode == null || widget.linkCode!.trim().isEmpty;
+
   @override
   void initState() {
     super.initState();
-    if (widget.linkCode != null && widget.linkCode!.isNotEmpty) {
-      _linkController.text = widget.linkCode!;
+    final code = widget.linkCode;
+    if (code != null && code.trim().isNotEmpty) {
+      _linkController.text = code.trim();
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _resolve(code.trim()));
+    }
+  }
+
+  /// Kodu/URL'i mevcut `_parseLinkCode` + `getLinkByCode` ile çözer.
+  /// Backend davranışı değişmez; yalnızca sonucu UI durumuna bağlar.
+  Future<void> _resolve(String input) async {
+    final code = _parseLinkCode(input);
+    if (code == null || code.isEmpty) {
+      setState(() {
+        _resolving = false;
+        _resolveError = true;
+      });
+      return;
+    }
+    setState(() {
+      _resolving = true;
+      _resolveError = false;
+      _forceManual = false;
+    });
+    try {
+      final link = await appData.getLinkByCode(code);
+      if (!mounted) return;
+      setState(() {
+        _resolving = false;
+        if (link == null) {
+          _resolveError = true;
+        } else {
+          _resolvedLink = link;
+          _linkController.text = code;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _resolving = false;
+        _resolveError = true;
+      });
     }
   }
 
@@ -4734,69 +4861,61 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return; // çift-submit koruması
     if (_feedbackController.text.trim().length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(L10n.get(context, 'feedbackFormTooShort')),
-        ),
+        SnackBar(content: Text(L10n.get(context, 'feedbackFormTooShort'))),
       );
+      setState(() => _step = 1);
       return;
     }
     final code = _parseLinkCode(_linkController.text);
-    if (code == null || code.isEmpty) {
+    if (_resolvedLink == null && (code == null || code.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(L10n.get(context, 'feedbackFormInvalidLink')),
-        ),
+        SnackBar(content: Text(L10n.get(context, 'feedbackFormInvalidLink'))),
       );
       return;
     }
+    setState(() => _submitting = true);
     try {
-      final link = await appData.getLinkByCode(code);
-      if (link == null || !context.mounted) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(L10n.get(context, 'feedbackFormLinkNotFound'))),
-          );
-        }
+      final link = _resolvedLink ?? await appData.getLinkByCode(code!);
+      if (link == null) {
+        if (!mounted) return;
+        setState(() {
+          _submitting = false;
+          _resolveError = true;
+        });
         return;
       }
       await appData.addFeedback(
         linkId: link.id,
-        responderName: _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
-        relation: _relationController.text.trim().isEmpty ? null : _relationController.text.trim(),
+        responderName: _nameController.text.trim().isEmpty
+            ? null
+            : _nameController.text.trim(),
+        relation: _relationController.text.trim().isEmpty
+            ? null
+            : _relationController.text.trim(),
         mood: _selectedMood,
         reaction: _selectedReaction,
         textRaw: _feedbackController.text.trim(),
         creatorSurvey: _creatorSurveyKey.currentState?.buildPayload(),
       );
-      if (!context.mounted) return;
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: Text(L10n.get(context, 'feedbackFormSuccessTitle')),
-            content: Text(L10n.get(context, 'feedbackFormSuccessBody')),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext)
-                    ..pop()
-                    ..pop();
-                },
-                child: Text(L10n.get(context, 'close')),
-              ),
-            ],
-          );
-        },
-      );
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _submitted = true;
+      });
     } catch (e) {
-      if (!context.mounted) return;
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      if (e is StateError &&
+          (e.message == 'link_closed_or_expired' ||
+              e.message == 'link_expired')) {
+        setState(() => _closedError = true);
+        return;
+      }
       final msg = _feedbackSubmitErrorMessage(context, e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
@@ -4813,257 +4932,445 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
     return '${L10n.get(context, 'feedbackFormSendFailed')} $e';
   }
 
-  Widget _feedbackHowStep(ThemeData theme, IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: theme.colorScheme.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.white70,
-                height: 1.4,
+  @override
+  Widget build(BuildContext context) {
+    if (_submitted) return _buildSuccess(context);
+    if (_resolveError) return _buildInvalid(context);
+    if (_closedError) return _buildClosed(context);
+    if (_resolving) {
+      return FeedbackScaffold(
+        maxWidth: AppSpacing.maxWidthForm,
+        appBar: feedbackAppBar(context),
+        body: FeedbackLoadingState(message: L10n.get(context, 'loading')),
+      );
+    }
+    if (_resolvedLink == null) {
+      if (_needsManualCode || _forceManual) return _buildManual(context);
+      // Deeplink kodu hâlâ çözülüyor.
+      return FeedbackScaffold(
+        maxWidth: AppSpacing.maxWidthForm,
+        appBar: feedbackAppBar(context),
+        body: FeedbackLoadingState(message: L10n.get(context, 'loading')),
+      );
+    }
+    if (!_entered) return _buildEntry(context);
+    return _buildStep(context);
+  }
+
+  /// Manuel giriş (fallback) — deeplink yoksa ya da hata sonrası kurtarma.
+  Widget _buildManual(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context, title: L10n.get(context, 'feedbackFormTitle')),
+      body: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'pfManualTitle'), style: AppType.pageTitle),
+            const SizedBox(height: AppSpacing.xs),
+            Text(L10n.get(context, 'pfManualSub'), style: AppType.secondary),
+            const SizedBox(height: AppSpacing.l),
+            TextField(
+              controller: _linkController,
+              decoration: InputDecoration(
+                labelText: L10n.get(context, 'feedbackFormLinkLabel'),
+                hintText: L10n.get(context, 'feedbackFormLinkHint'),
+                prefixIcon: const Icon(Icons.link_rounded),
+              ),
+              onSubmitted: _resolve,
+            ),
+            const SizedBox(height: AppSpacing.l),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'pfManualContinue'),
+              trailingArrow: true,
+              onPressed: () => _resolve(_linkController.text),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Public feedback girişi (hero + güven + başla).
+  Widget _buildEntry(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.h),
+            const Center(child: FeedbackBrandMark()),
+            const SizedBox(height: AppSpacing.xxl),
+            Center(
+              child: Container(
+                width: 76,
+                height: 76,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: AppRadius.rLarge,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.reviews_rounded,
+                    color: AppColors.onPrimary, size: 36),
               ),
             ),
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'pfEntryHeroGeneric'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'pfEntrySub'),
+                style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xl),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                FeedbackTrustChip(
+                    label: L10n.get(context, 'trustAnonymous'),
+                    icon: Icons.visibility_off_rounded),
+                FeedbackTrustChip(
+                    label: L10n.get(context, 'trustSecure'),
+                    icon: Icons.shield_rounded),
+                FeedbackTrustChip(
+                    label: L10n.get(context, 'trustFast'),
+                    icon: Icons.bolt_rounded),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'pfEntryStart'),
+              trailingArrow: true,
+              onPressed: () => setState(() => _entered = true),
+            ),
+            const SizedBox(height: AppSpacing.m),
+            Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline_rounded,
+                      size: 14, color: AppColors.textSecondary),
+                  const SizedBox(width: 6),
+                  Text(L10n.get(context, 'pfPrivacyFooter'), style: AppType.caption),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Adımlı akış: 1/2 Tepki, 2/2 Yorum. Firestore'a submit'e kadar yazılmaz.
+  Widget _buildStep(BuildContext context) {
+    final en = L10n.languageCodeForApp(context) == 'en';
+    final stepLabel =
+        _step == 0 ? L10n.get(context, 'pfStepReaction') : L10n.get(context, 'pfStepComment');
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(
+        context,
+        actions: [
+          Center(
+            child: Text('${_step + 1} / 2  ·  $stepLabel',
+                style: AppType.secondary),
           ),
         ],
       ),
+      body: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.s),
+            Row(
+              children: [
+                const Expanded(child: _StepDot(active: true)),
+                const SizedBox(width: 6),
+                Expanded(child: _StepDot(active: _step >= 1)),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.l),
+            if (_step == 0)
+              ..._reactionStep(context, en)
+            else
+              ..._commentStep(context),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
     );
   }
 
-  Future<void> _openAppMarketingUrl() async {
-    final uri = Uri.parse(FeedbackLink.appMarketingBaseUrl);
-    try {
-      final opened = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(L10n.get(context, 'feedbackFormCouldNotOpenLink'))),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${L10n.get(context, 'feedbackFormCouldNotOpenLink')} $e'),
+  List<Widget> _reactionStep(BuildContext context, bool en) {
+    return [
+      Text(L10n.get(context, 'pfReactionTitle'), style: AppType.pageTitle),
+      const SizedBox(height: AppSpacing.xl),
+      Wrap(
+        spacing: AppSpacing.sm,
+        runSpacing: AppSpacing.sm,
+        children: [
+          for (final r in kDefaultReactions)
+            _ReactionChip(
+              emoji: r.emoji,
+              label: r.label(en),
+              selected: _selectedReaction == r.key,
+              onTap: () => setState(() {
+                if (_selectedReaction == r.key) {
+                  // Tekrar dokunma → seçimi kaldır (nötr).
+                  _selectedReaction = null;
+                  _selectedMood = 0;
+                } else {
+                  _selectedReaction = r.key;
+                  _selectedMood = r.sentiment;
+                }
+              }),
+            ),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.xl),
+      FeedbackPrimaryButton(
+        label: L10n.get(context, 'pfNext'),
+        trailingArrow: true,
+        onPressed: () => setState(() => _step = 1),
+      ),
+    ];
+  }
+
+  List<Widget> _commentStep(BuildContext context) {
+    final canSend = _feedbackController.text.trim().length >= 10;
+    return [
+      Text(L10n.get(context, 'pfCommentTitle'), style: AppType.pageTitle),
+      const SizedBox(height: AppSpacing.xs),
+      Text(L10n.get(context, 'pfCommentSub'), style: AppType.secondary),
+      const SizedBox(height: AppSpacing.m),
+      TextField(
+        controller: _feedbackController,
+        minLines: 4,
+        maxLines: 6,
+        decoration: InputDecoration(
+          hintText: L10n.get(context, 'pfCommentPlaceholder'),
+          helperText: L10n.get(context, 'pfMinCharsHint'),
+          alignLabelWithHint: true,
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+      const SizedBox(height: AppSpacing.m),
+      TextField(
+        controller: _nameController,
+        decoration: InputDecoration(
+          labelText: L10n.get(context, 'pfNameLabel'),
+          helperText: L10n.get(context, 'pfNameHelper'),
+        ),
+      ),
+      const SizedBox(height: AppSpacing.m),
+      TextField(
+        controller: _relationController,
+        decoration: InputDecoration(
+          labelText: L10n.get(context, 'feedbackFormRelationLabel'),
+        ),
+      ),
+      const SizedBox(height: AppSpacing.m),
+      // Creator anketi henüz V2 değil (beyaz-metinli) → okunur kalması için
+      // koyu-temaya sarılı. İçerik/mantık birebir korunur.
+      Theme(
+        data: buildFeedbackTheme(),
+        child: Container(
+          padding: const EdgeInsets.all(AppSpacing.m),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141210),
+            borderRadius: AppRadius.rCard,
+            border: Border.all(color: AppColors.border),
           ),
-        );
-      }
-    }
+          child: CreatorSurveySection(key: _creatorSurveyKey),
+        ),
+      ),
+      const SizedBox(height: AppSpacing.m),
+      Row(
+        children: [
+          const Icon(Icons.shield_outlined,
+              size: 16, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(L10n.get(context, 'pfPrivacyFooter'), style: AppType.caption),
+          ),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.l),
+      FeedbackPrimaryButton(
+        label: L10n.get(context, 'send'),
+        busy: _submitting,
+        onPressed: canSend ? _submit : null,
+      ),
+      const SizedBox(height: AppSpacing.s),
+      Center(
+        child: FeedbackTextButton(
+          label: L10n.get(context, 'back'),
+          onPressed: () => setState(() => _step = 0),
+        ),
+      ),
+    ];
   }
 
-  void _openPremiumScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const PremiumScreen()),
+  Widget _buildSuccess(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context, showBack: false),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.huge),
+            Center(
+              child: Container(
+                width: 96,
+                height: 96,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  shape: BoxShape.circle,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.check_rounded,
+                    color: AppColors.onPrimary, size: 52),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'pfSuccessTitle'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'pfSuccessBody'),
+                style: AppType.body, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xs),
+            Text(L10n.get(context, 'pfSuccessSecondary'),
+                style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            FeedbackSecondaryButton(
+              label: L10n.get(context, 'pfSuccessCreateOwn'),
+              icon: Icons.add_link_rounded,
+              onPressed: () => Navigator.of(context).pushReplacement(
+                MaterialPageRoute<void>(builder: (_) => const _AuthGate()),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s),
+            Center(
+              child: FeedbackTextButton(
+                label: L10n.get(context, 'close'),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
     );
   }
+
+  Widget _buildInvalid(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context),
+      body: FeedbackEmptyState(
+        icon: Icons.link_off_rounded,
+        title: L10n.get(context, 'pfInvalidTitle'),
+        message: L10n.get(context, 'pfInvalidBody'),
+        ctaLabel: L10n.get(context, 'pfManualContinue'),
+        onCta: () => setState(() {
+          _resolveError = false;
+          _resolvedLink = null;
+          _forceManual = true;
+        }),
+      ),
+    );
+  }
+
+  Widget _buildClosed(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context),
+      body: FeedbackEmptyState(
+        icon: Icons.lock_clock_rounded,
+        title: L10n.get(context, 'pfClosedTitle'),
+        message: L10n.get(context, 'pfInvalidBody'),
+      ),
+    );
+  }
+}
+
+/// Adım ilerleme çubuğu noktası (public feedback akışı).
+class _StepDot extends StatelessWidget {
+  const _StepDot({required this.active});
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(L10n.get(context, 'feedbackFormTitle')),
+    return Container(
+      height: 5,
+      decoration: BoxDecoration(
+        color: active ? AppColors.primary : AppColors.border,
+        borderRadius: BorderRadius.circular(999),
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: ListView(
-                children: [
-                  Text(
-                    L10n.get(context, 'feedbackFormIntroLead'),
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.white70, height: 1.45),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    L10n.get(context, 'feedbackFormHowItWorksTitle'),
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _feedbackHowStep(
-                    theme,
-                    Icons.add_link_rounded,
-                    L10n.get(context, 'feedbackFormHowStep1'),
-                  ),
-                  _feedbackHowStep(
-                    theme,
-                    Icons.chat_bubble_outline_rounded,
-                    L10n.get(context, 'feedbackFormHowStep2'),
-                  ),
-                  _feedbackHowStep(
-                    theme,
-                    Icons.auto_fix_high_rounded,
-                    L10n.get(context, 'feedbackFormHowStep3'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _linkController,
-                    decoration: InputDecoration(
-                      labelText: L10n.get(context, 'feedbackFormLinkLabel'),
-                      hintText: L10n.get(context, 'feedbackFormLinkHint'),
-                      prefixIcon: const Icon(Icons.link),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: Colors.white.withValues(alpha: 0.04),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.06),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.shield_moon_outlined,
-                              size: 22,
-                              color: theme.colorScheme.primary.withValues(alpha: 0.9),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                L10n.get(context, 'feedbackFormPrivacyTitle'),
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          L10n.get(context, 'feedbackFormPrivacyBody'),
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: Colors.white70, height: 1.45),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _nameController,
-                    decoration: InputDecoration(
-                      labelText: L10n.get(context, 'feedbackFormNameLabel'),
-                      hintText: L10n.get(context, 'feedbackFormNameHint'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _relationController,
-                    decoration: InputDecoration(
-                      labelText: L10n.get(context, 'feedbackFormRelationLabel'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    L10n.get(context, 'feedbackFormMoodQuestion'),
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final r in kDefaultReactions)
-                        ChoiceChip(
-                          label: Text('${r.emoji}  ${r.label(L10n.languageCodeForApp(context) == 'en')}'),
-                          selected: _selectedReaction == r.key,
-                          onSelected: (_) {
-                            setState(() {
-                              if (_selectedReaction == r.key) {
-                                // Tekrar dokunma → seçimi kaldır (nötr).
-                                _selectedReaction = null;
-                                _selectedMood = 0;
-                              } else {
-                                _selectedReaction = r.key;
-                                _selectedMood = r.sentiment;
-                              }
-                            });
-                          },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _feedbackController,
-                    maxLines: 6,
-                    decoration: InputDecoration(
-                      labelText: L10n.get(context, 'feedbackFormThoughtsLabel'),
-                      alignLabelWithHint: true,
-                      hintText: L10n.get(context, 'feedbackFormThoughtsHint'),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  CreatorSurveySection(key: _creatorSurveyKey),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _submit,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: Text(
-                      L10n.get(context, 'send'),
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  Divider(color: Colors.white.withValues(alpha: 0.12)),
-                  const SizedBox(height: 16),
-                  Text(
-                    L10n.get(context, 'feedbackFormFooterDiscover'),
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white60,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      TextButton(
-                        onPressed: _openAppMarketingUrl,
-                        child: Text(L10n.get(context, 'feedbackFormOpenApp')),
-                      ),
-                      Text(
-                        '·',
-                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.white38),
-                      ),
-                      TextButton(
-                        onPressed: _openPremiumScreen,
-                        child: Text(L10n.get(context, 'feedbackFormGoPremium')),
-                      ),
-                    ],
-                  ),
-                ],
+    );
+  }
+}
+
+/// Büyük dokunma alanlı reaction seçimi (V2).
+class _ReactionChip extends StatelessWidget {
+  const _ReactionChip({
+    required this.emoji,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String emoji;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Material(
+        color: selected ? AppColors.primarySoft : AppColors.surface,
+        borderRadius: AppRadius.rMedium,
+        child: InkWell(
+          borderRadius: AppRadius.rMedium,
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: AppRadius.rMedium,
+              border: Border.all(
+                color: selected ? AppColors.primary : AppColors.border,
+                width: selected ? 1.6 : 1,
               ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(emoji, style: const TextStyle(fontSize: 22)),
+                const SizedBox(width: 8),
+                Text(label,
+                    style: selected
+                        ? AppType.bodyStrong.copyWith(color: AppColors.primary)
+                        : AppType.body),
+                if (selected) ...[
+                  const SizedBox(width: 6),
+                  const Icon(Icons.check_circle_rounded,
+                      size: 18, color: AppColors.primary),
+                ],
+              ],
             ),
           ),
         ),

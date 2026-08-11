@@ -17,6 +17,7 @@ class AppSpacing {
 
   /// Masaüstünde içeriğin ortalanacağı azami genişlikler (responsive).
   static const double maxWidthAuth = 480;
+  static const double maxWidthForm = 560;
   static const double maxWidthContent = 640;
   static const double maxWidthDashboard = 1080;
 }
