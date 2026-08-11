@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
+import 'design_system/design_system.dart';
 import 'services/auth_service.dart' show firebaseAuthUserMessage;
 import 'config/backend_config.dart';
 import 'config/feature_flags.dart';
@@ -484,27 +485,6 @@ class _DarkMysticalBackground extends StatelessWidget {
   }
 }
 
-/// AppBar başlığı: dar alanda kırpılmasın (Apple HIG: net başlık).
-class _AppBarBrandTitle extends StatelessWidget {
-  const _AppBarBrandTitle();
-
-  @override
-  Widget build(BuildContext context) {
-    final title = L10n.get(context, 'appTitle');
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: feedbackAppUsesIosTypography
-          ? Alignment.center
-          : Alignment.centerLeft,
-      child: Text(
-        title,
-        maxLines: 1,
-        style: Theme.of(context).appBarTheme.titleTextStyle,
-      ),
-    );
-  }
-}
-
 class FeedbackToMeApp extends StatelessWidget {
   const FeedbackToMeApp({super.key});
 
@@ -568,120 +548,148 @@ Future<void> _afterFirebaseLoginCloseSheet(BuildContext context, User? user) asy
 }
 
 /// Giriş: sadece Apple ve Google (ödeme App Store / Play Store'da).
+/// Giriş — V2 aydınlık. Auth handler'ları (Google/Apple + misafir) korunur.
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
 
+  Future<void> _google(BuildContext context) async {
+    try {
+      final user = await authService.signInWithGoogle();
+      if (!context.mounted) return;
+      await _afterFirebaseLoginCloseSheet(context, user);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '${L10n.get(context, 'loginFailedGoogle')}: ${firebaseAuthUserMessage(e)}'),
+        ));
+      }
+    }
+  }
+
+  Future<void> _apple(BuildContext context) async {
+    try {
+      final user = await authService.signInWithApple();
+      if (!context.mounted) return;
+      await _afterFirebaseLoginCloseSheet(context, user);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '${L10n.get(context, 'loginFailedApple')}: ${firebaseAuthUserMessage(e)}'),
+        ));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        title: Text(L10n.get(context, 'login')),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-          tooltip: L10n.get(context, 'back'),
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthAuth,
+      appBar: feedbackAppBar(context, title: L10n.get(context, 'login')),
+      body: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.h),
+            Center(
+              child: Container(
+                width: 76,
+                height: 76,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: AppRadius.rLarge,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.chat_bubble_rounded,
+                    color: AppColors.onPrimary, size: 38),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.m),
+            Text('Feedback2Me',
+                style: AppType.pageTitle, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            Text(L10n.get(context, 'login'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'loginSubtitle'),
+                style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            _AuthProviderButton(
+              label: L10n.get(context, 'loginGoogle'),
+              icon: Icons.g_mobiledata_rounded,
+              onPressed: () => _google(context),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _AuthProviderButton(
+              label: L10n.get(context, 'loginApple'),
+              icon: Icons.apple,
+              onPressed: () => _apple(context),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            Center(
+              child: FeedbackTextButton(
+                label: L10n.get(context, 'continueWithoutLogin'),
+                onPressed: () => Navigator.of(context).pop(false),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.m),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock_outline_rounded,
+                    size: 14, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Text(L10n.get(context, 'loginPrivacyNote'),
+                    style: AppType.caption),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
         ),
       ),
-      body: _DarkMysticalBackground(
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 400),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const _AppBrand(),
-                          const SizedBox(height: 32),
-                          Text(
-                            L10n.get(context, 'loginSubtitle'),
-                            style: theme.textTheme.bodyMedium
-                                ?.copyWith(color: Colors.white70),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 32),
-                          FilledButton.icon(
-                            onPressed: () async {
-                              try {
-                                final user = await authService.signInWithGoogle();
-                                if (!context.mounted) return;
-                                await _afterFirebaseLoginCloseSheet(context, user);
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        '${L10n.get(context, 'loginFailedGoogle')}: '
-                                        '${firebaseAuthUserMessage(e)}',
-                                      ),
-                                    ),
-                                  );
-                                }
-                              }
-                            },
-                            icon: const Icon(Icons.g_mobiledata_rounded),
-                            label: Text(L10n.get(context, 'loginGoogle')),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              try {
-                                final user = await authService.signInWithApple();
-                                if (!context.mounted) return;
-                                await _afterFirebaseLoginCloseSheet(context, user);
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        '${L10n.get(context, 'loginFailedApple')}: '
-                                        '${firebaseAuthUserMessage(e)}',
-                                      ),
-                                    ),
-                                  );
-                                }
-                              }
-                            },
-                            icon: const Icon(Icons.apple),
-                            label: Text(L10n.get(context, 'loginApple')),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              side: BorderSide(
-                                  color: Colors.white.withOpacity(0.4)),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            child: Text(L10n.get(context, 'continueWithoutLogin')),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
+    );
+  }
+}
+
+/// Giriş sağlayıcı butonu (beyaz yüzey + ikon + ortalı etiket).
+class _AuthProviderButton extends StatelessWidget {
+  const _AuthProviderButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: AppRadius.rMedium,
+      child: InkWell(
+        borderRadius: AppRadius.rMedium,
+        onTap: onPressed,
+        child: Container(
+          height: 54,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: AppRadius.rMedium,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: AppColors.textPrimary, size: 24),
+              const SizedBox(width: 10),
+              Text(label,
+                  style: AppType.bodyStrong
+                      .copyWith(fontWeight: FontWeight.w700)),
+            ],
           ),
         ),
       ),
@@ -758,252 +766,427 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   Widget _buildLandingBody(BuildContext context, {required bool isLoggedIn, UserProfile? profile, String? uid}) {
-    return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: _DarkMysticalBackground(
-            child: SafeArea(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final content = _currentIndex == 0
-                      ? _buildHomeContent(isLoggedIn: isLoggedIn, uid: uid)
-                      : _ProfileTab(profile: profile, uid: uid);
-
-                  // Küçük Android ekranlarda taşmayı önlemek için Home sekmesi kaydırılabilir.
-                  if (_currentIndex == 0) {
-                    return SingleChildScrollView(
+    final isHome = _currentIndex == 0;
+    final lang = L10n.languageCodeForApp(context);
+    return Theme(
+      data: buildFeedbackLightTheme(),
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.background,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          titleSpacing: AppSpacing.pageH,
+          title: const FeedbackBrandMark(),
+          actions: [
+            FeedbackLanguageSelector(
+              currentCode: lang,
+              onSelect: (c) => L10n.setLocale(Locale(c)),
+            ),
+            const SizedBox(width: AppSpacing.s),
+            IconButton(
+              icon: const Icon(Icons.settings_outlined,
+                  color: AppColors.textSecondary),
+              tooltip: L10n.get(context, 'settings'),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (ctx) => SettingsScreen(
+                      onOpenLogin: (c) => Navigator.of(c).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const LoginScreen()),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+            if (isLoggedIn)
+              IconButton(
+                icon: const Icon(Icons.logout_rounded,
+                    color: AppColors.textSecondary),
+                tooltip: L10n.get(context, 'logout'),
+                onPressed: () async => authService.signOut(),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.login_rounded,
+                    color: AppColors.primary),
+                tooltip: L10n.get(context, 'login'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+                ),
+              ),
+            const SizedBox(width: AppSpacing.s),
+          ],
+        ),
+        body: SafeArea(
+          child: isHome
+              ? SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.pageH, vertical: AppSpacing.l),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                          maxWidth: AppSpacing.maxWidthContent),
+                      child: _buildHomeContent(isLoggedIn: isLoggedIn, uid: uid),
+                    ),
+                  ),
+                )
+              // Profil sekmesi henüz V2 değil → koyu temaya sarılı (okunur kalır).
+              : Theme(
+                  data: buildFeedbackTheme(),
+                  child: ColoredBox(
+                    color: const Color(0xFF141210),
+                    child: Padding(
                       padding: const EdgeInsets.all(24),
-                      child: Align(
-                        alignment: Alignment.topCenter,
+                      child: Center(
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 520),
-                          child: content,
+                          child: _ProfileTab(profile: profile, uid: uid),
                         ),
                       ),
-                    );
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 520),
-                        child: content,
-                      ),
                     ),
-                  );
-                },
-              ),
-            ),
+                  ),
+                ),
+        ),
+        bottomNavigationBar: DecoratedBox(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            border: Border(top: BorderSide(color: AppColors.border)),
           ),
-          appBar: AppBar(
-            title: const _AppBarBrandTitle(),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.settings_outlined),
-                tooltip: L10n.get(context, 'settings'),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (ctx) => SettingsScreen(
-                        onOpenLogin: (c) {
-                          Navigator.of(c).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const LoginScreen(),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  );
-                },
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: (index) => setState(() => _currentIndex = index),
+            backgroundColor: AppColors.surface,
+            elevation: 0,
+            type: BottomNavigationBarType.fixed,
+            selectedItemColor: AppColors.primary,
+            unselectedItemColor: AppColors.textSecondary,
+            items: [
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.home_rounded),
+                label: L10n.get(context, 'home'),
               ),
-              Padding(
-                padding: EdgeInsets.only(
-                  right: feedbackAppUsesIosTypography ? 0 : 8,
-                ),
-                child: _LinkTierHeaderBadge(
-                  isLoggedIn: isLoggedIn,
-                  profile: profile,
-                  compact: feedbackAppUsesIosTypography,
-                ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.person_rounded),
+                label: L10n.get(context, 'profile'),
               ),
-              if (isLoggedIn)
-                IconButton(
-                  icon: const Icon(Icons.logout),
-                  onPressed: () async {
-                    await authService.signOut();
-                  },
-                  tooltip: L10n.get(context, 'logout'),
-                )
-              else if (feedbackAppUsesIosTypography)
-                IconButton(
-                  icon: const Icon(Icons.person_outline_rounded),
-                  tooltip: L10n.get(context, 'login'),
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const LoginScreen(),
-                      ),
-                    );
-                  },
-                )
-              else
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    );
-                  },
-                  icon: const Icon(Icons.login, size: 20),
-                  label: Text(L10n.get(context, 'login')),
-                ),
             ],
           ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        items: [
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.home_outlined),
-            label: L10n.get(context, 'home'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.person_outline),
-            label: L10n.get(context, 'profile'),
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildHomeContent({required bool isLoggedIn, String? uid}) {
-    final ios = feedbackAppUsesIosTypography;
-    final cardPad = ios ? 24.0 : 20.0;
     final oid = uid != null ? effectiveDataOwnerId(uid) : null;
+    if (!isLoggedIn || oid == null) {
+      return const _GuestHomeV2();
+    }
+    return StreamBuilder<List<FeedbackLink>>(
+      stream: appData.linksForOwnerStream(oid),
+      builder: (context, linksSnap) {
+        final links = linksSnap.data ?? [];
+        final activeLink = links.cast<FeedbackLink?>().firstWhere(
+              (l) => l!.acceptsPublicFeedback,
+              orElse: () => null,
+            );
+        if (activeLink != null) {
+          return _ActiveLinkHomeCard(
+              link: activeLink, uid: uid!, ownerId: oid, cardPad: 20);
+        }
+        final latest = links.isNotEmpty ? links.first : null;
+        final expired =
+            (latest != null && latest.isPastValidWindow) ? latest : null;
+        if (expired != null) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Süresi dolan link final özeti (henüz V2 değil → koyu-sarılı).
+              Theme(
+                data: buildFeedbackTheme(),
+                child: _LinkSummaryCard(
+                  key: ValueKey('sum-final-${expired.id}'),
+                  link: expired,
+                  ownerId: oid,
+                  cardPad: 20,
+                  isExpired: true,
+                  cacheable: true,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.m),
+              _LoggedInHomeV2(uid: uid!),
+            ],
+          );
+        }
+        return _LoggedInHomeV2(uid: uid!);
+      },
+    );
+  }
+}
 
+/// Misafir ana ekran V2 — hero + iki aksiyon kartı + "Nasıl çalışır" + güven.
+class _GuestHomeV2 extends StatelessWidget {
+  const _GuestHomeV2();
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _AppBrand(),
-        SizedBox(height: ios ? 24 : 20),
-        if (isLoggedIn && oid != null)
-          StreamBuilder<List<FeedbackLink>>(
-            stream: appData.linksForOwnerStream(oid),
-            builder: (context, linksSnap) {
-              final links = linksSnap.data ?? [];
-              final activeLink = links.cast<FeedbackLink?>().firstWhere(
-                    (l) => l!.acceptsPublicFeedback,
-                    orElse: () => null,
-                  );
-
-              if (activeLink != null) {
-                // Aktif link: tek kart — geri sayım + büyük Paylaş + tek satır canlı önizleme.
-                return _ActiveLinkHomeCard(
-                  link: activeLink,
-                  uid: uid!,
-                  ownerId: oid!,
-                  cardPad: cardPad,
-                );
-              }
-
-              // Aktif link yok: en son link süresi dolmuşsa FİNAL özet (önbellekli).
-              final latest = links.isNotEmpty ? links.first : null;
-              final expired =
-                  (latest != null && latest.isPastValidWindow) ? latest : null;
-              if (expired != null) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _LinkSummaryCard(
-                      key: ValueKey('sum-final-${expired.id}'),
-                      link: expired,
-                      ownerId: oid!,
-                      cardPad: cardPad,
-                      isExpired: true,
-                      cacheable: true,
-                    ),
-                    const SizedBox(height: 16),
-                    _CreateLinkHomeCard(
-                      isLoggedIn: isLoggedIn,
-                      uid: uid,
-                      cardPad: cardPad,
-                    ),
-                  ],
-                );
-              }
-
-              return _CreateLinkHomeCard(
-                isLoggedIn: isLoggedIn,
-                uid: uid,
-                cardPad: cardPad,
-              );
-            },
-          )
-        else
-          _CreateLinkHomeCard(
-            isLoggedIn: isLoggedIn,
-            uid: uid,
-            cardPad: cardPad,
+        const SizedBox(height: AppSpacing.s),
+        Text(L10n.get(context, 'homeGreeting'), style: AppType.secondary),
+        const SizedBox(height: AppSpacing.xs),
+        Text(L10n.get(context, 'homeHeroTitle'), style: AppType.display),
+        const SizedBox(height: AppSpacing.s),
+        Text(L10n.get(context, 'homeHeroSubtitle'), style: AppType.body),
+        const SizedBox(height: AppSpacing.xl),
+        FeedbackFeatureCard(
+          icon: Icons.link_rounded,
+          title: L10n.get(context, 'homeCreateCardTitle'),
+          description: L10n.get(context, 'homeCreateCardDesc'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
           ),
-        SizedBox(height: ios ? 36 : 32),
-        const _FooterNote(),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        FeedbackFeatureCard(
+          icon: Icons.edit_note_rounded,
+          iconGradient: const LinearGradient(
+              colors: [AppColors.success, Color(0xFF2FB07A)]),
+          title: L10n.get(context, 'homeWriteCardTitle'),
+          description: L10n.get(context, 'homeWriteCardDesc'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+                builder: (_) => const FeedbackFormScreen()),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        const _HowItWorksV2(),
+        const SizedBox(height: AppSpacing.l),
+        const _TrustRowV2(),
+        const SizedBox(height: AppSpacing.m),
       ],
     );
   }
 }
 
-class _CreateLinkHomeCard extends StatelessWidget {
-  const _CreateLinkHomeCard({
-    required this.isLoggedIn,
-    required this.uid,
-    required this.cardPad,
-  });
-
-  final bool isLoggedIn;
-  final String? uid;
-  final double cardPad;
+/// Girişli kullanıcı, aktif link yokken — V2 karşılama + link oluştur.
+class _LoggedInHomeV2 extends StatelessWidget {
+  const _LoggedInHomeV2({required this.uid});
+  final String uid;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final ios = feedbackAppUsesIosTypography;
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(cardPad),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: AppSpacing.s),
+        Text(L10n.get(context, 'homeWelcomeBack'), style: AppType.pageTitle),
+        const SizedBox(height: AppSpacing.xs),
+        Text(L10n.get(context, 'homeWhatToDo'), style: AppType.secondary),
+        const SizedBox(height: AppSpacing.xl),
+        FeedbackFeatureCard(
+          icon: Icons.add_link_rounded,
+          title: L10n.get(context, 'homeCreateCardTitle'),
+          description: L10n.get(context, 'homeCreateCardDesc'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => CreateLinkScreenV2(uid: uid)),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        FeedbackFeatureCard(
+          icon: Icons.edit_note_rounded,
+          iconGradient: const LinearGradient(
+              colors: [AppColors.success, Color(0xFF2FB07A)]),
+          title: L10n.get(context, 'homeWriteCardTitle'),
+          description: L10n.get(context, 'homeWriteCardDesc'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+                builder: (_) => const FeedbackFormScreen()),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        const _HowItWorksV2(),
+        const SizedBox(height: AppSpacing.m),
+      ],
+    );
+  }
+}
+
+/// "Nasıl çalışır?" 4 adım (V2).
+class _HowItWorksV2 extends StatelessWidget {
+  const _HowItWorksV2();
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = [
+      (Icons.link_rounded, L10n.get(context, 'stepCreate')),
+      (Icons.ios_share_rounded, L10n.get(context, 'stepShare')),
+      (Icons.forum_rounded, L10n.get(context, 'stepCollect')),
+      (Icons.auto_awesome_rounded, L10n.get(context, 'stepSummary')),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(L10n.get(context, 'howItWorks'), style: AppType.sectionTitle),
+        const SizedBox(height: AppSpacing.m),
+        Row(
           children: [
-            Text(
-              L10n.get(context, 'createLinkCardTitle'),
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
+            for (var i = 0; i < steps.length; i++) ...[
+              Expanded(
+                child: FeedbackStepItem(
+                    number: i + 1, icon: steps[i].$1, label: steps[i].$2),
               ),
-            ),
-            SizedBox(height: ios ? 12 : 8),
-            Text(
-              L10n.get(context, 'createLinkCardSubtitle'),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.82),
-              ),
-            ),
-            SizedBox(height: ios ? 14 : 8),
-            Text(
-              L10n.get(context, 'createLinkTierHint'),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: Colors.white.withValues(alpha: 0.48),
-                height: 1.4,
-              ),
-            ),
-            SizedBox(height: ios ? 22 : 16),
-            _PrimaryActions(isLoggedIn: isLoggedIn, uid: uid),
+            ],
           ],
         ),
+      ],
+    );
+  }
+}
+
+/// Güven göstergeleri (Anonim · Hızlı · Güvenli).
+class _TrustRowV2 extends StatelessWidget {
+  const _TrustRowV2();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        FeedbackTrustChip(
+            label: L10n.get(context, 'trustAnonymous'),
+            icon: Icons.visibility_off_rounded),
+        FeedbackTrustChip(
+            label: L10n.get(context, 'trustFast'), icon: Icons.bolt_rounded),
+        FeedbackTrustChip(
+            label: L10n.get(context, 'trustSecure'),
+            icon: Icons.shield_rounded),
+      ],
+    );
+  }
+}
+
+/// Yeni link oluştur — V2 (Demo/Premium bilgi kartları). Mevcut `_createLink`
+/// akışını çağırır; tier'a backend karar verir (mantık değişmez).
+class CreateLinkScreenV2 extends StatelessWidget {
+  const CreateLinkScreenV2({super.key, required this.uid});
+  final String uid;
+
+  @override
+  Widget build(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthAuth,
+      appBar: feedbackAppBar(context, title: L10n.get(context, 'createLinkTitle')),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'createLinkV2Heading'),
+                style: AppType.pageTitle),
+            const SizedBox(height: AppSpacing.xs),
+            Text(L10n.get(context, 'createLinkV2Sub'), style: AppType.secondary),
+            const SizedBox(height: AppSpacing.xl),
+            _TierCard(
+              icon: Icons.science_rounded,
+              title: L10n.get(context, 'tierDemo'),
+              priceLabel: L10n.get(context, 'tierFree'),
+              features: [
+                L10n.get(context, 'tierDemoF1'),
+                L10n.get(context, 'tierDemoF2'),
+                L10n.get(context, 'tierDemoF3'),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.m),
+            _TierCard(
+              icon: Icons.workspace_premium_rounded,
+              title: L10n.get(context, 'tierPremium'),
+              priceLabel: L10n.get(context, 'tierPaid'),
+              gradient: true,
+              features: [
+                L10n.get(context, 'tierPremiumF1'),
+                L10n.get(context, 'tierPremiumF2'),
+                L10n.get(context, 'tierPremiumF3'),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'createMyLink'),
+              trailingArrow: true,
+              onPressed: () => _createLink(context, uid),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Demo/Premium tier bilgi kartı.
+class _TierCard extends StatelessWidget {
+  const _TierCard({
+    required this.icon,
+    required this.title,
+    required this.priceLabel,
+    required this.features,
+    this.gradient = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String priceLabel;
+  final List<String> features;
+  final bool gradient;
+
+  @override
+  Widget build(BuildContext context) {
+    final onGrad = gradient;
+    final titleColor = onGrad ? AppColors.onPrimary : AppColors.textPrimary;
+    final featColor =
+        onGrad ? AppColors.onPrimary.withValues(alpha: 0.92) : AppColors.textPrimary;
+    return FeedbackCard(
+      gradient: gradient ? AppColors.primaryGradient : null,
+      shadow: gradient,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon,
+                  color: onGrad ? AppColors.onPrimary : AppColors.primary,
+                  size: 22),
+              const SizedBox(width: 8),
+              Text(title,
+                  style: AppType.cardTitle.copyWith(color: titleColor)),
+              const Spacer(),
+              FeedbackStatusBadge(
+                label: priceLabel,
+                tone: onGrad ? BadgeTone.neutral : BadgeTone.primary,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final f in features)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded,
+                      size: 17,
+                      color: onGrad ? AppColors.onPrimary : AppColors.success),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(f,
+                          style: AppType.secondary.copyWith(color: featColor))),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1039,99 +1222,103 @@ class _ActiveLinkHomeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(cardPad),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Ana performans kartı (gradient)
+        FeedbackCard(
+          gradient: AppColors.primaryGradient,
+          shadow: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const FeedbackStatusBadge(
+                    label: 'Aktif',
+                    tone: BadgeTone.neutral,
+                    dot: true,
+                  ),
+                  const Spacer(),
+                  if (link.validUntil != null)
+                    LinkValidityCountdown(
+                      validUntil: link.validUntil!,
+                      compact: true,
+                      foreground: AppColors.onPrimary,
+                    ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(L10n.get(context, 'homeLinkActive'),
+                  style: AppType.cardTitle.copyWith(color: AppColors.onPrimary)),
+              const SizedBox(height: 3),
+              Text(
+                link.shareUrl,
+                style: AppType.secondary
+                    .copyWith(color: AppColors.onPrimary.withValues(alpha: 0.85)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: AppSpacing.m),
+              StreamBuilder<List<FeedbackEntry>>(
+                stream: appData.feedbacksForLinkStream(link.id),
+                builder: (context, snap) {
+                  final count = snap.data?.length ?? 0;
+                  return FeedbackMetricCard(
+                    value: '$count',
+                    label: L10n.get(context, 'feedbacksShort'),
+                    icon: Icons.forum_rounded,
+                    onSurface: true,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.m),
+        FeedbackPrimaryButton(
+          label: L10n.get(context, 'shareLink'),
+          icon: Icons.ios_share_rounded,
+          onPressed: () => _shareLink(context, link.shareUrl),
+        ),
+        const SizedBox(height: AppSpacing.s),
+        Row(
           children: [
-            Row(
-              children: [
-                Icon(Icons.link_rounded,
-                    color: theme.colorScheme.primary, size: 22),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    L10n.get(context, 'homeLinkActive'),
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                if (link.validUntil != null)
-                  LinkValidityCountdown(
-                    validUntil: link.validUntil!,
-                    compact: true,
-                    foreground: theme.colorScheme.primary,
-                  ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            StreamBuilder<List<FeedbackEntry>>(
-              stream: appData.feedbacksForLinkStream(link.id),
-              builder: (context, snap) {
-                final count = snap.data?.length ?? 0;
-                return Text(
-                  '$count ${L10n.get(context, 'feedbacksShort')}',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: Colors.white70),
-                );
-              },
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => _shareLink(context, link.shareUrl),
-                icon: const Icon(Icons.ios_share_rounded, size: 20),
-                label: Text(
-                  L10n.get(context, 'shareLink'),
-                  style: const TextStyle(fontSize: 16),
-                ),
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
+            Expanded(
+              child: FeedbackSecondaryButton(
+                label: L10n.get(context, 'copyLink'),
+                icon: Icons.copy_rounded,
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: link.shareUrl));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+                  );
+                },
               ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: link.shareUrl));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
-                      );
-                    },
-                    icon: const Icon(Icons.copy_rounded, size: 16),
-                    label: Text(L10n.get(context, 'copyLink')),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _createLink(context, uid),
-                    icon: const Icon(Icons.add_link, size: 16),
-                    label: Text(L10n.get(context, 'newLink')),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _LiveSummaryLine(link: link, ownerId: ownerId),
-            const SizedBox(height: 8),
-            Text(
-              L10n.get(context, 'homeSummaryHint'),
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: Colors.white54, height: 1.3),
+            const SizedBox(width: AppSpacing.s),
+            Expanded(
+              child: FeedbackSecondaryButton(
+                label: L10n.get(context, 'newLink'),
+                icon: Icons.add_link_rounded,
+                onPressed: () => _createLink(context, uid),
+              ),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: AppSpacing.l),
+        FeedbackCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(L10n.get(context, 'homeSummaryHint'),
+                  style: AppType.caption),
+              const SizedBox(height: AppSpacing.s),
+              _LiveSummaryLine(link: link, ownerId: ownerId),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1192,25 +1379,35 @@ class _LiveSummaryLineState extends State<_LiveSummaryLine> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     if (_loading) {
       return Row(
         children: [
           const SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(strokeWidth: 2),
+            width: 15,
+            height: 15,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: AppColors.primary),
           ),
           const SizedBox(width: 8),
-          Text(
-            L10n.get(context, 'expiredSummaryPreparing'),
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
-          ),
+          Text(L10n.get(context, 'expiredSummaryPreparing'),
+              style: AppType.caption),
         ],
       );
     }
     final s = _summary;
-    if (s == null || s.feedbackCount == 0) return const SizedBox.shrink();
+    if (s == null || s.feedbackCount == 0) {
+      return Row(
+        children: [
+          const Icon(Icons.chat_bubble_outline_rounded,
+              size: 16, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(L10n.get(context, 'homeNoFeedbackYet'),
+                style: AppType.secondary),
+          ),
+        ],
+      );
+    }
     final line = s.headline.isNotEmpty
         ? s.headline
         : (s.mostMentioned.isNotEmpty
@@ -1218,27 +1415,26 @@ class _LiveSummaryLineState extends State<_LiveSummaryLine> {
             : L10n.get(context, 'liveSummaryTitle'));
     return InkWell(
       onTap: _open,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: AppRadius.rSmall,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
           children: [
-            const Icon(Icons.auto_awesome, size: 16, color: AppTheme.gold),
+            const Icon(Icons.auto_awesome_rounded,
+                size: 17, color: AppColors.primary),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                line,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
-              ),
+              child: Text(line,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.bodyStrong),
             ),
             const SizedBox(width: 6),
-            Text(
-              L10n.get(context, 'expiredSummaryOpen'),
-              style: theme.textTheme.labelSmall?.copyWith(color: AppTheme.gold),
-            ),
+            Text(L10n.get(context, 'expiredSummaryOpen'),
+                style: AppType.caption.copyWith(
+                    color: AppColors.primary, fontWeight: FontWeight.w700)),
+            const Icon(Icons.chevron_right_rounded,
+                size: 18, color: AppColors.primary),
           ],
         ),
       ),
@@ -1442,475 +1638,6 @@ class _LinkSummaryCardState extends State<_LinkSummaryCard> {
               ),
             ],
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AppBrand extends StatelessWidget {
-  const _AppBrand();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppTheme.goldDark, AppTheme.gold],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.gold.withOpacity(0.35),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: const Icon(
-            Icons.feedback_rounded,
-            color: Color(0xFF1C1917),
-            size: 26,
-          ),
-        ),
-        const SizedBox(width: 14),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              L10n.get(context, 'appTitle'),
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
-                color: Colors.white.withOpacity(0.98),
-              ),
-            ),
-            Text(
-              L10n.get(context, 'appSubtitle'),
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.white.withOpacity(0.65),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _PrimaryActions extends StatelessWidget {
-  const _PrimaryActions({this.isLoggedIn = false, this.uid});
-
-  final bool isLoggedIn;
-  final String? uid;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        if (isLoggedIn && uid != null)
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () => _createLink(context, uid!),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: Text(
-                L10n.get(context, 'newLink'),
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          )
-        else
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () async {
-                final loggedIn = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => const LoginScreen(),
-                  ),
-                );
-                if (!context.mounted) return;
-                // Girişten hemen sonra link oluşturma: demo hakkı bitmiş kullanıcıda
-                // createLink → premium Snackbar; kullanıcı bunu "giriş olmadı" sanıyor.
-                // Link, giriş sonrası "Yeni link oluştur" ile ayrı adımda istenir.
-                if (loggedIn ?? false) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          L10n.get(context, 'afterLoginUseNewLinkButton'),
-                        ),
-                      ),
-                    );
-                  });
-                }
-              },
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: Text(
-                L10n.get(context, 'premiumAndCreateLink'),
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const FeedbackFormScreen(),
-                ),
-              );
-            },
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              side: BorderSide(
-                color: Colors.white.withOpacity(0.4),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: Text(
-              L10n.get(context, 'writeFeedbackFromLink'),
-              style: TextStyle(fontSize: 16),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _FooterNote extends StatelessWidget {
-  const _FooterNote();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      '${L10n.get(context, 'footerPremium')}\n${L10n.get(context, 'footerGuests')}',
-      style: const TextStyle(
-        fontSize: 12,
-        color: Colors.white60,
-      ),
-      textAlign: TextAlign.left,
-    );
-  }
-}
-
-/// Üst çubuk: aktif premium veya link kredisi → Premium; ücretsiz demo → Demo; demo bitti → satın alma.
-Future<void> _showFreeDemoSheet(BuildContext context, {required bool isLoggedIn}) async {
-  final theme = Theme.of(context);
-  await showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: const Color(0xFF1a1a1f),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (sheetCtx) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                L10n.get(sheetCtx, 'demoSheetTitle'),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                L10n.get(
-                  sheetCtx,
-                  isLoggedIn ? 'demoSheetBodyLoggedIn' : 'demoSheetBodyGuest',
-                ),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 22),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(sheetCtx).pop();
-                  if (isLoggedIn) {
-                    Navigator.of(context).push<void>(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const PremiumScreen(),
-                      ),
-                    );
-                  } else {
-                    Navigator.of(context).push<void>(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const LoginScreen(),
-                      ),
-                    );
-                  }
-                },
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                child: Text(
-                  L10n.get(
-                    sheetCtx,
-                    isLoggedIn ? 'demoSheetGoPremium' : 'demoSheetLoginFirst',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.of(sheetCtx).pop(),
-                child: Text(L10n.get(sheetCtx, 'close')),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
-
-Future<void> _showLinkCreditSheet(BuildContext context) async {
-  final theme = Theme.of(context);
-  await showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: const Color(0xFF1a1a1f),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (sheetCtx) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                L10n.get(sheetCtx, 'creditSheetTitle'),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                L10n.get(sheetCtx, 'creditSheetBody'),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 22),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(sheetCtx).pop();
-                  Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const PremiumScreen(),
-                    ),
-                  );
-                },
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                child: Text(L10n.get(sheetCtx, 'creditSheetOpenPremium')),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.of(sheetCtx).pop(),
-                child: Text(L10n.get(sheetCtx, 'close')),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
-
-class _LinkTierHeaderBadge extends StatelessWidget {
-  const _LinkTierHeaderBadge({
-    required this.isLoggedIn,
-    this.profile,
-    this.compact = false,
-  });
-
-  final bool isLoggedIn;
-  final UserProfile? profile;
-
-  /// iOS AppBar: metin yerine ikon + tooltip (HIG: 44pt hedef, taşma yok).
-  final bool compact;
-
-  static const Color _demoOrange = Color(0xFFEA580C);
-  static const Color _demoBg = Color(0x1FEA580C);
-  static const Color _slate = Color(0xFF94A3B8);
-  static const Color _slateBg = Color(0x1F94A3B8);
-
-  @override
-  Widget build(BuildContext context) {
-    final p = profile;
-    final premiumEligible = isLoggedIn &&
-        (p?.hasActivePremium == true || (p?.paidLinkCredits ?? 0) > 0);
-    final needCredit = isLoggedIn &&
-        p != null &&
-        p.freeDemoLinkUsed &&
-        !premiumEligible;
-
-    late final Color borderColor;
-    late final Color fg;
-    late final Color bg;
-    late final String label;
-    late final String tip;
-    late final IconData icon;
-    VoidCallback? onTap;
-
-    if (premiumEligible) {
-      borderColor = AppTheme.gold;
-      fg = AppTheme.gold;
-      bg = AppTheme.gold.withValues(alpha: 0.14);
-      label = L10n.get(context, 'headerBadgePremium');
-      final n = p?.paidLinkCredits ?? 0;
-      tip = n > 0
-          ? '${L10n.get(context, 'headerBadgePremiumTooltip')} (${L10n.get(context, 'linkCreditsCount')}: $n)'
-          : L10n.get(context, 'headerBadgePremiumTooltip');
-      icon = Icons.workspace_premium_rounded;
-      onTap = null;
-    } else if (needCredit) {
-      borderColor = _slate;
-      fg = _slate;
-      bg = _slateBg;
-      label = L10n.get(context, 'headerBadgeNeedCredit');
-      tip = L10n.get(context, 'headerBadgeNeedCreditTooltip');
-      icon = Icons.shopping_cart_outlined;
-      onTap = () => _showLinkCreditSheet(context);
-    } else {
-      borderColor = _demoOrange;
-      fg = _demoOrange;
-      bg = _demoBg;
-      label = L10n.get(context, 'headerBadgeDemo');
-      tip = L10n.get(context, 'headerBadgeDemoTooltip');
-      icon = Icons.timer_outlined;
-      onTap = () => _showFreeDemoSheet(context, isLoggedIn: isLoggedIn);
-    }
-
-    if (compact) {
-      final semanticsLabel = '$label. $tip';
-      if (onTap == null) {
-        return Semantics(
-          label: semanticsLabel,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: bg,
-                border: Border.all(color: borderColor.withValues(alpha: 0.85)),
-              ),
-              child: Icon(icon, size: 18, color: fg),
-            ),
-          ),
-        );
-      }
-      return Semantics(
-        label: semanticsLabel,
-        button: true,
-        child: Tooltip(
-          message: '$label\n$tip',
-          child: IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            style: IconButton.styleFrom(
-              backgroundColor: bg,
-              foregroundColor: fg,
-              side: BorderSide(color: borderColor.withValues(alpha: 0.85)),
-              shape: const CircleBorder(),
-            ),
-            icon: Icon(icon, size: 20),
-            onPressed: onTap,
-          ),
-        ),
-      );
-    }
-
-    return Tooltip(
-      message: tip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(999),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: borderColor.withValues(alpha: 0.85)),
-              color: bg,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 16, color: fg),
-                const SizedBox(width: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: fg,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-                if (onTap != null) ...[
-                  const SizedBox(width: 2),
-                  Icon(Icons.expand_more_rounded, size: 18, color: fg),
-                ],
-              ],
-            ),
-          ),
         ),
       ),
     );
