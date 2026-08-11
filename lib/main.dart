@@ -33,9 +33,10 @@ import 'screens/premium_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/report_service.dart';
 import 'services/community_summary_store.dart';
+import 'widgets/insights/community_summary_v2.dart';
+import 'widgets/insights/comment_card.dart';
 import 'widgets/app_onboarding.dart';
 import 'widgets/audience_score_widgets.dart';
-import 'widgets/community_feedback_view.dart';
 import 'widgets/creator_intelligence_report_view.dart';
 import 'widgets/creator_survey_section.dart';
 import 'theme/app_theme.dart';
@@ -3469,99 +3470,157 @@ class _ExpiredLinkPoolContent extends StatelessWidget {
   }
 }
 
-class _AllCommentsScreen extends StatelessWidget {
+class _AllCommentsScreen extends StatefulWidget {
   const _AllCommentsScreen({required this.linkId, required this.title});
 
   final String linkId;
   final String title;
 
   @override
+  State<_AllCommentsScreen> createState() => _AllCommentsScreenState();
+}
+
+class _AllCommentsScreenState extends State<_AllCommentsScreen> {
+  int _filter = 0; // 0=Tümü, 1=Olumlu, 2=Nötr, 3=Geliştirmeli
+
+  bool _match(FeedbackEntry e) {
+    switch (_filter) {
+      case 1:
+        return e.mood == 1;
+      case 2:
+        return e.mood == 0 || e.mood == null;
+      case 3:
+        return e.mood == -1;
+      default:
+        return true;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthComments,
+      appBar: feedbackAppBar(context, title: widget.title),
       body: StreamBuilder<List<FeedbackEntry>>(
-        stream: appData.feedbacksForLinkStream(linkId),
+        stream: appData.feedbacksForLinkStream(widget.linkId),
         builder: (context, snap) {
-          final entries = snap.data ?? const <FeedbackEntry>[];
-          if (snap.connectionState == ConnectionState.waiting && entries.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+          final all = snap.data ?? const <FeedbackEntry>[];
+          if (snap.connectionState == ConnectionState.waiting && all.isEmpty) {
+            return FeedbackLoadingState(message: L10n.get(context, 'loading'));
           }
-          if (entries.isEmpty) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Text(
-                  L10n.get(context, 'poolEmptyHint'),
-                  style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+          if (all.isEmpty) {
+            return FeedbackEmptyState(
+              icon: Icons.forum_outlined,
+              title: L10n.get(context, 'commentsEmptyTitle'),
+              message: L10n.get(context, 'commentsEmptyBody'),
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: entries.length,
-            separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
-            itemBuilder: (context, i) {
-              final e = entries[i];
-              final date = e.createdAt != null
-                  ? MaterialLocalizations.of(context).formatShortDate(e.createdAt!)
-                  : '';
-              final relation = e.relation?.trim().isNotEmpty == true
-                  ? e.relation!
-                  : L10n.get(context, 'relationUnknown');
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      e.textRaw,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        height: 1.4,
+          // Sıralama backend'den geldiği gibi korunur (newest-first).
+          final filtered = all.where(_match).toList();
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                      top: AppSpacing.m, bottom: AppSpacing.s),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        L10n.get(context, 'commentsCount')
+                            .replaceFirst('{n}', '${all.length}'),
+                        style: AppType.secondary,
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(
-                          e.mood == 1
-                              ? Icons.sentiment_satisfied_alt
-                              : e.mood == -1
-                                  ? Icons.sentiment_dissatisfied
-                                  : Icons.sentiment_neutral,
-                          size: 16,
-                          color: e.mood == 1
-                              ? Colors.green.shade300
-                              : e.mood == -1
-                                  ? Colors.red.shade300
-                                  : Colors.white54,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$relation · ${_moodLabel(context, e.mood)}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: Colors.white54,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (date.isNotEmpty)
-                          Text(
-                            date,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: Colors.white38,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
+                      const SizedBox(height: AppSpacing.m),
+                      _CommentFilterBar(
+                        current: _filter,
+                        onSelect: (i) => setState(() => _filter = i),
+                      ),
+                      const SizedBox(height: AppSpacing.s),
+                    ],
+                  ),
                 ),
-              );
-            },
+              ),
+              if (filtered.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xl),
+                    child: FeedbackEmptyState(
+                      icon: Icons.filter_alt_off_rounded,
+                      title: L10n.get(context, 'commentsFilterEmpty'),
+                    ),
+                  ),
+                )
+              else
+                SliverList.separated(
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: AppSpacing.sm),
+                  itemBuilder: (context, i) =>
+                      FeedbackCommentCard(entry: filtered[i]),
+                ),
+              const SliverToBoxAdapter(
+                  child: SizedBox(height: AppSpacing.l)),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Yorum filtreleri (client-side; backend query/sıralama değişmez).
+class _CommentFilterBar extends StatelessWidget {
+  const _CommentFilterBar({required this.current, required this.onSelect});
+
+  final int current;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = [
+      L10n.get(context, 'filterAll'),
+      L10n.get(context, 'moodPositive'),
+      L10n.get(context, 'moodNeutral'),
+      L10n.get(context, 'insightNeedsWork'),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var i = 0; i < labels.length; i++) ...[
+            _pill(labels[i], current == i, () => onSelect(i)),
+            if (i < labels.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(String label, bool selected, VoidCallback onTap) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? AppColors.primary : AppColors.surface,
+        borderRadius: AppRadius.rPill,
+        child: InkWell(
+          borderRadius: AppRadius.rPill,
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            decoration: BoxDecoration(
+              borderRadius: AppRadius.rPill,
+              border: Border.all(
+                  color: selected ? AppColors.primary : AppColors.border),
+            ),
+            child: Text(label,
+                style: AppType.secondary.copyWith(
+                    color:
+                        selected ? AppColors.onPrimary : AppColors.textSecondary,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ),
       ),
     );
   }
@@ -3948,97 +4007,96 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
     );
   }
 
+  void _openComments(String linkId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _AllCommentsScreen(
+          linkId: linkId,
+          title: L10n.get(context, 'commentsTitle'),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final future = _future;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      appBar: AppBar(title: Text(L10n.get(context, 'audienceAppBarTitle'))),
-      body: _DarkMysticalBackground(
-        child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: future == null
-              ? const Center(
-                  child: CircularProgressIndicator(color: AppTheme.gold),
-                )
-              : FutureBuilder<CommunityFeedbackSummary>(
-                  future: future,
-                  builder: (context, snap) {
-                    if (snap.connectionState == ConnectionState.waiting) {
-                      return Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const CircularProgressIndicator(color: AppTheme.gold),
-                            const SizedBox(height: 16),
-                            Text(
-                              L10n.get(context, 'audienceLoadingTitle'),
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                          ],
+    final linkId = widget.linkId;
+    final hasLink = linkId != null && linkId.isNotEmpty;
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthWide,
+      appBar:
+          feedbackAppBar(context, title: L10n.get(context, 'audienceAppBarTitle')),
+      body: future == null
+          ? const SingleChildScrollView(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.l),
+              child: CommunitySummaryLoading(),
+            )
+          : FutureBuilder<CommunityFeedbackSummary>(
+              future: future,
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(vertical: AppSpacing.l),
+                    child: CommunitySummaryLoading(),
+                  );
+                }
+                if (snap.hasError) {
+                  return SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: AppSpacing.h),
+                        FeedbackErrorState(
+                          message: L10n.get(context, 'insightErrorTitle'),
+                          retryLabel: L10n.get(context, 'retry'),
+                          onRetry: _run,
                         ),
-                      );
-                    }
-                    if (snap.hasError) {
-                      return Center(
-                        child: SingleChildScrollView(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.error_outline,
-                                  size: 48, color: Color(0xFFF87171)),
-                              const SizedBox(height: 16),
-                              SelectableText(
-                                snap.error.toString(),
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(color: Colors.white70),
-                              ),
-                              const SizedBox(height: 16),
-                              FilledButton.icon(
-                                onPressed: _run,
-                                icon: const Icon(Icons.refresh),
-                                label: Text(L10n.get(context, 'retry')),
-                              ),
-                            ],
+                        if (hasLink) ...[
+                          const SizedBox(height: AppSpacing.m),
+                          Center(
+                            child: FeedbackTextButton(
+                              label: L10n.get(context, 'insightSeeComments'),
+                              onPressed: () => _openComments(linkId),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }
+                final summary = snap.data;
+                if (summary == null || summary.isEmpty) {
+                  return FeedbackEmptyState(
+                    icon: Icons.auto_awesome_rounded,
+                    title: L10n.get(context, 'insightInsufficientTitle'),
+                    message: L10n.get(context, 'insightInsufficientBody'),
+                  );
+                }
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      CommunitySummaryV2View(
+                        summary: summary,
+                        onSeeComments:
+                            hasLink ? () => _openComments(linkId) : null,
+                      ),
+                      if (kShowDetailedReport) ...[
+                        const SizedBox(height: AppSpacing.m),
+                        Center(
+                          child: FeedbackTextButton(
+                            label: L10n.get(context, 'detailedReportOpen'),
+                            onPressed: _openDetailed,
                           ),
                         ),
-                      );
-                    }
-                    final summary = snap.data;
-                    if (summary == null) {
-                      return Center(
-                        child: FilledButton(
-                          onPressed: _run,
-                          child: Text(L10n.get(context, 'retry')),
-                        ),
-                      );
-                    }
-                    return SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          CommunityFeedbackView(summary: summary),
-                          if (kShowDetailedReport) ...[
-                            const SizedBox(height: 16),
-                            OutlinedButton.icon(
-                              onPressed: _openDetailed,
-                              icon: const Icon(Icons.insights_outlined, size: 18),
-                              label: Text(L10n.get(context, 'detailedReportOpen')),
-                            ),
-                          ],
-                          const SizedBox(height: 8),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-        ),
-        ),
-      ),
+                      ],
+                      const SizedBox(height: AppSpacing.l),
+                    ],
+                  ),
+                );
+              },
+            ),
     );
   }
 }

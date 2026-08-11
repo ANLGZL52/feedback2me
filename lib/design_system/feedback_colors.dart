@@ -46,4 +46,6 @@ class AppColors {
   static Color primarySoft = const Color(0xFF3557F6).withValues(alpha: 0.10);
   static Color violetSoft = const Color(0xFF7357F6).withValues(alpha: 0.10);
   static Color successSoft = const Color(0xFF37C98B).withValues(alpha: 0.12);
+  static Color warningSoft = const Color(0xFFF8B83E).withValues(alpha: 0.14);
+  static Color dangerSoft = const Color(0xFFEF5C63).withValues(alpha: 0.12);
 }

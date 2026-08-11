@@ -19,5 +19,7 @@ class AppSpacing {
   static const double maxWidthAuth = 480;
   static const double maxWidthForm = 560;
   static const double maxWidthContent = 640;
+  static const double maxWidthComments = 720;
+  static const double maxWidthWide = 880;
   static const double maxWidthDashboard = 1080;
 }
