@@ -37,6 +37,7 @@ import 'widgets/insights/community_summary_v2.dart';
 import 'widgets/insights/comment_card.dart';
 import 'widgets/profile/profile_header.dart';
 import 'widgets/profile/link_history_card.dart';
+import 'widgets/splash/feedback_splash_view.dart';
 import 'widgets/app_onboarding.dart';
 import 'widgets/audience_score_widgets.dart';
 import 'widgets/creator_intelligence_report_view.dart';
@@ -395,12 +396,7 @@ class _AppLaunchGateState extends State<_AppLaunchGate> {
       return FeedbackFormScreen(linkCode: _deepLinkCode);
     }
     if (_onboardingDone == null) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF141210),
-        body: Center(
-          child: CircularProgressIndicator(color: AppTheme.gold),
-        ),
-      );
+      return const FeedbackSplashView();
     }
     if (_onboardingDone == false) {
       return AppOnboarding(onFinished: _finishOnboarding);
@@ -459,22 +455,7 @@ class _AuthGateState extends State<_AuthGate> {
   @override
   Widget build(BuildContext context) {
     if (_user != null || _timedOut) return const LandingScreen();
-    return Scaffold(
-      backgroundColor: const Color(0xFF141210),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(color: Color(0xFFD4AF37)),
-            const SizedBox(height: 24),
-            Text(
-              L10n.get(context, 'loading'),
-              style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 18),
-            ),
-          ],
-        ),
-      ),
-    );
+    return const FeedbackSplashView();
   }
 }
 

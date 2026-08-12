@@ -187,6 +187,25 @@ class L10n {
     'premiumV2DemoUsed': 'Used',
     'premiumV2ActivePremium': 'Premium access active',
     'premiumV2PremiumLink': 'Premium Link',
+    // V2 — Splash + Onboarding
+    'splashV2Tagline': 'Real feedback, one simple link.',
+    'splashV2Loading': 'Getting things ready…',
+    'onboardingV2Slide1Title': 'See what people\nreally think.',
+    'onboardingV2Slide1Body':
+        'Get honest, anonymous feedback from real people.',
+    'onboardingV2Slide2Title': "One simple link.\nThat's it.",
+    'onboardingV2Slide2Body':
+        'Create your feedback link and share it with anyone.',
+    'onboardingV2Slide3Title': 'Fast, anonymous feedback.',
+    'onboardingV2Slide3Body':
+        'People can react and leave a short comment in seconds.',
+    'onboardingV2Slide4Title': 'Understand the crowd\nat a glance.',
+    'onboardingV2Slide4Body':
+        'AI groups real feedback into a clear community summary.',
+    'onboardingV2Slide4Footer': 'You can try it free with a Demo link.',
+    'onboardingV2Continue': 'Continue',
+    'onboardingV2GetStarted': 'Get Started',
+    'onboardingV2Skip': 'Skip',
     'loginGoogle': 'Log in with Google',
     'loginApple': 'Log in with Apple',
     'continueWithoutLogin': 'Continue without logging in',
@@ -774,6 +793,25 @@ class L10n {
     'premiumV2DemoUsed': 'Kullanıldı',
     'premiumV2ActivePremium': 'Premium erişim aktif',
     'premiumV2PremiumLink': 'Premium Link',
+    // V2 — Splash + Onboarding
+    'splashV2Tagline': 'Gerçek geri bildirim, tek bir linkte.',
+    'splashV2Loading': 'Hazırlanıyor…',
+    'onboardingV2Slide1Title': 'Gerçek insanların\nne düşündüğünü gör.',
+    'onboardingV2Slide1Body':
+        'Dürüst ve anonim feedback\'lerle ilk izlenimi öğren.',
+    'onboardingV2Slide2Title': 'Tek bir link.\nHepsi bu.',
+    'onboardingV2Slide2Body':
+        'Feedback linkini oluştur ve istediğin kişilerle paylaş.',
+    'onboardingV2Slide3Title': 'Anonim ve hızlı feedback.',
+    'onboardingV2Slide3Body':
+        'İnsanlar reaction ve kısa yorumlarını saniyeler içinde bırakır.',
+    'onboardingV2Slide4Title': 'Topluluğun ne dediğini\ntek bakışta gör.',
+    'onboardingV2Slide4Body':
+        'AI yalnızca gerçek feedback\'leri gruplayıp anlaşılır bir özet sunar.',
+    'onboardingV2Slide4Footer': 'Demo ile ücretsiz deneyebilirsin.',
+    'onboardingV2Continue': 'Devam Et',
+    'onboardingV2GetStarted': 'Başlayalım',
+    'onboardingV2Skip': 'Atla',
     'loginGoogle': 'Google ile giriş yap',
     'loginApple': 'Apple ile giriş yap',
     'continueWithoutLogin': 'Giriş yapmadan devam et',
