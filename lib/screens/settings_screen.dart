@@ -371,7 +371,7 @@ class _LanguageOptionTile extends StatelessWidget {
   }
 }
 
-/// URL tarayıcıda açılamazsa in-app fallback (nadir; koyu kalır).
+/// URL tarayıcıda açılamazsa in-app fallback (nadir). V2 aydınlık.
 class _InAppLegalPage extends StatelessWidget {
   const _InAppLegalPage({required this.title, required this.url});
 
@@ -380,79 +380,57 @@ class _InAppLegalPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      backgroundColor: const Color(0xFF141210),
-      appBar: AppBar(title: Text(title)),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFFE8C547),
-                          )),
-                      const SizedBox(height: 12),
-                      Text(url,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: Colors.white54)),
-                      const SizedBox(height: 16),
-                      Text(
-                        L10n.get(context, 'settingsLegalFallbackBody'),
-                        style: theme.textTheme.bodyMedium
-                            ?.copyWith(color: Colors.white70, height: 1.5),
-                      ),
-                      const SizedBox(height: 20),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          final uri = Uri.parse(url);
-                          try {
-                            await launchUrl(uri,
-                                mode: LaunchMode.platformDefault);
-                          } catch (_) {}
-                        },
-                        icon: const Icon(Icons.open_in_browser_rounded),
-                        label:
-                            Text(L10n.get(context, 'settingsLegalOpenBrowser')),
-                      ),
-                    ],
-                  ),
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthContent,
+      appBar: feedbackAppBar(context, title: title),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
+        children: [
+          FeedbackCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AppType.sectionTitle),
+                const SizedBox(height: AppSpacing.s),
+                SelectableText(url, style: AppType.secondary),
+                const SizedBox(height: AppSpacing.m),
+                Text(L10n.get(context, 'settingsLegalFallbackBody'),
+                    style: AppType.body.copyWith(height: 1.5)),
+                const SizedBox(height: AppSpacing.l),
+                FeedbackPrimaryButton(
+                  label: L10n.get(context, 'settingsLegalOpenBrowser'),
+                  icon: Icons.open_in_browser_rounded,
+                  onPressed: () async {
+                    try {
+                      await launchUrl(Uri.parse(url),
+                          mode: LaunchMode.platformDefault);
+                    } catch (_) {}
+                  },
                 ),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(L10n.get(context, 'settingsSupport'),
-                          style: theme.textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      Text('support@feedbacktome.app',
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(color: const Color(0xFFE8C547))),
-                      const SizedBox(height: 4),
-                      Text(L10n.get(context, 'settingsSupportHint'),
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: Colors.white54)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(height: AppSpacing.m),
+          FeedbackCard(
+            color: AppColors.surfaceSecondary,
+            shadow: false,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(L10n.get(context, 'settingsSupport'),
+                    style: AppType.cardTitle),
+                const SizedBox(height: AppSpacing.s),
+                Text('support@feedbacktome.app',
+                    style:
+                        AppType.bodyStrong.copyWith(color: AppColors.primary)),
+                const SizedBox(height: 4),
+                Text(L10n.get(context, 'settingsSupportHint'),
+                    style: AppType.secondary),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.l),
+        ],
       ),
     );
   }

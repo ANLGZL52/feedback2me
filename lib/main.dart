@@ -750,28 +750,7 @@ class _LandingScreenState extends State<LandingScreen> {
         }
         final dataOwner = effectiveDataOwnerId(uid);
         if (BackendConfig.isRailwayBackendConfigured && dataOwner == null) {
-          return Scaffold(
-            backgroundColor: Colors.transparent,
-            body: _DarkMysticalBackground(
-              child: SafeArea(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const CircularProgressIndicator(color: AppTheme.gold),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Sunucu oturumu açılıyor…',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white70,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
+          return const FeedbackSplashView();
         }
         return StreamBuilder(
           stream: appData.userProfileStream(dataOwner!),
