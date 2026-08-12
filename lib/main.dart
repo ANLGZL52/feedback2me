@@ -35,6 +35,8 @@ import 'services/report_service.dart';
 import 'services/community_summary_store.dart';
 import 'widgets/insights/community_summary_v2.dart';
 import 'widgets/insights/comment_card.dart';
+import 'widgets/profile/profile_header.dart';
+import 'widgets/profile/link_history_card.dart';
 import 'widgets/app_onboarding.dart';
 import 'widgets/audience_score_widgets.dart';
 import 'widgets/creator_intelligence_report_view.dart';
@@ -874,19 +876,15 @@ class _LandingScreenState extends State<LandingScreen> {
                     ),
                   ),
                 )
-              // Profil sekmesi henüz V2 değil → koyu temaya sarılı (okunur kalır).
-              : Theme(
-                  data: buildFeedbackTheme(),
-                  child: ColoredBox(
-                    color: const Color(0xFF141210),
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 520),
-                          child: _ProfileTab(profile: profile, uid: uid),
-                        ),
-                      ),
+              // Profil V2 (aydınlık). Kendi ListView'ı kaydırılır.
+              : Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.pageH),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                          maxWidth: AppSpacing.maxWidthWide),
+                      child: _ProfileTab(profile: profile, uid: uid),
                     ),
                   ),
                 ),
@@ -2503,36 +2501,353 @@ class _ProfileTab extends StatefulWidget {
   State<_ProfileTab> createState() => _ProfileTabState();
 }
 
+
 class _ProfileTabState extends State<_ProfileTab> {
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.profile;
+    final uid = widget.uid;
+    final oid = uid != null ? effectiveDataOwnerId(uid) : null;
+
+    if (uid == null) {
+      return ListView(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
+        children: [
+          const SizedBox(height: AppSpacing.h),
+          FeedbackEmptyState(
+            icon: Icons.person_outline_rounded,
+            title: L10n.get(context, 'profileV2SignedOutTitle'),
+            message: L10n.get(context, 'profileV2SignedOutBody'),
+            ctaLabel: L10n.get(context, 'login'),
+            onCta: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+            ),
+          ),
+        ],
+      );
+    }
+    if (oid == null) {
+      return const Center(child: FeedbackLoadingState());
+    }
+
+    return StreamBuilder<List<FeedbackLink>>(
+      stream: appData.linksForOwnerStream(oid),
+      builder: (context, snap) {
+        final hasError = snap.hasError;
+        final loading =
+            snap.connectionState == ConnectionState.waiting && !snap.hasData;
+        final links = snap.data ?? const <FeedbackLink>[];
+        final activeCount = links.where((l) => l.acceptsPublicFeedback).length;
+
+        return ListView(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
+          children: [
+            FeedbackProfileHeader(profile: profile),
+            const SizedBox(height: AppSpacing.l),
+            _ProfileActions(
+              onSettings: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (ctx) => SettingsScreen(
+                    onOpenLogin: (c) => Navigator.of(c).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => const LoginScreen()),
+                    ),
+                  ),
+                ),
+              ),
+              onReports: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                    builder: (_) => const ReportAnalysisScreen()),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            if (!hasError) ...[
+              _ProfileMetrics(
+                  ownerId: oid,
+                  totalLinks: links.length,
+                  activeLinks: activeCount),
+              const SizedBox(height: AppSpacing.l),
+            ],
+            Text(L10n.get(context, 'profileV2Links'),
+                style: AppType.sectionTitle),
+            const SizedBox(height: AppSpacing.m),
+            if (hasError)
+              FeedbackErrorState(
+                message: L10n.get(context, 'profileV2LinksError'),
+                retryLabel: L10n.get(context, 'retry'),
+                onRetry: () => setState(() {}),
+              )
+            else if (loading) ...[
+              const _LinkSkeleton(),
+              const SizedBox(height: AppSpacing.sm),
+              const _LinkSkeleton(),
+            ] else if (links.isEmpty)
+              FeedbackEmptyState(
+                icon: Icons.link_rounded,
+                title: L10n.get(context, 'profileV2NoLinksTitle'),
+                message: L10n.get(context, 'profileV2NoLinksBody'),
+                ctaLabel: L10n.get(context, 'createLinkTitle'),
+                onCta: () => _createLink(context, uid),
+              )
+            else
+              ...links.map((l) => Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: _LinkHistoryTile(link: l, ownerId: oid),
+                  )),
+            if (kDebugMode && oid.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.l),
+              Center(
+                child: FeedbackTextButton(
+                  label: L10n.get(context, 'profileV2DeveloperTools'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                        builder: (_) => DeveloperToolsScreen(ownerId: oid)),
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.l),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ProfileActions extends StatelessWidget {
+  const _ProfileActions({required this.onSettings, required this.onReports});
+  final VoidCallback onSettings;
+  final VoidCallback onReports;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: FeedbackSecondaryButton(
+            label: L10n.get(context, 'settings'),
+            icon: Icons.settings_outlined,
+            onPressed: onSettings,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.s),
+        Expanded(
+          child: FeedbackSecondaryButton(
+            label: L10n.get(context, 'profileV2Reports'),
+            icon: Icons.trending_up_rounded,
+            onPressed: onReports,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileMetrics extends StatefulWidget {
+  const _ProfileMetrics({
+    required this.ownerId,
+    required this.totalLinks,
+    required this.activeLinks,
+  });
+  final String ownerId;
+  final int totalLinks;
+  final int activeLinks;
+
+  @override
+  State<_ProfileMetrics> createState() => _ProfileMetricsState();
+}
+
+class _ProfileMetricsState extends State<_ProfileMetrics> {
+  int? _totalFeedback;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_ProfileMetrics old) {
+    super.didUpdateWidget(old);
+    if (old.ownerId != widget.ownerId) _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final n = await appData.countAllFeedbacksForOwner(widget.ownerId);
+      if (mounted) setState(() => _totalFeedback = n);
+    } catch (_) {
+      // Sessiz geç — metrik "…" kalır, ekranı bloklamaz.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: FeedbackMetricCard(
+            value: '${widget.totalLinks}',
+            label: L10n.get(context, 'profileV2TotalLinks'),
+            icon: Icons.link_rounded,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: FeedbackMetricCard(
+            value: _totalFeedback?.toString() ?? '…',
+            label: L10n.get(context, 'profileV2TotalFeedback'),
+            icon: Icons.forum_rounded,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: FeedbackMetricCard(
+            value: '${widget.activeLinks}',
+            label: L10n.get(context, 'profileV2ActiveLinks'),
+            icon: Icons.bolt_rounded,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Link kartı — feedback sayısını bir kez çeker (kalıcı listener değil).
+class _LinkHistoryTile extends StatefulWidget {
+  const _LinkHistoryTile({required this.link, required this.ownerId});
+  final FeedbackLink link;
+  final String ownerId;
+
+  @override
+  State<_LinkHistoryTile> createState() => _LinkHistoryTileState();
+}
+
+class _LinkHistoryTileState extends State<_LinkHistoryTile> {
+  int? _count;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final n = await appData.feedbackCountForLink(widget.link.id);
+      if (mounted) setState(() => _count = n);
+    } catch (_) {}
+  }
+
+  void _openSummary() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AudienceAnalysisScreen(
+          ownerId: widget.ownerId,
+          linkId: widget.link.id,
+          cacheable: true,
+        ),
+      ),
+    );
+  }
+
+  void _openComments() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _AllCommentsScreen(
+          linkId: widget.link.id,
+          title: L10n.get(context, 'commentsTitle'),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final link = widget.link;
+    return LinkHistoryCard(
+      link: link,
+      feedbackCount: _count,
+      onShare: () => _shareLink(context, link.shareUrl),
+      onCopy: () async {
+        await Clipboard.setData(ClipboardData(text: link.shareUrl));
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+        );
+      },
+      onSummary: _openSummary,
+      onComments: _openComments,
+      onTap: link.acceptsPublicFeedback ? null : _openSummary,
+    );
+  }
+}
+
+class _LinkSkeleton extends StatelessWidget {
+  const _LinkSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget bar(double w, double h) => Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceSecondary,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        );
+    return FeedbackCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          bar(90, 20),
+          const SizedBox(height: 14),
+          bar(160, 14),
+          const SizedBox(height: 10),
+          bar(double.infinity, 12),
+          const SizedBox(height: 16),
+          bar(double.infinity, 48),
+        ],
+      ),
+    );
+  }
+}
+
+/// Debug-only geliştirici araçları (örnek/bot yorum tohumlama + havuz).
+/// Yalnızca kDebugMode'da profilden erişilir; release widget tree'sinde YOK.
+class DeveloperToolsScreen extends StatefulWidget {
+  const DeveloperToolsScreen({super.key, required this.ownerId});
+  final String ownerId;
+
+  @override
+  State<DeveloperToolsScreen> createState() => _DeveloperToolsScreenState();
+}
+
+class _DeveloperToolsScreenState extends State<DeveloperToolsScreen> {
   int _refreshTick = 0;
   int _bulkTarget = 1000;
 
-  void _refreshPool() {
-    setState(() => _refreshTick++);
-  }
+  void _refreshPool() => setState(() => _refreshTick++);
 
-  Future<void> _runBulkSeed(BuildContext context, String ownerId) async {
+  Future<void> _runBulkSeed() async {
+    final ownerId = widget.ownerId;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(L10n.get(context, 'bulkTestDataTitle')),
-        content: Text(
-          L10n.get(context, 'bulkTestDataBody').replaceAll('{n}', '$_bulkTarget'),
-        ),
+        content: Text(L10n.get(context, 'bulkTestDataBody')
+            .replaceAll('{n}', '$_bulkTarget')),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(L10n.get(context, 'cancel')),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(L10n.get(context, 'cancel'))),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(L10n.get(context, 'yes')),
-          ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(L10n.get(context, 'yes'))),
         ],
       ),
     );
-    if (ok != true || !context.mounted) return;
-
+    if (ok != true || !mounted) return;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -2552,13 +2867,10 @@ class _ProfileTabState extends State<_ProfileTab> {
         ),
       ),
     );
-
     try {
-      final written = await appData.seedBulkDemoFeedbacksForOwner(
-        ownerId,
-        count: _bulkTarget,
-      );
-      if (!context.mounted) return;
+      final written = await appData.seedBulkDemoFeedbacksForOwner(ownerId,
+          count: _bulkTarget);
+      if (!mounted) return;
       Navigator.of(context).pop();
       if (written == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2567,647 +2879,115 @@ class _ProfileTabState extends State<_ProfileTab> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              L10n.get(context, 'snackCommentsAdded').replaceAll('{n}', '$written'),
-            ),
-          ),
+              content: Text(L10n.get(context, 'snackCommentsAdded')
+                  .replaceAll('{n}', '$written'))),
         );
         _refreshPool();
       }
     } catch (e) {
-      if (context.mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(L10n.get(context, 'errorGeneric').replaceAll('{e}', '$e')),
-          ),
-        );
-      }
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                L10n.get(context, 'errorGeneric').replaceAll('{e}', '$e'))),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final profile = widget.profile;
-    final uid = widget.uid;
-    final oid = uid != null ? effectiveDataOwnerId(uid) : null;
-    final theme = Theme.of(context);
-    final name = profile?.displayName ?? L10n.get(context, 'profileDefaultUser');
-    final initial = name.isNotEmpty ? name[0].toUpperCase() : 'F';
-
-    return ListView(
-      children: [
-        Text(
-          L10n.get(context, 'profileSectionTitle'),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: CircleAvatar(child: Text(initial)),
-            title: Text(name),
-            subtitle: Text(
-              profile?.handle ?? L10n.get(context, 'profileEditHint'),
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          L10n.get(context, 'feedbackPoolSectionTitle'),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        if (kDebugMode && uid != null && oid != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Card(
-              color: const Color(0xFF1e293b),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      L10n.get(context, 'devSeedTitle'),
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700, color: const Color(0xFF94A3B8)),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      L10n.get(context, 'devSeedBody'),
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.tonalIcon(
-                      onPressed: () async {
-                        try {
-                          final n = await appData.seedDemoFeedbacksForOwner(oid);
-                          if (!context.mounted) return;
-                          if (n == 0) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(L10n.get(context, 'snackCreateLinkFirstLong')),
-                              ),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  L10n.get(context, 'snackSampleCommentsAdded')
-                                      .replaceAll('{n}', '$n'),
-                                ),
-                              ),
-                            );
-                            _refreshPool();
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  L10n.get(context, 'snackCouldNotAdd').replaceAll('{e}', '$e'),
-                                ),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      icon: const Icon(Icons.science_outlined),
-                      label: Text(L10n.get(context, 'devSeed12')),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Toplu bot yorumları',
-                            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        DropdownButton<int>(
-                          value: _bulkTarget,
-                          items: const [
-                            DropdownMenuItem(value: 100, child: Text('100')),
-                            DropdownMenuItem(value: 250, child: Text('250')),
-                            DropdownMenuItem(value: 500, child: Text('500')),
-                            DropdownMenuItem(value: 1000, child: Text('1000')),
-                            DropdownMenuItem(value: 2000, child: Text('2000')),
-                            DropdownMenuItem(value: 3000, child: Text('3000')),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) setState(() => _bulkTarget = v);
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => _runBulkSeed(context, oid!),
-                      icon: const Icon(Icons.smart_toy_outlined),
-                      label: Text(
-                        L10n.get(context, 'bulkBotGenerate').replaceAll('{n}', '$_bulkTarget'),
-                      ),
-                    ),
-                  ],
-                ),
+    // Debug aracı — koyu tema (V2 kapsamı dışı).
+    return Theme(
+      data: buildFeedbackTheme(),
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Developer Tools')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(L10n.get(context, 'devSeedTitle'),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(L10n.get(context, 'devSeedBody'),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.white70)),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: () async {
+                  try {
+                    final n = await appData
+                        .seedDemoFeedbacksForOwner(widget.ownerId);
+                    if (!mounted) return;
+                    if (n == 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(
+                              L10n.get(context, 'snackCreateLinkFirstLong'))));
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(
+                              L10n.get(context, 'snackSampleCommentsAdded')
+                                  .replaceAll('{n}', '$n'))));
+                      _refreshPool();
+                    }
+                  } catch (e) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(L10n.get(context, 'snackCouldNotAdd')
+                            .replaceAll('{e}', '$e'))));
+                  }
+                },
+                icon: const Icon(Icons.science_outlined),
+                label: Text(L10n.get(context, 'devSeed12')),
               ),
-            ),
-          ),
-        if (uid == null)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Yorum havuzunu görmek için giriş yapman gerekiyor.',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-              ),
-            ),
-          )
-        else if (BackendConfig.isRailwayBackendConfigured && oid == null)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          )
-        else
-          _FeedbackPoolCard(
-            ownerId: oid!,
-            refreshTick: _refreshTick,
-            onRefresh: _refreshPool,
-          ),
-        const SizedBox(height: 24),
-        if (uid == null) ...[
-          Text(
-            L10n.get(context, 'previousReports'),
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.description_outlined),
-              title: Text(L10n.get(context, 'noReportsYet')),
-              subtitle: Text(L10n.get(context, 'firstReportNote')),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            L10n.get(context, 'reportAnalysisTitle'),
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.trending_up_outlined),
-              title: Text(L10n.get(context, 'reportAnalysisTitle')),
-              subtitle: Text(
-                'Giriş yaptıktan sonra son analiz özetin ve gelişim kıyası burada görünür.',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
-              ),
-            ),
-          ),
-        ] else if (BackendConfig.isRailwayBackendConfigured && oid == null)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          )
-        else
-          StreamBuilder<List<AudienceScoreSnapshot>>(
-            stream: appData.audienceScoreHistoryStream(
-              audienceRecordsOwnerKey(uid!, oid),
-              limit: 12,
-            ),
-            builder: (context, snap) {
-              final storageKey = audienceRecordsOwnerKey(uid!, oid);
-              Widget errorCard(String extra) => Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.error_outline,
-                                  color: Theme.of(context).colorScheme.error),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  extra,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.white70,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          SelectableText(
-                            snap.error.toString(),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontSize: 11,
-                              color: Colors.white38,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-
-              if (snap.hasError) {
-                final err = snap.error.toString();
-                final perm = err.contains('permission-denied');
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      L10n.get(context, 'previousReports'),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    errorCard(
-                      perm
-                          ? 'Kayıtlar yüklenemedi: Firestore güvenlik kuralları bu yolu reddediyor. '
-                              'Projede güncel `firestore.rules` dosyasını '
-                              '`firebase deploy --only firestore:rules` ile yayınlayın. '
-                              'Kurallarda `users/{userId}` altında `audienceScoreSnapshots` için '
-                              'okuma/yazma, `request.auth.uid == userId` olmalı.'
-                          : 'Kayıtlar yüklenemedi.',
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      L10n.get(context, 'reportAnalysisTitle'),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    errorCard('Özet kartları için analiz geçmişi gerekir.'),
-                  ],
-                );
-              }
-              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      L10n.get(context, 'previousReports'),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      L10n.get(context, 'reportAnalysisTitle'),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    ),
-                  ],
-                );
-              }
-              final history = snap.data ?? const <AudienceScoreSnapshot>[];
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              const SizedBox(height: 20),
+              Row(
                 children: [
-                  Text(
-                    L10n.get(context, 'previousReports'),
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                  Expanded(
+                    child: Text('Toplu bot yorumları',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600)),
                   ),
-                  const SizedBox(height: 12),
-                  if (history.isEmpty)
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.description_outlined),
-                        title: Text(L10n.get(context, 'noReportsYet')),
-                        subtitle: Text(
-                          '${L10n.get(context, 'firstReportNote')} '
-                          '${L10n.get(context, 'firstReportExtraHint')}',
-                        ),
-                        trailing: TextButton(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => AudienceAnalysisScreen(ownerId: oid!),
-                              ),
-                            );
-                          },
-                          child: Text(L10n.get(context, 'runAnalysis')),
-                        ),
-                      ),
-                    )
-                  else
-                    Card(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    L10n.get(context, 'savedAnalysesLine')
-                                        .replaceAll('{n}', '${history.length}'),
-                                    style: theme.textTheme.labelMedium
-                                        ?.copyWith(color: Colors.white60),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => const ReportAnalysisScreen(),
-                                      ),
-                                    );
-                                  },
-                                  child: Text(L10n.get(context, 'growthAnalysisNav')),
-                                ),
-                              ],
-                            ),
-                          ),
-                          ...history.take(6).map((s) {
-                            final d = s.createdAt;
-                            final dateStr =
-                                '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} '
-                                '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-                            final idx = history.indexWhere((e) => e.id == s.id);
-                            final prev = (idx >= 0 && idx + 1 < history.length)
-                                ? history[idx + 1]
-                                : null;
-                            return ListTile(
-                              leading: const Icon(Icons.insert_chart_outlined),
-                              title: Text(dateStr),
-                              subtitle: Text(
-                                L10n.get(context, 'scoreOverallComments')
-                                    .replaceAll('{score}', '${s.scores.overall}')
-                                    .replaceAll('{count}', '${s.feedbackCount}'),
-                                style: theme.textTheme.bodySmall
-                                    ?.copyWith(color: Colors.white54),
-                              ),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => SavedAudienceReportScreen(
-                                      ownerId: storageKey,
-                                      snapshot: s,
-                                      previousSnapshot: prev,
-                                    ),
-                                  ),
-                                );
-                              },
-                            );
-                          }),
-                          if (history.length > 6)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: TextButton(
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => const ReportAnalysisScreen(),
-                                    ),
-                                  );
-                                },
-                                child: Text(L10n.get(context, 'allHistoryCompare')),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 24),
-                  Text(
-                    L10n.get(context, 'reportAnalysisTitle'),
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 12),
-                  if (history.isEmpty)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              L10n.get(context, 'comparePeriods'),
-                              style: theme.textTheme.titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              L10n.get(context, 'compareNoSavedBody'),
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.white60, height: 1.35),
-                            ),
-                            const SizedBox(height: 12),
-                            FilledButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        AudienceAnalysisScreen(ownerId: oid!),
-                                  ),
-                                );
-                              },
-                              child: Text(L10n.get(context, 'runFollowerAnalysis')),
-                            ),
-                            const SizedBox(height: 8),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => const ReportAnalysisScreen(),
-                                  ),
-                                );
-                              },
-                              child: Text(L10n.get(context, 'goGrowthScreen')),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              L10n.get(context, 'lastAnalysisTitle'),
-                              style: theme.textTheme.titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              L10n.get(context, 'lastAnalysisBody'),
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.white54, height: 1.35),
-                            ),
-                            const SizedBox(height: 16),
-                            AudienceScoreSummaryCard(
-                              scores: history.first.scores,
-                              deltaFromPrevious: history.length >= 2
-                                  ? history.first.scores.overall -
-                                      history[1].scores.overall
-                                  : null,
-                            ),
-                            const SizedBox(height: 12),
-                            CreatorPerceptionPreviewCard(snapshot: history.first),
-                            const SizedBox(height: 12),
-                            AudienceGrowthComparisonCard(history: history),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () {
-                                      final latest = history.first;
-                                      final prev = history.length >= 2
-                                          ? history[1]
-                                          : null;
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) =>
-                                              SavedAudienceReportScreen(
-                                            ownerId: storageKey,
-                                            snapshot: latest,
-                                            previousSnapshot: prev,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.article_outlined),
-                                    label: Text(L10n.get(context, 'fullReport')),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    onPressed: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) =>
-                                              const ReportAnalysisScreen(),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.trending_up),
-                                    label: Text(L10n.get(context, 'growthShort')),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-        const SizedBox(height: 24),
-        Text(
-          L10n.get(context, 'yourLinks'),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        if (uid == null)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                L10n.get(context, 'noLinksYet'),
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-              ),
-            ),
-          )
-        else if (BackendConfig.isRailwayBackendConfigured && oid == null)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          )
-        else
-          StreamBuilder<List<FeedbackLink>>(
-            stream: appData.linksForOwnerStream(oid!),
-            builder: (context, snap) {
-              final links = snap.data ?? [];
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              links.isEmpty
-                                  ? L10n.get(context, 'noLinksYet')
-                                  : '${links.length} ${L10n.get(context, 'yourLinks')}',
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.white70),
-                            ),
-                          ),
-                          FilledButton.tonalIcon(
-                            onPressed: () => _createLink(context, uid!),
-                            icon: const Icon(Icons.add_link),
-                            label: Text(L10n.get(context, 'newLink')),
-                          ),
-                        ],
-                      ),
-                      if (links.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        ...links.map(
-                          (l) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: FeedbackLinkTile(
-                              link: l,
-                              onAnalyze: (lid) {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => AudienceAnalysisScreen(
-                                      ownerId: oid!,
-                                      linkId: lid,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
+                  DropdownButton<int>(
+                    value: _bulkTarget,
+                    items: const [
+                      DropdownMenuItem(value: 100, child: Text('100')),
+                      DropdownMenuItem(value: 250, child: Text('250')),
+                      DropdownMenuItem(value: 500, child: Text('500')),
+                      DropdownMenuItem(value: 1000, child: Text('1000')),
+                      DropdownMenuItem(value: 2000, child: Text('2000')),
+                      DropdownMenuItem(value: 3000, child: Text('3000')),
                     ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _bulkTarget = v);
+                    },
                   ),
-                ),
-              );
-            },
+                ],
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _runBulkSeed,
+                icon: const Icon(Icons.smart_toy_outlined),
+                label: Text(L10n.get(context, 'bulkBotGenerate')
+                    .replaceAll('{n}', '$_bulkTarget')),
+              ),
+              const SizedBox(height: 24),
+              _FeedbackPoolCard(
+                ownerId: widget.ownerId,
+                refreshTick: _refreshTick,
+                onRefresh: _refreshPool,
+              ),
+            ],
           ),
-      ],
+        ),
+      ),
     );
   }
 }
