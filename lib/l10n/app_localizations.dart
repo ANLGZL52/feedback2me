@@ -177,6 +177,16 @@ class L10n {
     'settingsV2Developer': 'Developer',
     'settingsV2Plan': 'Plan',
     'settingsV2LinkCredits': 'Link Credits',
+    // V2 — Premium / Link Credit
+    'premiumV2Title': 'Get more real feedback',
+    'premiumV2Subtitle':
+        'Use a Premium Link to collect more feedback for 24 hours.',
+    'premiumV2CreditBalance': 'Your link credits',
+    'premiumV2CreditHint': 'Each credit = 1 Premium Link',
+    'premiumV2NoCredits': "You don't have any Premium Link credits yet.",
+    'premiumV2DemoUsed': 'Used',
+    'premiumV2ActivePremium': 'Premium access active',
+    'premiumV2PremiumLink': 'Premium Link',
     'loginGoogle': 'Log in with Google',
     'loginApple': 'Log in with Apple',
     'continueWithoutLogin': 'Continue without logging in',
@@ -754,6 +764,16 @@ class L10n {
     'settingsV2Developer': 'Geliştirici',
     'settingsV2Plan': 'Plan',
     'settingsV2LinkCredits': 'Link Kredileri',
+    // V2 — Premium / Link Kredi
+    'premiumV2Title': 'Daha fazla feedback topla',
+    'premiumV2Subtitle':
+        'Premium Link ile 24 saat boyunca daha fazla görüş topla.',
+    'premiumV2CreditBalance': 'Link Kredilerin',
+    'premiumV2CreditHint': 'Her kredi = 1 Premium Link',
+    'premiumV2NoCredits': 'Henüz Premium Link kredin yok.',
+    'premiumV2DemoUsed': 'Kullanıldı',
+    'premiumV2ActivePremium': 'Premium erişim aktif',
+    'premiumV2PremiumLink': 'Premium Link',
     'loginGoogle': 'Google ile giriş yap',
     'loginApple': 'Apple ile giriş yap',
     'continueWithoutLogin': 'Giriş yapmadan devam et',
