@@ -16,3 +16,4 @@ export 'components/feedback_avatar.dart';
 export 'components/feedback_states.dart';
 export 'components/feedback_metric_card.dart';
 export 'components/feedback_misc.dart';
+export 'components/feedback_settings.dart';

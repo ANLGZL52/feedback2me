@@ -174,6 +174,9 @@ class L10n {
     'profileV2SignedOutBody':
         'Log in to view your links and feedback history.',
     'profileV2DeveloperTools': 'Developer Tools',
+    'settingsV2Developer': 'Developer',
+    'settingsV2Plan': 'Plan',
+    'settingsV2LinkCredits': 'Link Credits',
     'loginGoogle': 'Log in with Google',
     'loginApple': 'Log in with Apple',
     'continueWithoutLogin': 'Continue without logging in',
@@ -748,6 +751,9 @@ class L10n {
     'profileV2SignedOutBody':
         'Linklerini ve feedback geçmişini görmek için giriş yap.',
     'profileV2DeveloperTools': 'Developer Tools',
+    'settingsV2Developer': 'Geliştirici',
+    'settingsV2Plan': 'Plan',
+    'settingsV2LinkCredits': 'Link Kredileri',
     'loginGoogle': 'Google ile giriş yap',
     'loginApple': 'Apple ile giriş yap',
     'continueWithoutLogin': 'Giriş yapmadan devam et',

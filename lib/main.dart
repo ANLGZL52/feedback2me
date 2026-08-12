@@ -2552,6 +2552,9 @@ class _ProfileTabState extends State<_ProfileTab> {
                       MaterialPageRoute<void>(
                           builder: (_) => const LoginScreen()),
                     ),
+                    developerToolsBuilder: kDebugMode
+                        ? (dctx) => DeveloperToolsScreen(ownerId: oid)
+                        : null,
                   ),
                 ),
               ),
@@ -2594,18 +2597,6 @@ class _ProfileTabState extends State<_ProfileTab> {
                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                     child: _LinkHistoryTile(link: l, ownerId: oid),
                   )),
-            if (kDebugMode && oid.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.l),
-              Center(
-                child: FeedbackTextButton(
-                  label: L10n.get(context, 'profileV2DeveloperTools'),
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                        builder: (_) => DeveloperToolsScreen(ownerId: oid)),
-                  ),
-                ),
-              ),
-            ],
             const SizedBox(height: AppSpacing.l),
           ],
         );
