@@ -2,9 +2,10 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+ import '../design_system/design_system.dart';
 import '../models/audience_score.dart';
 
-const Color _kAccent = Color(0xFFD4AF37);
+const Color _kAccent = AppColors.primary;
 
 /// Büyük genel puan + üç alt metrik + isteğe bağlı önceki analize göre fark.
 class AudienceScoreSummaryCard extends StatelessWidget {
@@ -45,7 +46,7 @@ class AudienceScoreSummaryCard extends StatelessWidget {
                       Text(
                         L10n.get(context, 'audienceGrowthScoreBody'),
                         style: theme.textTheme.bodySmall?.copyWith(
-                          color: Colors.white54,
+                          color: AppColors.textSecondary,
                           height: 1.35,
                         ),
                       ),
@@ -67,7 +68,7 @@ class AudienceScoreSummaryCard extends StatelessWidget {
                   style: theme.textTheme.displaySmall?.copyWith(
                     fontWeight: FontWeight.w800,
                     height: 1,
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 Padding(
@@ -75,7 +76,7 @@ class AudienceScoreSummaryCard extends StatelessWidget {
                   child: Text(
                     '/ 100',
                     style: theme.textTheme.titleMedium?.copyWith(
-                      color: Colors.white54,
+                      color: AppColors.textSecondary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -115,7 +116,7 @@ class _DeltaChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final up = delta >= 0;
-    final color = up ? const Color(0xFF4ADE80) : const Color(0xFFF87171);
+    final color = up ? AppColors.success : AppColors.danger;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -167,7 +168,7 @@ class _MetricRow extends StatelessWidget {
           child: Text(
             label,
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
+                  color: AppColors.textSecondary,
                 ),
           ),
         ),
@@ -229,7 +230,7 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
               Text(
                 L10n.get(context, 'growthVsPreviousEmptyBody'),
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.white54,
+                  color: AppColors.textSecondary,
                   height: 1.35,
                 ),
               ),
@@ -261,7 +262,7 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
                   .replaceAll('{cur}', _formatDate(cur.createdAt))
                   .replaceAll('{prev}', _formatDate(prev.createdAt)),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.white54,
+                color: AppColors.textSecondary,
                 height: 1.35,
               ),
             ),
@@ -301,7 +302,7 @@ class AudienceGrowthComparisonCard extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 L10n.get(context, 'growthCoverTrioLabel'),
-                style: theme.textTheme.labelMedium?.copyWith(color: Colors.white54),
+                style: theme.textTheme.labelMedium?.copyWith(color: AppColors.textSecondary),
               ),
               const SizedBox(height: 6),
               _GrowthDeltaRow(
@@ -341,8 +342,8 @@ class _GrowthDeltaRow extends StatelessWidget {
     final theme = Theme.of(context);
     final up = lowerIsBetter ? delta <= 0 : delta >= 0;
     final color = delta == 0
-        ? Colors.white54
-        : (up ? const Color(0xFF4ADE80) : const Color(0xFFF87171));
+        ? AppColors.textSecondary
+        : (up ? AppColors.success : AppColors.danger);
     final icon = delta == 0
         ? Icons.horizontal_rule_rounded
         : (up ? Icons.trending_up_rounded : Icons.trending_down_rounded);
@@ -357,7 +358,7 @@ class _GrowthDeltaRow extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
           ),
           Text(
@@ -412,7 +413,7 @@ class AudienceScoreHistorySection extends StatelessWidget {
                   ? L10n.get(context, 'growthHistoryHintMulti')
                   : L10n.get(context, 'growthHistoryHintSingle'),
               style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.white54,
+                color: AppColors.textSecondary,
                 height: 1.35,
               ),
             ),
@@ -457,21 +458,21 @@ class AudienceScoreHistorySection extends StatelessWidget {
                               Expanded(
                                 child: Text(
                                   dateStr,
-                                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.white60),
+                                  style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                                 ),
                               ),
                               Text(
                                 '${s.scores.overall}',
                                 style: theme.textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: Colors.white,
+                                  color: AppColors.textPrimary,
                                 ),
                               ),
                               const SizedBox(width: 8),
                               Text(
                                 L10n.get(context, 'historyCommentsCount')
                                     .replaceAll('{n}', '${s.feedbackCount}'),
-                                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white38),
+                                style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                               ),
                               if (tap != null) ...[
                                 const SizedBox(width: 8),
@@ -492,7 +493,7 @@ class AudienceScoreHistorySection extends StatelessWidget {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.white38,
+                                color: AppColors.textSecondary,
                                 height: 1.3,
                               ),
                             ),

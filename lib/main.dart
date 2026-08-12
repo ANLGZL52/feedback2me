@@ -42,7 +42,6 @@ import 'widgets/app_onboarding.dart';
 import 'widgets/audience_score_widgets.dart';
 import 'widgets/creator_intelligence_report_view.dart';
 import 'widgets/creator_survey_section.dart';
-import 'theme/app_theme.dart';
 import 'theme/feedback_material_theme.dart';
 import 'widgets/feedback_link_tile.dart';
 import 'widgets/link_validity_countdown.dart';
@@ -459,61 +458,13 @@ class _AuthGateState extends State<_AuthGate> {
   }
 }
 
-/// Koyu mistik arka plan: gece gökyüzü, yumuşak merkez ışığı.
-class _DarkMysticalBackground extends StatelessWidget {
-  const _DarkMysticalBackground({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF1a0a2e),
-            Color(0xFF0d0d1a),
-            Color(0xFF0a0a0d),
-          ],
-          stops: [0.0, 0.5, 1.0],
-        ),
-      ),
-      child: Stack(
-        children: [
-          // Yumuşak merkez ışığı (kristal / ay etkisi)
-          Positioned(
-            top: -80,
-            left: -80,
-            right: -80,
-            child: Container(
-              height: 280,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    const Color(0xFF2a1a4a).withOpacity(0.5),
-                    const Color(0xFF1a0a2e).withOpacity(0.2),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
 class FeedbackToMeApp extends StatelessWidget {
   const FeedbackToMeApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final theme = buildFeedbackTheme();
+    // V2 global aydınlık tema (gerçek production varsayılanı).
+    final theme = buildFeedbackLightTheme();
 
     return ValueListenableBuilder<Locale?>(
       valueListenable: localeNotifier,
@@ -902,17 +853,14 @@ class _LandingScreenState extends State<LandingScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Süresi dolan link final özeti (henüz V2 değil → koyu-sarılı).
-              Theme(
-                data: buildFeedbackTheme(),
-                child: _LinkSummaryCard(
-                  key: ValueKey('sum-final-${expired.id}'),
-                  link: expired,
-                  ownerId: oid,
-                  cardPad: 20,
-                  isExpired: true,
-                  cacheable: true,
-                ),
+              // Süresi dolan link final özeti (V2 light-token).
+              _LinkSummaryCard(
+                key: ValueKey('sum-final-${expired.id}'),
+                link: expired,
+                ownerId: oid,
+                cardPad: 20,
+                isExpired: true,
+                cacheable: true,
               ),
               const SizedBox(height: AppSpacing.m),
               _LoggedInHomeV2(uid: uid!),
@@ -1597,7 +1545,7 @@ class _LinkSummaryCardState extends State<_LinkSummaryCard> {
                     child: Text(
                       L10n.get(context, 'expiredSummaryPreparing'),
                       style: theme.textTheme.bodyMedium
-                          ?.copyWith(color: Colors.white70),
+                          ?.copyWith(color: AppColors.textSecondary),
                     ),
                   ),
                 ],
@@ -1609,7 +1557,7 @@ class _LinkSummaryCardState extends State<_LinkSummaryCard> {
                   Text(
                     L10n.get(context, 'expiredSummaryError'),
                     style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.white70),
+                        ?.copyWith(color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 8),
                   TextButton.icon(
@@ -1623,7 +1571,7 @@ class _LinkSummaryCardState extends State<_LinkSummaryCard> {
               Text(
                 _preview(context, _summary!),
                 style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: Colors.white70, height: 1.4),
+                    ?.copyWith(color: AppColors.textSecondary, height: 1.4),
               ),
               const SizedBox(height: 14),
               SizedBox(
@@ -1709,7 +1657,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                   Text(
                     L10n.get(context, 'createProfileSubtitle'),
                     style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.white70),
+                        ?.copyWith(color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 24),
                   TextField(
@@ -1746,7 +1694,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                   Text(
                     L10n.get(context, 'createProfileNote'),
                     style: theme.textTheme.bodySmall
-                        ?.copyWith(color: Colors.white60),
+                        ?.copyWith(color: AppColors.textSecondary),
                   ),
                 ],
               ),
@@ -2110,7 +2058,7 @@ Future<void> _createReport(BuildContext context, String linkId) async {
                   const SizedBox(height: 8),
                   Text(
                     report.sentimentLine!,
-                    style: const TextStyle(fontSize: 13, color: Colors.white70),
+                    style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                   ),
                 ],
                 if (report.summary != null) ...[
@@ -2166,7 +2114,7 @@ Future<void> _createReport(BuildContext context, String linkId) async {
                 const SizedBox(height: 8),
                 Text(
                   L10n.get(context, 'reportMoreDetail'),
-                  style: const TextStyle(fontSize: 12, color: Colors.white54),
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
               ],
             ),
@@ -2224,7 +2172,7 @@ class DashboardScreen extends StatelessWidget {
           title: Text(L10n.get(context, 'dashboardTitle')),
         ),
         body: const Center(
-          child: CircularProgressIndicator(color: AppTheme.gold),
+          child: CircularProgressIndicator(color: AppColors.primary),
         ),
       );
     }
@@ -2277,7 +2225,7 @@ class DashboardScreen extends StatelessWidget {
                                     Text(
                                       handleText,
                                       style: theme.textTheme.bodySmall
-                                          ?.copyWith(color: Colors.white70),
+                                          ?.copyWith(color: AppColors.textSecondary),
                                     ),
                                   const SizedBox(height: 4),
                                   Text(
@@ -2334,7 +2282,7 @@ class DashboardScreen extends StatelessWidget {
                                   Text(
                                     L10n.get(context, 'noLinksYet'),
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.white70,
+                                      color: AppColors.textSecondary,
                                     ),
                                   ),
                                 const SizedBox(height: 12),
@@ -2397,7 +2345,7 @@ class DashboardScreen extends StatelessWidget {
                                 Text(
                                   L10n.get(context, 'linksInfo'),
                                   style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: Colors.white54),
+                                      ?.copyWith(color: AppColors.textSecondary),
                                 ),
                               ],
                             ),
@@ -2428,7 +2376,7 @@ class DashboardScreen extends StatelessWidget {
                               '${L10n.get(context, 'comparePeriodsExampleTitle')}\n'
                               '${L10n.get(context, 'comparePeriodsExampleBody')}',
                               style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(color: AppColors.textSecondary),
                             ),
                             const SizedBox(height: 12),
                             OutlinedButton.icon(
@@ -3013,7 +2961,7 @@ class _FeedbackPoolCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   L10n.get(context, 'poolNoActiveLinkHint'),
-                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                  style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                 ),
               ],
             ),
@@ -3075,7 +3023,7 @@ class _ActiveLinkPoolContent extends StatelessWidget {
                 if (entries.isEmpty)
                   Text(
                     L10n.get(context, 'poolEmptyHint'),
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                    style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                   )
                 else ...[
                   ...entries.take(10).map(
@@ -3084,7 +3032,7 @@ class _ActiveLinkPoolContent extends StatelessWidget {
                       child: Text(
                         '• ${e.textRaw}\n'
                         '  ${e.relation?.trim().isNotEmpty == true ? e.relation! : L10n.get(context, 'relationUnknown')} · ${_moodLabel(context, e.mood)}',
-                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                        style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                       ),
                     ),
                   ),
@@ -3170,7 +3118,7 @@ class _ExpiredLinkPoolContent extends StatelessWidget {
                 if (count > 0) ...[
                   Text(
                     L10n.get(context, 'poolExpiredReady'),
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                    style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
@@ -3190,7 +3138,7 @@ class _ExpiredLinkPoolContent extends StatelessWidget {
                 ] else
                   Text(
                     L10n.get(context, 'poolExpiredNoComments'),
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+                    style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                   ),
               ],
             ),
@@ -3453,7 +3401,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                     subtitle,
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: AppColors.textSecondary,
                           height: 1.45,
                         ),
                   ),
@@ -3473,7 +3421,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                         Text(
                           '${((idx * 100) / tot).round()}%',
                           style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                color: Colors.white54,
+                                color: AppColors.textSecondary,
                               ),
                         ),
                       ],
@@ -3484,7 +3432,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: idx / tot,
                         minHeight: 7,
-                        backgroundColor: Colors.white.withValues(alpha: 0.08),
+                        backgroundColor: AppColors.border,
                         color: accent,
                       ),
                     ),
@@ -3502,14 +3450,14 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.lock_clock_rounded, size: 16, color: Colors.white.withValues(alpha: 0.45)),
+                      Icon(Icons.lock_clock_rounded, size: 16, color: AppColors.textSecondary),
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
                           'Ekranı açık tutun · uygulama arka planda uzun süre beklerse işlem yarıda kalabilir',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: Colors.white38,
+                                color: AppColors.textSecondary,
                                 height: 1.35,
                               ),
                         ),
@@ -3644,7 +3592,7 @@ class _ReportSharePreviewCard extends StatelessWidget {
                   final ds = '${d >= 0 ? '+' : ''}$d';
                   return L10n.get(context, 'pointsDelta').replaceAll('{delta}', ds);
                 }(),
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
               ),
             ],
             if (summary != null && summary.isNotEmpty) ...[
@@ -3652,7 +3600,7 @@ class _ReportSharePreviewCard extends StatelessWidget {
               Text(
                 summary.length > 400 ? '${summary.substring(0, 400)}…' : summary,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.white70,
+                  color: AppColors.textSecondary,
                   height: 1.35,
                 ),
               ),
@@ -3660,7 +3608,7 @@ class _ReportSharePreviewCard extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               L10n.get(context, 'generatedByLine'),
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white38),
+              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
           ],
         ),
@@ -4077,7 +4025,7 @@ class _DetailedAudienceReportScreenState
                           snap.error.toString(),
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.white70,
+                                color: AppColors.textSecondary,
                                 height: 1.4,
                               ),
                         ),
@@ -4403,7 +4351,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                         const SizedBox(height: 12),
                         Text(
                           L10n.get(context, 'reportAnalysisLoginRequired'),
-                          style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                          style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                         ),
                       ],
                     )
@@ -4420,7 +4368,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                         Text(
                           L10n.get(context, 'reportAnalysisHistoryHint'),
                           style: theme.textTheme.bodySmall
-                              ?.copyWith(color: Colors.white70, height: 1.35),
+                              ?.copyWith(color: AppColors.textSecondary, height: 1.35),
                         ),
                         const SizedBox(height: 20),
                         StreamBuilder<List<AudienceScoreSnapshot>>(
@@ -4453,7 +4401,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                                 child: Text(
                                   L10n.get(context, 'noSavedAudienceRun'),
                                   style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: Colors.white60),
+                                      ?.copyWith(color: AppColors.textSecondary),
                                 ),
                               );
                             }
@@ -4965,20 +4913,8 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
         ),
       ),
       const SizedBox(height: AppSpacing.m),
-      // Creator anketi henüz V2 değil (beyaz-metinli) → okunur kalması için
-      // koyu-temaya sarılı. İçerik/mantık birebir korunur.
-      Theme(
-        data: buildFeedbackTheme(),
-        child: Container(
-          padding: const EdgeInsets.all(AppSpacing.m),
-          decoration: BoxDecoration(
-            color: const Color(0xFF141210),
-            borderRadius: AppRadius.rCard,
-            border: Border.all(color: AppColors.border),
-          ),
-          child: CreatorSurveySection(key: _creatorSurveyKey),
-        ),
-      ),
+      // Creator anketi artık V2 light-token'lı → aydınlık formda doğrudan.
+      CreatorSurveySection(key: _creatorSurveyKey),
       const SizedBox(height: AppSpacing.m),
       Row(
         children: [

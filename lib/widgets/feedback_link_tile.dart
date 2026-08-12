@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../l10n/app_localizations.dart';
+ import '../design_system/design_system.dart';
 import '../models/feedback_link.dart';
 import 'link_plan_banner.dart';
 
@@ -31,7 +32,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF1a1a1f),
+      backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -49,7 +50,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.white24,
+                    color: AppColors.border,
                     borderRadius: BorderRadius.circular(999),
                   ),
                 ),
@@ -66,7 +67,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
               const SizedBox(height: 12),
               SelectableText(
                 widget.link.shareUrl,
-                style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70),
+                style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.textSecondary),
               ),
               const SizedBox(height: 16),
               _DetailRow(
@@ -159,7 +160,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
     final created = FeedbackLinkTile.formatDate(context, widget.link.createdAt);
 
     return Material(
-      color: Colors.white.withValues(alpha: 0.04),
+      color: AppColors.surfaceSecondary,
       borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: _openDetail,
@@ -187,7 +188,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.85),
+                        color: AppColors.textPrimary,
                         height: 1.35,
                       ),
                     ),
@@ -205,7 +206,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
                             Text(
                               '$created · $n ${L10n.get(context, 'feedbacksShort')}',
                               style: theme.textTheme.labelSmall?.copyWith(
-                                color: Colors.white.withValues(alpha: 0.45),
+                                color: AppColors.textSecondary,
                               ),
                             ),
                             if (isExpired && n > 0 && widget.onAnalyze != null) ...[
@@ -252,7 +253,7 @@ class _FeedbackLinkTileState extends State<FeedbackLinkTile> {
                 icon: Icon(
                   Icons.delete_outline_rounded,
                   size: 20,
-                  color: Colors.red.shade300,
+                  color: AppColors.danger,
                 ),
                 tooltip: L10n.get(context, 'linkDelete'),
                 onPressed: _confirmDelete,
@@ -283,7 +284,7 @@ class _DetailRow extends StatelessWidget {
             width: 130,
             child: Text(
               label,
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
           ),
           Expanded(

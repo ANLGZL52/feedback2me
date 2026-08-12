@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+ import '../design_system/design_system.dart';
 import '../models/creator_intelligence_report.dart';
 import '../services/report_service.dart';
 
-const Color _kGold = Color(0xFFD4AF37);
+const Color _kGold = AppColors.primary;
 
 /// Basit geri bildirim: tek satır duygu + "N kişi şunu istiyor" listesi.
 class SimpleRequestSummaryView extends StatelessWidget {
@@ -59,7 +60,7 @@ class SimpleRequestSummaryView extends StatelessWidget {
                   Text(
                     L10n.get(context, 'simpleSummaryEmpty'),
                     style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.white70, height: 1.4),
+                        ?.copyWith(color: AppColors.textSecondary, height: 1.4),
                   )
                 else ...[
                   if (summary.topRequests.isEmpty)
@@ -68,7 +69,7 @@ class SimpleRequestSummaryView extends StatelessWidget {
                       child: Text(
                         L10n.get(context, 'simpleSummaryLowSignal'),
                         style: theme.textTheme.bodySmall
-                            ?.copyWith(color: Colors.white60, height: 1.4),
+                            ?.copyWith(color: AppColors.textSecondary, height: 1.4),
                       ),
                     ),
                   ...summary.topRequests
@@ -94,7 +95,7 @@ class _SentimentLineCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
-      color: Colors.white.withValues(alpha: 0.05),
+      color: AppColors.surfaceSecondary,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
@@ -132,7 +133,7 @@ class _MoodChip extends StatelessWidget {
       style: Theme.of(context)
           .textTheme
           .bodySmall
-          ?.copyWith(color: Colors.white70, fontWeight: FontWeight.w600),
+          ?.copyWith(color: AppColors.textSecondary, fontWeight: FontWeight.w600),
     );
   }
 }
@@ -186,7 +187,7 @@ class _RequestRow extends StatelessWidget {
                     child: Text(
                       '“$example”',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: Colors.white54,
+                        color: AppColors.textSecondary,
                         fontStyle: FontStyle.italic,
                         height: 1.3,
                       ),
@@ -218,7 +219,7 @@ class _OtherRequests extends StatelessWidget {
           L10n.get(context, 'simpleSummaryOther')
               .replaceAll('{count}', '${items.length}'),
           style: theme.textTheme.bodyMedium
-              ?.copyWith(color: Colors.white70, fontWeight: FontWeight.w600),
+              ?.copyWith(color: AppColors.textSecondary, fontWeight: FontWeight.w600),
         ),
         children: items
             .map(
@@ -230,14 +231,14 @@ class _OtherRequests extends StatelessWidget {
                     Text(
                       '${r.count} ${L10n.get(context, 'simpleSummaryPeopleWord')}',
                       style: theme.textTheme.labelSmall
-                          ?.copyWith(color: Colors.white54),
+                          ?.copyWith(color: AppColors.textSecondary),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         r.label,
                         style: theme.textTheme.bodyMedium
-                            ?.copyWith(color: Colors.white70),
+                            ?.copyWith(color: AppColors.textSecondary),
                       ),
                     ),
                   ],
