@@ -87,7 +87,7 @@ void main() {
       onComments: () {},
     )));
     expect(find.text('Completed'), findsOneWidget);
-    await tester.tap(find.text('View summary'));
+    await tester.tap(find.text('Summary'));
     await tester.pump();
     expect(summaryTaps, 1);
   });

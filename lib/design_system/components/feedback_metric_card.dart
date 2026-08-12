@@ -13,6 +13,7 @@ class FeedbackMetricCard extends StatelessWidget {
     this.icon,
     this.iconColor,
     this.onSurface = false,
+    this.loading = false,
   });
 
   final String value;
@@ -22,6 +23,9 @@ class FeedbackMetricCard extends StatelessWidget {
 
   /// true: renkli/gradient kart üzerinde (beyaz metin).
   final bool onSurface;
+
+  /// true: değer yerine küçük spinner (sonsuz "…" hissi vermez).
+  final bool loading;
 
   @override
   Widget build(BuildContext context) {
@@ -45,10 +49,19 @@ class FeedbackMetricCard extends StatelessWidget {
                 color: iconColor ?? (onSurface ? valColor : AppColors.primary)),
             const SizedBox(height: 6),
           ],
-          Text(value,
-              style: AppType.sectionTitle.copyWith(color: valColor),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
+          if (loading)
+            SizedBox(
+              height: 20,
+              width: 20,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  color: onSurface ? valColor : AppColors.primary),
+            )
+          else
+            Text(value,
+                style: AppType.sectionTitle.copyWith(color: valColor),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis),
           const SizedBox(height: 2),
           Text(label,
               style: AppType.caption.copyWith(color: labColor),

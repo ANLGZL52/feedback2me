@@ -248,7 +248,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
     );
     final premium = PlanCompareCard(
       title: L10n.get(context, 'premiumV2PremiumLink'),
-      priceLabel: '1 ${L10n.get(context, 'settingsV2LinkCredits')}',
+      priceLabel: '1 ${L10n.get(context, 'premiumV2CreditSingular')}',
       highlighted: true,
       icon: Icons.workspace_premium_rounded,
       badge: null,

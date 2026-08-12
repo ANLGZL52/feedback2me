@@ -1180,8 +1180,8 @@ class _ActiveLinkHomeCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const FeedbackStatusBadge(
-                    label: 'Aktif',
+                  FeedbackStatusBadge(
+                    label: L10n.get(context, 'profileV2Active'),
                     tone: BadgeTone.neutral,
                     dot: true,
                   ),
@@ -2558,6 +2558,7 @@ class _ProfileMetrics extends StatefulWidget {
 
 class _ProfileMetricsState extends State<_ProfileMetrics> {
   int? _totalFeedback;
+  bool _done = false;
 
   @override
   void initState() {
@@ -2568,15 +2569,27 @@ class _ProfileMetricsState extends State<_ProfileMetrics> {
   @override
   void didUpdateWidget(_ProfileMetrics old) {
     super.didUpdateWidget(old);
-    if (old.ownerId != widget.ownerId) _load();
+    if (old.ownerId != widget.ownerId) {
+      setState(() {
+        _totalFeedback = null;
+        _done = false;
+      });
+      _load();
+    }
   }
 
   Future<void> _load() async {
     try {
-      final n = await appData.countAllFeedbacksForOwner(widget.ownerId);
-      if (mounted) setState(() => _totalFeedback = n);
+      final n = await appData
+          .countAllFeedbacksForOwner(widget.ownerId)
+          .timeout(const Duration(seconds: 12));
+      if (mounted) setState(() {
+        _totalFeedback = n;
+        _done = true;
+      });
     } catch (_) {
-      // Sessiz geç — metrik "…" kalır, ekranı bloklamaz.
+      // Timeout/hata → sonsuz spinner yerine "—" (sahte sayı gösterme).
+      if (mounted) setState(() => _done = true);
     }
   }
 
@@ -2594,7 +2607,8 @@ class _ProfileMetricsState extends State<_ProfileMetrics> {
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: FeedbackMetricCard(
-            value: _totalFeedback?.toString() ?? '…',
+            value: _totalFeedback?.toString() ?? '—',
+            loading: !_done,
             label: L10n.get(context, 'profileV2TotalFeedback'),
             icon: Icons.forum_rounded,
           ),
@@ -3334,7 +3348,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = Color(0xFFD4AF37);
+    const accent = AppColors.primary;
     final phase = state?.phase ?? AudienceAnalysisLoadPhase.fetchingComments;
     final title =
         state?.title ?? L10n.get(context, 'audienceLoadingTitle');
@@ -3357,8 +3371,8 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  const Color(0xFF252320),
-                  const Color(0xFF141210),
+                  AppColors.surfaceSecondary,
+                  AppColors.surface,
                 ],
               ),
               boxShadow: [
@@ -3441,7 +3455,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                       child: const LinearProgressIndicator(
                         minHeight: 7,
-                        backgroundColor: Color(0x22FFFFFF),
+                        backgroundColor: AppColors.border,
                         color: accent,
                       ),
                     ),
@@ -3549,11 +3563,11 @@ class _ReportSharePreviewCard extends StatelessWidget {
             : null;
 
     return Card(
-      color: const Color(0xFF1C1917),
+      color: AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(
-          color: Colors.white.withOpacity(0.08),
+          color: AppColors.border,
         ),
       ),
       child: Padding(
@@ -3565,13 +3579,13 @@ class _ReportSharePreviewCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(999),
-                color: const Color(0xFFD4AF37).withOpacity(0.2),
-                border: Border.all(color: const Color(0xFFD4AF37)),
+                color: AppColors.primary.withOpacity(0.2),
+                border: Border.all(color: AppColors.primary),
               ),
               child: Text(
                 L10n.get(context, 'growthSummaryBadge'),
                 style: const TextStyle(
-                  color: Color(0xFFD4AF37),
+                  color: AppColors.primary,
                   fontWeight: FontWeight.w600,
                   fontSize: 12,
                 ),
@@ -4011,7 +4025,7 @@ class _DetailedAudienceReportScreenState
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.error_outline, size: 48, color: Color(0xFFF87171)),
+                        const Icon(Icons.error_outline, size: 48, color: AppColors.danger),
                         const SizedBox(height: 16),
                         Text(
                           'Analiz sırasında hata oluştu',
@@ -4382,7 +4396,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                                   L10n.get(context, 'historyLoadFailed')
                                       .replaceAll('{e}', '${snap.error}'),
                                   style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: const Color(0xFFF87171)),
+                                      ?.copyWith(color: AppColors.danger),
                                 ),
                               );
                             }

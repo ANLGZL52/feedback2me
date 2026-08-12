@@ -72,7 +72,7 @@ class FeedbackPrimaryButton extends StatelessWidget {
             child: Container(
               height: 54,
               alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               child: child,
             ),
           ),
@@ -116,7 +116,7 @@ class FeedbackSecondaryButton extends StatelessWidget {
         child: Container(
           height: 52,
           alignment: Alignment.center,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           decoration: BoxDecoration(
             borderRadius: AppRadius.rMedium,
             border: Border.all(color: AppColors.border),

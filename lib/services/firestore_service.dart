@@ -346,11 +346,11 @@ class FirestoreService implements AppDataBackend {
   Future<int> countAllFeedbacksForOwner(String ownerId) async {
     final links = await getLinksForOwner(ownerId);
     if (links.isEmpty) return 0;
-    var total = 0;
-    for (final l in links) {
-      total += await feedbackCountForLink(l.id);
-    }
-    return total;
+    // Aynı count sorguları — ardışık yerine EŞZAMANLI (N+1 gecikmesini giderir;
+    // sorgu/sonuç mantığı birebir aynı, schema/denormalization yok).
+    final counts =
+        await Future.wait(links.map((l) => feedbackCountForLink(l.id)));
+    return counts.fold<int>(0, (a, b) => a + b);
   }
 
   /// Havuz: [getLinksForOwner] sırası **en yeni link önce**. Önceki hata:
