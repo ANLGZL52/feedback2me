@@ -498,9 +498,15 @@ HARD RULES:
 9. hotTake MUST be a real comment quoted from the input (pick a striking/funny one), or "".
 10. mostLiked / mostMentioned come from the clustered topics — name the actual subject.
 11. confidence: "low" for few/thin feedback, "high" only with clear, plentiful signal.
+12. PERSON IMPRESSIONS describe how the PERSON comes across — ONLY when supported by REPEATED or clearly consistent evidence across multiple comments. Never turn a single extreme comment into a general trait.
+13. Never invent traits, events, motivations or personal facts. NEVER infer sensitive attributes (politics, religion, sexual orientation, health, mental illness, ethnicity, addiction). No psychological/clinical diagnosis (e.g. narcissist, bipolar, depressive).
+14. Negative impressions are allowed when genuinely supported — phrase them naturally, without insults or diagnosis.
+15. If evidence is weak/insufficient, output FEWER items or EMPTY arrays. Do not pad to reach a count.
+16. Tone: social, warm, concise, slightly playful. Each description max 1–2 short sentences. The user should feel "interesting, this is how people see me", not "an AI is judging me".
 
 OUTPUT (a single JSON object, no other text):
-{"overallMood":"positive|mixed|neutral|negative","headline":"...","mostLiked":["..."],"mostMentioned":["..."],"mixedOpinions":["..."],"hotTake":"...","shortSummary":"...","confidence":"low|medium|high"}
+{"overallMood":"positive|mixed|neutral|negative","headline":"...","shortSummary":"...","confidence":"low|medium|high","firstImpression":{"headline":"one-sentence overall first impression","description":"one short explanation"},"personImpressions":[{"emoji":"😎","title":"...","description":"...","tone":"positive|neutral|mixed|negative","evidenceStrength":"strong|medium|weak"}],"likedTraits":[{"emoji":"✨","label":"positively perceived trait"}],"growthAreas":[{"emoji":"📸","title":"...","description":"..."}],"threeWords":["short descriptor"],"mostLiked":["..."],"mostMentioned":["..."],"mixedOpinions":["..."],"hotTake":"a real verbatim comment or empty"}
+LIMITS: personImpressions<=5, likedTraits<=4, growthAreas<=4, threeWords<=3.
 '''
         : '''
 Sen GERÇEK topluluk geri bildirimini KISA, SOSYAL ve EĞLENCELİ bir özete çeviren birisin.
@@ -518,9 +524,15 @@ KATI KURALLAR:
 9. hotTake, girdideki GERÇEK bir yorumdan alıntı OLMALI (çarpıcı/eğlenceli olanı seç) ya da "".
 10. mostLiked / mostMentioned gruplanmış konulardan gelir — asıl konuyu adlandır.
 11. confidence: az/zayıf veride "low", yalnızca net ve bol sinyalde "high".
+12. PERSON IMPRESSIONS kişinin nasıl algılandığını anlatır — YALNIZCA birden fazla yorumda TEKRAR EDEN ya da açıkça tutarlı kanıt varsa. Tek bir uç yorumu genel bir özellik gibi sunma.
+13. Özellik/olay/niyet/kişisel bilgi UYDURMA. Hassas özellikleri (siyaset, din, cinsel yönelim, sağlık, ruhsal hastalık, etnik köken, bağımlılık) ASLA çıkarımlama. Psikolojik/klinik teşhis (narsist, bipolar, depresif vb.) YOK.
+14. Olumsuz izlenimler gerçekten destekleniyorsa gösterilebilir — doğal, hakaretsiz ve teşhissiz ifade et.
+15. Kanıt zayıf/yetersizse DAHA AZ öğe veya BOŞ dizi üret. Sayıya ulaşmak için doldurma.
+16. Ton: sosyal, sıcak, kısa, hafif eğlenceli. Her açıklama en fazla 1–2 kısa cümle. Kullanıcı "ilginç, insanlar beni böyle görüyormuş" hissetmeli; "bir AI beni yargılıyor" değil.
 
 ÇIKTI (tek bir JSON nesnesi, başka metin yok):
-{"overallMood":"positive|mixed|neutral|negative","headline":"...","mostLiked":["..."],"mostMentioned":["..."],"mixedOpinions":["..."],"hotTake":"...","shortSummary":"...","confidence":"low|medium|high"}
+{"overallMood":"positive|mixed|neutral|negative","headline":"...","shortSummary":"...","confidence":"low|medium|high","firstImpression":{"headline":"tek cümlelik genel ilk izlenim","description":"kısa bir açıklama"},"personImpressions":[{"emoji":"😎","title":"...","description":"...","tone":"positive|neutral|mixed|negative","evidenceStrength":"strong|medium|weak"}],"likedTraits":[{"emoji":"✨","label":"olumlu algılanan özellik"}],"growthAreas":[{"emoji":"📸","title":"...","description":"..."}],"threeWords":["kısa sıfat"],"mostLiked":["..."],"mostMentioned":["..."],"mixedOpinions":["..."],"hotTake":"gerçek birebir yorum ya da boş"}
+SINIRLAR: personImpressions<=5, likedTraits<=4, growthAreas<=4, threeWords<=3.
 ''';
 
     final user =
@@ -531,7 +543,7 @@ KATI KURALLAR:
       system: system,
       user: user,
       jsonMode: true,
-      maxTokens: 900,
+      maxTokens: 1400,
     );
     if (resp == null) return null;
     final map = _parseJsonObject(resp);
@@ -540,6 +552,25 @@ KATI KURALLAR:
     List<String> strList(dynamic v) => (v is List)
         ? v.map((e) => e.toString().trim()).where((s) => s.isNotEmpty).toList()
         : const [];
+
+    // Personal Impression alanları — savunmacı parse (tek malformed öğe crash etmez).
+    List<T> objList<T>(dynamic v, T Function(Map<String, dynamic>) f) {
+      if (v is! List) return <T>[];
+      final out = <T>[];
+      for (final m in v) {
+        if (m is Map) {
+          try {
+            out.add(f(Map<String, dynamic>.from(m)));
+          } catch (_) {}
+        }
+      }
+      return out;
+    }
+
+    final fiRaw = map['firstImpression'];
+    final fi = fiRaw is Map
+        ? FirstImpression.fromJson(Map<String, dynamic>.from(fiRaw))
+        : null;
 
     return CommunityFeedbackSummary(
       mood: communityMoodFromString(map['overallMood']?.toString()),
@@ -562,6 +593,20 @@ KATI KURALLAR:
           .take(6)
           .toList(),
       aiUsed: true,
+      firstImpression: (fi != null && fi.headline.isNotEmpty) ? fi : null,
+      personImpressions: objList(map['personImpressions'], PersonImpression.fromJson)
+          .where((p) => p.title.isNotEmpty)
+          .take(5)
+          .toList(),
+      likedTraits: objList(map['likedTraits'], TraitItem.fromJson)
+          .where((t) => t.label.isNotEmpty)
+          .take(4)
+          .toList(),
+      growthAreas: objList(map['growthAreas'], GrowthArea.fromJson)
+          .where((g) => g.title.isNotEmpty)
+          .take(4)
+          .toList(),
+      threeWords: strList(map['threeWords']).take(3).toList(),
     );
   }
 

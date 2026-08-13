@@ -38,6 +38,88 @@ SummaryConfidence summaryConfidenceFromString(String? s) {
 
 String summaryConfidenceToString(SummaryConfidence c) => c.name;
 
+/// Personal Impression katmanı — YALNIZCA gerçek feedback'lerden kanıta dayalı.
+/// AI kendi fikrini/teşhisini üretmez; tekrar eden ortak izlenimleri sentezler.
+
+/// İlk izlenim sentezi (tek cümle + kısa açıklama).
+class FirstImpression {
+  const FirstImpression({required this.headline, this.description = ''});
+  final String headline;
+  final String description;
+
+  factory FirstImpression.fromJson(Map<String, dynamic> j) => FirstImpression(
+        headline: j['headline']?.toString().trim() ?? '',
+        description: j['description']?.toString().trim() ?? '',
+      );
+  Map<String, dynamic> toJson() =>
+      {'headline': headline, 'description': description};
+}
+
+/// "İnsanlar seni nasıl görüyor?" — tekrar eden bir izlenim.
+class PersonImpression {
+  const PersonImpression({
+    required this.title,
+    this.emoji = '',
+    this.description = '',
+    this.tone = 'neutral', // positive | neutral | mixed | negative
+    this.evidenceStrength = 'medium', // strong | medium | weak (internal)
+  });
+
+  final String emoji;
+  final String title;
+  final String description;
+  final String tone;
+  final String evidenceStrength;
+
+  factory PersonImpression.fromJson(Map<String, dynamic> j) {
+    final t = (j['tone']?.toString().trim().toLowerCase() ?? 'neutral');
+    const allowed = {'positive', 'neutral', 'mixed', 'negative'};
+    return PersonImpression(
+      emoji: j['emoji']?.toString().trim() ?? '',
+      title: j['title']?.toString().trim() ?? '',
+      description: j['description']?.toString().trim() ?? '',
+      tone: allowed.contains(t) ? t : 'neutral',
+      evidenceStrength: j['evidenceStrength']?.toString().trim() ?? 'medium',
+    );
+  }
+  Map<String, dynamic> toJson() => {
+        'emoji': emoji,
+        'title': title,
+        'description': description,
+        'tone': tone,
+        'evidenceStrength': evidenceStrength,
+      };
+}
+
+/// Olumlu algılanan bir özellik (emoji + kısa etiket).
+class TraitItem {
+  const TraitItem({required this.label, this.emoji = ''});
+  final String emoji;
+  final String label;
+
+  factory TraitItem.fromJson(Map<String, dynamic> j) => TraitItem(
+        emoji: j['emoji']?.toString().trim() ?? '',
+        label: j['label']?.toString().trim() ?? '',
+      );
+  Map<String, dynamic> toJson() => {'emoji': emoji, 'label': label};
+}
+
+/// Geliştirilebilecek bir taraf (gerçek yorumlardan tekrar eden).
+class GrowthArea {
+  const GrowthArea({required this.title, this.emoji = '', this.description = ''});
+  final String emoji;
+  final String title;
+  final String description;
+
+  factory GrowthArea.fromJson(Map<String, dynamic> j) => GrowthArea(
+        emoji: j['emoji']?.toString().trim() ?? '',
+        title: j['title']?.toString().trim() ?? '',
+        description: j['description']?.toString().trim() ?? '',
+      );
+  Map<String, dynamic> toJson() =>
+      {'emoji': emoji, 'title': title, 'description': description};
+}
+
 /// Topluluk geri bildirim özeti — post/link için basit, sosyal, kısa çıktı.
 ///
 /// AI alanları: [mood], [headline], [mostLiked], [mostMentioned],
@@ -63,6 +145,12 @@ class CommunityFeedbackSummary {
     required this.reactionCounts,
     required this.realComments,
     required this.aiUsed,
+    // Personal Impression katmanı (additive; eski cache'lerde yok → default).
+    this.firstImpression,
+    this.personImpressions = const [],
+    this.likedTraits = const [],
+    this.growthAreas = const [],
+    this.threeWords = const [],
   });
 
   // --- AI çıktısı (yorumları yorumlar; üretmez) ---
@@ -108,6 +196,21 @@ class CommunityFeedbackSummary {
   /// AI kullanıldı mı (false ise sezgisel/yerel özet).
   final bool aiUsed;
 
+  // --- Personal Impression (kanıta dayalı; AI üretir, heuristic'te boş) ---
+  final FirstImpression? firstImpression;
+  final List<PersonImpression> personImpressions;
+  final List<TraitItem> likedTraits;
+  final List<GrowthArea> growthAreas;
+  final List<String> threeWords;
+
+  /// Personal-impression katmanında gösterilecek bir şey var mı.
+  bool get hasImpressionLayer =>
+      firstImpression != null ||
+      personImpressions.isNotEmpty ||
+      likedTraits.isNotEmpty ||
+      growthAreas.isNotEmpty ||
+      threeWords.isNotEmpty;
+
   bool get isEmpty => feedbackCount == 0;
 
   int get totalReactions =>
@@ -130,6 +233,11 @@ class CommunityFeedbackSummary {
     Map<String, int>? reactionCounts,
     List<String>? realComments,
     bool? aiUsed,
+    FirstImpression? firstImpression,
+    List<PersonImpression>? personImpressions,
+    List<TraitItem>? likedTraits,
+    List<GrowthArea>? growthAreas,
+    List<String>? threeWords,
   }) {
     return CommunityFeedbackSummary(
       mood: mood ?? this.mood,
@@ -148,6 +256,11 @@ class CommunityFeedbackSummary {
       reactionCounts: reactionCounts ?? this.reactionCounts,
       realComments: realComments ?? this.realComments,
       aiUsed: aiUsed ?? this.aiUsed,
+      firstImpression: firstImpression ?? this.firstImpression,
+      personImpressions: personImpressions ?? this.personImpressions,
+      likedTraits: likedTraits ?? this.likedTraits,
+      growthAreas: growthAreas ?? this.growthAreas,
+      threeWords: threeWords ?? this.threeWords,
     );
   }
 
@@ -168,6 +281,11 @@ class CommunityFeedbackSummary {
         'reactionCounts': reactionCounts,
         'realComments': realComments,
         'aiUsed': aiUsed,
+        'firstImpression': firstImpression?.toJson(),
+        'personImpressions': personImpressions.map((e) => e.toJson()).toList(),
+        'likedTraits': likedTraits.map((e) => e.toJson()).toList(),
+        'growthAreas': growthAreas.map((e) => e.toJson()).toList(),
+        'threeWords': threeWords,
       };
 
   factory CommunityFeedbackSummary.fromJson(Map<String, dynamic> j) {
@@ -185,6 +303,27 @@ class CommunityFeedbackSummary {
         if (n > 0) rc[k.toString()] = n;
       });
     }
+    // Additive alanlar — eski cache'lerde yoksa null/[] fallback; tek malformed
+    // öğe tüm parse'ı bozmaz.
+    List<T> objList<T>(String key, T Function(Map<String, dynamic>) f) {
+      final raw = j[key];
+      if (raw is! List) return <T>[];
+      final out = <T>[];
+      for (final m in raw) {
+        if (m is Map) {
+          try {
+            out.add(f(Map<String, dynamic>.from(m)));
+          } catch (_) {}
+        }
+      }
+      return out;
+    }
+
+    final fiRaw = j['firstImpression'];
+    final firstImpression = fiRaw is Map
+        ? FirstImpression.fromJson(Map<String, dynamic>.from(fiRaw))
+        : null;
+
     return CommunityFeedbackSummary(
       mood: communityMoodFromString(j['mood']?.toString()),
       headline: j['headline']?.toString() ?? '',
@@ -202,6 +341,20 @@ class CommunityFeedbackSummary {
       reactionCounts: rc,
       realComments: strList('realComments'),
       aiUsed: j['aiUsed'] == true,
+      firstImpression:
+          (firstImpression != null && firstImpression.headline.isNotEmpty)
+              ? firstImpression
+              : null,
+      personImpressions: objList('personImpressions', PersonImpression.fromJson)
+          .where((p) => p.title.isNotEmpty)
+          .toList(),
+      likedTraits: objList('likedTraits', TraitItem.fromJson)
+          .where((t) => t.label.isNotEmpty)
+          .toList(),
+      growthAreas: objList('growthAreas', GrowthArea.fromJson)
+          .where((g) => g.title.isNotEmpty)
+          .toList(),
+      threeWords: strList('threeWords').take(3).toList(),
     );
   }
 
