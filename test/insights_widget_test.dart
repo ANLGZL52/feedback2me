@@ -20,6 +20,7 @@ CommunityFeedbackSummary _summary({
   List<String> mostLiked = const ['Clean design'],
   List<String> mostMentioned = const ['Pricing'],
   List<String> mixedOpinions = const [],
+  List<TraitItem> likedTraits = const [],
   String hotTake = '',
   String headline = 'People mostly liked it',
 }) {
@@ -40,6 +41,7 @@ CommunityFeedbackSummary _summary({
     reactionCounts: const {'🔥': 4},
     realComments: const [],
     aiUsed: true,
+    likedTraits: likedTraits,
   );
 }
 
@@ -55,14 +57,14 @@ void main() {
     expect(find.text('Based on 12 real responses.'), findsOneWidget);
   });
 
-  testWidgets('Boş liked section render edilmez, dolu ise edilir',
+  testWidgets('Boş liked section render edilmez, dolu ise edilir (likedTraits)',
       (tester) async {
     await tester.pumpWidget(
-        _host(CommunitySummaryV2View(summary: _summary(mostLiked: const []))));
+        _host(CommunitySummaryV2View(summary: _summary(likedTraits: const []))));
     expect(find.text('What people love ❤️'), findsNothing);
 
-    await tester.pumpWidget(_host(
-        CommunitySummaryV2View(summary: _summary(mostLiked: const ['X']))));
+    await tester.pumpWidget(_host(CommunitySummaryV2View(
+        summary: _summary(likedTraits: const [TraitItem(label: 'X')]))));
     expect(find.text('What people love ❤️'), findsOneWidget);
   });
 

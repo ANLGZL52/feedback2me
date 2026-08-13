@@ -33,14 +33,31 @@ class CommunitySummaryV2View extends StatelessWidget {
           _SentimentDistribution(
               positive: s.positive, neutral: s.neutral, negative: s.negative),
         ],
-        const SizedBox(height: AppSpacing.m),
-        _whatCrowdSays(context),
-        if (s.mostLiked.isNotEmpty) ...[
+        // Personal Impression katmanı (kanıta dayalı). Yoksa klasik özet.
+        if (s.hasImpressionLayer) ...[
+          if (s.firstImpression != null) ...[
+            const SizedBox(height: AppSpacing.m),
+            _firstImpressionCard(context, s.firstImpression!),
+          ],
+          if (s.personImpressions.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.m),
+            _howTheySeeYou(context, s.personImpressions),
+          ],
+          if (s.likedTraits.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.m),
+            _traitSection(context, s.likedTraits),
+          ],
+          if (s.growthAreas.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.m),
+            _growthSection(context, s.growthAreas),
+          ],
+          if (s.threeWords.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.m),
+            _threeWordsSection(context, s.threeWords),
+          ],
+        ] else ...[
           const SizedBox(height: AppSpacing.m),
-          _ChipsSection(
-              label: L10n.get(context, 'insightMostLoved'),
-              items: s.mostLiked,
-              tone: _ChipTone.positive),
+          _whatCrowdSays(context),
         ],
         if (s.mostMentioned.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.m),
@@ -178,9 +195,202 @@ class CommunitySummaryV2View extends StatelessWidget {
           Text('“${summary.hotTake}”',
               style: AppType.body
                   .copyWith(fontStyle: FontStyle.italic, height: 1.45)),
+          const SizedBox(height: 6),
+          Text(L10n.get(context, 'summaryV3RealHotTake'), style: AppType.caption),
         ],
       ),
     );
+  }
+
+  // --- Personal Impression bölümleri ---
+
+  Widget _firstImpressionCard(BuildContext context, FirstImpression fi) {
+    return FeedbackCard(
+      color: AppColors.primarySoft,
+      shadow: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('✨  ${L10n.get(context, 'summaryV3FirstImpression')}',
+              style: AppType.sectionTitle.copyWith(color: AppColors.primary)),
+          const SizedBox(height: AppSpacing.s),
+          Text('“${fi.headline}”', style: AppType.cardTitle.copyWith(height: 1.3)),
+          if (fi.description.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.s),
+            Text(fi.description, style: AppType.body.copyWith(height: 1.5)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _howTheySeeYou(BuildContext context, List<PersonImpression> items) {
+    return FeedbackCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(L10n.get(context, 'summaryV3HowTheySeeYou'),
+              style: AppType.sectionTitle),
+          const SizedBox(height: AppSpacing.s),
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0)
+              const Divider(height: AppSpacing.l, color: AppColors.border),
+            _impressionRow(items[i]),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _impressionRow(PersonImpression p) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(color: _toneSoft(p.tone), shape: BoxShape.circle),
+          child: Text(p.emoji.isNotEmpty ? p.emoji : '💬',
+              style: const TextStyle(fontSize: 20)),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(p.title, style: AppType.bodyStrong),
+              if (p.description.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(p.description,
+                    style: AppType.secondary.copyWith(height: 1.4)),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _traitSection(BuildContext context, List<TraitItem> items) {
+    return FeedbackCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(L10n.get(context, 'insightMostLoved'),
+              style: AppType.sectionTitle),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final t in items)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                      color: AppColors.successSoft,
+                      borderRadius: AppRadius.rPill),
+                  child: Text(
+                      '${t.emoji.isNotEmpty ? '${t.emoji} ' : ''}${t.label}',
+                      style: AppType.secondary.copyWith(
+                          color: AppColors.success,
+                          fontWeight: FontWeight.w600)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _growthSection(BuildContext context, List<GrowthArea> items) {
+    return FeedbackCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(L10n.get(context, 'summaryV3GrowthAreas'),
+              style: AppType.sectionTitle),
+          const SizedBox(height: AppSpacing.s),
+          for (final g in items)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.s),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 34,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                        color: AppColors.warningSoft,
+                        borderRadius: AppRadius.rSmall),
+                    child: Text(g.emoji.isNotEmpty ? g.emoji : '👀',
+                        style: const TextStyle(fontSize: 17)),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(g.title, style: AppType.bodyStrong),
+                        if (g.description.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(g.description,
+                              style: AppType.secondary.copyWith(height: 1.4)),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _threeWordsSection(BuildContext context, List<String> words) {
+    return FeedbackCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(L10n.get(context, 'summaryV3ThreeWords'),
+              style: AppType.sectionTitle),
+          const SizedBox(height: AppSpacing.sm),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final w in words)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                      gradient: AppColors.primaryGradient,
+                      borderRadius: AppRadius.rPill),
+                  child: Text(w,
+                      style: AppType.bodyStrong
+                          .copyWith(color: AppColors.onPrimary)),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Color _toneSoft(String tone) {
+    switch (tone) {
+      case 'positive':
+        return AppColors.successSoft;
+      case 'negative':
+        return AppColors.dangerSoft;
+      case 'mixed':
+        return AppColors.warningSoft;
+      default:
+        return AppColors.primarySoft;
+    }
   }
 }
 
