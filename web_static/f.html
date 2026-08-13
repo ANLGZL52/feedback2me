@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#F7F8FC">
-  <title>Feedback bırak — Feedback2Me</title>
+  <title>Feedback — Feedback2Me</title>
   <style>
     :root{
       --bg:#F7F8FC; --surface:#FFFFFF; --surface2:#F1F3FA;
@@ -43,7 +43,6 @@
     input[type=text]:focus, textarea:focus{ border-color:var(--primary); box-shadow:0 0 0 3px var(--primarySoft); }
     textarea{ min-height:120px; resize:vertical; }
     .hintline{ color:var(--text2); font-size:.8rem; margin:6px 2px 0; }
-    /* Reactions */
     .reactions{ display:flex; flex-wrap:wrap; gap:8px; }
     .rx{ display:flex; align-items:center; gap:7px; cursor:pointer; user-select:none;
       background:var(--surface); border:1px solid var(--border); border-radius:14px;
@@ -53,21 +52,19 @@
     .rx.sel{ background:var(--primarySoft); border-color:var(--primary); color:var(--primary); }
     .rx .chk{ display:none; color:var(--primary); }
     .rx.sel .chk{ display:inline; }
-    /* Submit */
+    .rx:focus-visible{ outline:2px solid var(--primary); outline-offset:2px; }
     .btn{ width:100%; border:none; cursor:pointer; height:54px; border-radius:14px;
       background:linear-gradient(90deg,var(--primary),var(--violet)); color:#fff;
       font-size:1rem; font-weight:800; letter-spacing:.2px;
       box-shadow:0 6px 16px rgba(53,87,246,0.28); }
     .btn:disabled{ opacity:.6; box-shadow:none; cursor:default; }
     .trust{ text-align:center; color:var(--text2); font-size:.8rem; margin-top:12px; }
-    /* Messages */
     .msg{ border-radius:var(--radiusSm); padding:12px 14px; font-size:.92rem; margin:0 0 16px; display:none; }
     .msg.load{ background:var(--surface2); color:var(--text2); }
     .msg.err{ background:var(--dangerSoft); color:var(--danger); border:1px solid rgba(239,92,99,.3); }
     .msg.ok{ background:var(--successSoft); color:#1f8f63; }
     #linkCountdown{ display:none; text-align:center; color:var(--text2); font-size:.85rem; font-weight:600; margin:0 0 14px; }
     #linkCountdown.expired{ color:var(--danger); }
-    /* Survey (collapsed) */
     details.survey{ margin-top:6px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radiusSm); }
     details.survey>summary{ cursor:pointer; padding:14px; font-weight:700; list-style:none; color:var(--text); }
     details.survey>summary::-webkit-details-marker{ display:none; }
@@ -87,7 +84,6 @@
       border:1px solid var(--border); border-radius:10px; padding:6px 10px; font-size:.85rem; cursor:pointer; }
     .likert .clear{ background:none; border:none; color:var(--text2); font-size:.78rem; cursor:pointer; margin-top:6px; padding:2px 0; }
     .scale-note{ color:var(--text2); font-size:.8rem; margin:0 0 8px; }
-    /* Success */
     #success{ display:none; text-align:center; }
     .okicon{ width:88px;height:88px;border-radius:50%; margin:8px auto 16px; display:flex;align-items:center;justify-content:center;
       background:linear-gradient(90deg,var(--primary),var(--violet)); color:#fff; font-size:44px;
@@ -106,51 +102,50 @@
     <div class="brandbar">
       <div class="logo">💬</div>
       <div class="brandname">Feedback2Me</div>
-      <div class="anon">🔒 Anonim</div>
+      <div class="anon" data-i18n="anon">🔒 Anonim</div>
     </div>
 
-    <h1 id="hero">Dürüst bir feedback bırak 👀</h1>
-    <p class="lead" id="subtitle">Dürüst ol. Kısa ol. Kendin ol. İsmini yazmak zorunda değilsin.</p>
+    <h1 id="hero" data-i18n="heroDefault">Dürüst bir feedback bırak 👀</h1>
+    <p class="lead" id="subtitle" data-i18n="subDefault">Dürüst ol. Kısa ol. Kendin ol. İsmini yazmak zorunda değilsin.</p>
 
     <div id="msg" class="msg"></div>
     <div id="linkCountdown"></div>
 
     <form id="form" class="card" style="display:none">
       <div class="sect">
-        <span class="label">İlk hissin ne? 👀</span>
+        <span class="label" data-i18n="reactionTitle">İlk hissin ne? 👀</span>
         <div class="reactions" id="reactions"></div>
       </div>
 
       <div class="sect">
-        <span class="label">Ne düşünüyorsun? *</span>
-        <textarea id="feedback" required minlength="10"
-          placeholder="İlk izlenimin, sevdiğin bir şey ya da geliştirebileceği bir taraf…"></textarea>
-        <p class="hintline">En az 10 karakter</p>
+        <span class="label" data-i18n="commentLabel">Ne düşünüyorsun? *</span>
+        <textarea id="feedback" required minlength="10" data-i18n-ph="commentPh"></textarea>
+        <p class="hintline" data-i18n="minChars">En az 10 karakter</p>
       </div>
 
       <div class="sect">
-        <span class="label">İsmin <span class="opt">· isteğe bağlı</span></span>
-        <input type="text" id="name" placeholder="Anonim kalmak için boş bırak">
+        <span class="label"><span data-i18n="nameLabel">İsmin</span> <span class="opt" data-i18n="optional">· isteğe bağlı</span></span>
+        <input type="text" id="name" data-i18n-ph="namePh">
       </div>
 
       <div class="sect">
-        <span class="label">İlişkin <span class="opt">· isteğe bağlı</span></span>
-        <input type="text" id="relation" placeholder="Arkadaş, iş arkadaşı, tanıdık…">
+        <span class="label"><span data-i18n="relLabel">İlişkin</span> <span class="opt" data-i18n="optional">· isteğe bağlı</span></span>
+        <input type="text" id="relation" data-i18n-ph="relPh">
       </div>
 
       <details class="survey sect" id="surveyDetails">
-        <summary>Biraz daha bağlam ekle (isteğe bağlı)</summary>
+        <summary data-i18n="surveySummary">Biraz daha bağlam ekle (isteğe bağlı)</summary>
         <div class="survey-inner">
-          <p class="hint">İstersen feedback'ini biraz daha detaylandır. Doldurmak zorunlu değil.</p>
-          <h3>Ne zamandır tanıyorsun?</h3>
+          <p class="hint" data-i18n="surveyHint">İstersen feedback'ini biraz daha detaylandır. Doldurmak zorunlu değil.</p>
+          <h3 data-i18n="svqFam">Ne zamandır tanıyorsun?</h3>
           <div class="chips">
-            <label><input type="radio" name="fam" value="first_time"> İlk kez görüyorum</label>
-            <label><input type="radio" name="fam" value="short"> Birkaç haftadır</label>
-            <label><input type="radio" name="fam" value="medium"> Birkaç aydır</label>
-            <label><input type="radio" name="fam" value="long"> Uzun süredir</label>
+            <label><input type="radio" name="fam" value="first_time"> <span data-i18n="famFirst">İlk kez görüyorum</span></label>
+            <label><input type="radio" name="fam" value="short"> <span data-i18n="famShort">Birkaç haftadır</span></label>
+            <label><input type="radio" name="fam" value="medium"> <span data-i18n="famMedium">Birkaç aydır</span></label>
+            <label><input type="radio" name="fam" value="long"> <span data-i18n="famLong">Uzun süredir</span></label>
           </div>
 
-          <h3>Nerede takip ediyorsun? (çoklu)</h3>
+          <h3 data-i18n="svqPlat">Nerede takip ediyorsun? (çoklu)</h3>
           <div class="chips">
             <label><input type="checkbox" name="plat" value="instagram"> Instagram</label>
             <label><input type="checkbox" name="plat" value="tiktok"> TikTok</label>
@@ -158,71 +153,71 @@
             <label><input type="checkbox" name="plat" value="twitch"> Twitch</label>
             <label><input type="checkbox" name="plat" value="x"> X (Twitter)</label>
             <label><input type="checkbox" name="plat" value="linkedin"> LinkedIn</label>
-            <label><input type="checkbox" name="plat" value="other"> Diğer / web</label>
+            <label><input type="checkbox" name="plat" value="other"> <span data-i18n="platOther">Diğer / web</span></label>
           </div>
 
-          <h3>Ne sıklıkla görüyorsun?</h3>
+          <h3 data-i18n="svqFreq">Ne sıklıkla görüyorsun?</h3>
           <div class="chips">
-            <label><input type="radio" name="freq" value="rare"> Nadiren</label>
-            <label><input type="radio" name="freq" value="monthly"> Ayda birkaç kez</label>
-            <label><input type="radio" name="freq" value="weekly"> Haftada birkaç kez</label>
-            <label><input type="radio" name="freq" value="daily"> Neredeyse her gün</label>
+            <label><input type="radio" name="freq" value="rare"> <span data-i18n="freqRare">Nadiren</span></label>
+            <label><input type="radio" name="freq" value="monthly"> <span data-i18n="freqMonthly">Ayda birkaç kez</span></label>
+            <label><input type="radio" name="freq" value="weekly"> <span data-i18n="freqWeekly">Haftada birkaç kez</span></label>
+            <label><input type="radio" name="freq" value="daily"> <span data-i18n="freqDaily">Neredeyse her gün</span></label>
           </div>
 
-          <h3>Hangi tür içeriklerde daha güçlü olabilir? (çoklu)</h3>
+          <h3 data-i18n="svqFocus">Hangi tür içeriklerde daha güçlü olabilir? (çoklu)</h3>
           <div class="chips">
-            <label><input type="checkbox" name="focus" value="education"> Eğitim / nasıl yapılır</label>
-            <label><input type="checkbox" name="focus" value="entertainment"> Eğlence</label>
-            <label><input type="checkbox" name="focus" value="lifestyle"> Yaşam tarzı / vlog</label>
-            <label><input type="checkbox" name="focus" value="tech"> Teknoloji / ürün</label>
-            <label><input type="checkbox" name="focus" value="business"> İş / kariyer</label>
-            <label><input type="checkbox" name="focus" value="gaming"> Oyun</label>
-            <label><input type="checkbox" name="focus" value="creative"> Yaratıcı / sanat</label>
-            <label><input type="checkbox" name="focus" value="arts"> Müzik / performans</label>
+            <label><input type="checkbox" name="focus" value="education"> <span data-i18n="focusEducation">Eğitim / nasıl yapılır</span></label>
+            <label><input type="checkbox" name="focus" value="entertainment"> <span data-i18n="focusEntertainment">Eğlence</span></label>
+            <label><input type="checkbox" name="focus" value="lifestyle"> <span data-i18n="focusLifestyle">Yaşam tarzı / vlog</span></label>
+            <label><input type="checkbox" name="focus" value="tech"> <span data-i18n="focusTech">Teknoloji / ürün</span></label>
+            <label><input type="checkbox" name="focus" value="business"> <span data-i18n="focusBusiness">İş / kariyer</span></label>
+            <label><input type="checkbox" name="focus" value="gaming"> <span data-i18n="focusGaming">Oyun</span></label>
+            <label><input type="checkbox" name="focus" value="creative"> <span data-i18n="focusCreative">Yaratıcı / sanat</span></label>
+            <label><input type="checkbox" name="focus" value="arts"> <span data-i18n="focusArts">Müzik / performans</span></label>
           </div>
 
-          <h3>Puanla 1–5 (isteğe bağlı)</h3>
-          <p class="scale-note">1 düşük · 5 yüksek · Emin değilsen boş bırak</p>
+          <h3 data-i18n="svqScore">Puanla 1–5 (isteğe bağlı)</h3>
+          <p class="scale-note" data-i18n="scaleNote">1 düşük · 5 yüksek · Emin değilsen boş bırak</p>
           <div class="likert" data-field="scoreProduction">
-            <div class="q">Üretim kalitesi (ses, görüntü, kurgu)</div>
+            <div class="q" data-i18n="scoreProduction">Üretim kalitesi (ses, görüntü, kurgu)</div>
             <div class="row" data-likert="scoreProduction"></div>
-            <button type="button" class="clear" data-clear="scoreProduction">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreProduction" data-i18n="clear">Temizle</button>
           </div>
           <div class="likert" data-field="scoreClarity">
-            <div class="q">Mesaj netliği</div>
+            <div class="q" data-i18n="scoreClarity">Mesaj netliği</div>
             <div class="row" data-likert="scoreClarity"></div>
-            <button type="button" class="clear" data-clear="scoreClarity">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreClarity" data-i18n="clear">Temizle</button>
           </div>
           <div class="likert" data-field="scoreTrust">
-            <div class="q">Güven / samimiyet</div>
+            <div class="q" data-i18n="scoreTrust">Güven / samimiyet</div>
             <div class="row" data-likert="scoreTrust"></div>
-            <button type="button" class="clear" data-clear="scoreTrust">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreTrust" data-i18n="clear">Temizle</button>
           </div>
           <div class="likert" data-field="scoreEngagement">
-            <div class="q">Eğlence / ilgi çekicilik</div>
+            <div class="q" data-i18n="scoreEngagement">Eğlence / ilgi çekicilik</div>
             <div class="row" data-likert="scoreEngagement"></div>
-            <button type="button" class="clear" data-clear="scoreEngagement">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreEngagement" data-i18n="clear">Temizle</button>
           </div>
           <div class="likert" data-field="scoreConsistency">
-            <div class="q">Tutarlılık / düzen</div>
+            <div class="q" data-i18n="scoreConsistency">Tutarlılık / düzen</div>
             <div class="row" data-likert="scoreConsistency"></div>
-            <button type="button" class="clear" data-clear="scoreConsistency">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreConsistency" data-i18n="clear">Temizle</button>
           </div>
         </div>
       </details>
 
-      <button type="submit" id="btn" class="btn">Feedback'i gönder</button>
-      <p class="trust">İsmin isteğe bağlı · Yorumun doğrudan bu linkin sahibine gider</p>
+      <button type="submit" id="btn" class="btn" data-i18n="submit">Feedback'i gönder</button>
+      <p class="trust" data-i18n="trust">İsmin isteğe bağlı · Yorumun doğrudan bu linkin sahibine gider</p>
     </form>
 
     <div id="success">
       <div class="okicon">✓</div>
-      <h2>Feedback'in gönderildi 🎉</h2>
-      <p class="body">Teşekkürler. Yorumun başarıyla iletildi.</p>
+      <h2 data-i18n="successTitle">Feedback'in gönderildi 🎉</h2>
+      <p class="body" data-i18n="successBody">Teşekkürler. Yorumun başarıyla iletildi.</p>
       <div class="acq">
-        <h3>Peki insanlar senin hakkında ne düşünüyor? 👀</h3>
-        <p>Kendi feedback linkini oluştur ve anonim yorumlar toplamaya başla.</p>
-        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Kendi linkimi oluştur</a>
+        <h3 data-i18n="acqTitle">Peki insanlar senin hakkında ne düşünüyor? 👀</h3>
+        <p data-i18n="acqBody">Kendi feedback linkini oluştur ve anonim yorumlar toplamaya başla.</p>
+        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer" data-i18n="acqCta">Kendi linkimi oluştur</a>
       </div>
     </div>
   </div>
@@ -230,6 +225,94 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
   <script>
+    // === i18n (TR + EN) — sadece user-facing metin; payload/enum değerleri çevrilmez ===
+    var I18N = {
+      tr: {
+        docTitle: 'Feedback bırak — Feedback2Me',
+        anon: '🔒 Anonim',
+        heroDefault: 'Dürüst bir feedback bırak 👀',
+        subDefault: 'Dürüst ol. Kısa ol. Kendin ol. İsmini yazmak zorunda değilsin.',
+        reactionTitle: 'İlk hissin ne? 👀',
+        commentLabel: 'Ne düşünüyorsun? *',
+        commentPh: 'İlk izlenimin, sevdiğin bir şey ya da geliştirebileceği bir taraf…',
+        minChars: 'En az 10 karakter',
+        nameLabel: 'İsmin', relLabel: 'İlişkin', optional: '· isteğe bağlı',
+        namePh: 'Anonim kalmak için boş bırak', relPh: 'Arkadaş, iş arkadaşı, tanıdık…',
+        surveySummary: 'Biraz daha bağlam ekle (isteğe bağlı)',
+        surveyHint: 'İstersen feedback\'ini biraz daha detaylandır. Doldurmak zorunlu değil.',
+        svqFam: 'Ne zamandır tanıyorsun?', famFirst: 'İlk kez görüyorum', famShort: 'Birkaç haftadır', famMedium: 'Birkaç aydır', famLong: 'Uzun süredir',
+        svqPlat: 'Nerede takip ediyorsun? (çoklu)', platOther: 'Diğer / web',
+        svqFreq: 'Ne sıklıkla görüyorsun?', freqRare: 'Nadiren', freqMonthly: 'Ayda birkaç kez', freqWeekly: 'Haftada birkaç kez', freqDaily: 'Neredeyse her gün',
+        svqFocus: 'Hangi tür içeriklerde daha güçlü olabilir? (çoklu)',
+        focusEducation: 'Eğitim / nasıl yapılır', focusEntertainment: 'Eğlence', focusLifestyle: 'Yaşam tarzı / vlog', focusTech: 'Teknoloji / ürün',
+        focusBusiness: 'İş / kariyer', focusGaming: 'Oyun', focusCreative: 'Yaratıcı / sanat', focusArts: 'Müzik / performans',
+        svqScore: 'Puanla 1–5 (isteğe bağlı)', scaleNote: '1 düşük · 5 yüksek · Emin değilsen boş bırak',
+        scoreProduction: 'Üretim kalitesi (ses, görüntü, kurgu)', scoreClarity: 'Mesaj netliği', scoreTrust: 'Güven / samimiyet',
+        scoreEngagement: 'Eğlence / ilgi çekicilik', scoreConsistency: 'Tutarlılık / düzen', clear: 'Temizle',
+        submit: 'Feedback\'i gönder', trust: 'İsmin isteğe bağlı · Yorumun doğrudan bu linkin sahibine gider',
+        successTitle: 'Feedback\'in gönderildi 🎉', successBody: 'Teşekkürler. Yorumun başarıyla iletildi.',
+        acqTitle: 'Peki insanlar senin hakkında ne düşünüyor? 👀', acqBody: 'Kendi feedback linkini oluştur ve anonim yorumlar toplamaya başla.', acqCta: 'Kendi linkimi oluştur',
+        rx_fire: 'Çok iyi', rx_love: 'Beğendim', rx_wow: 'Bayıldım', rx_eyes: 'Dikkat çekici', rx_hmm: 'Emin değilim', rx_fun: 'Eğlenceli', rx_meh: 'Bir şey eksik',
+        mChecking: 'Link kontrol ediliyor…', mNotFoundHero: 'Bu linki bulamadık', mNotFoundSub: 'Link yanlış yazılmış veya artık mevcut olmayabilir.',
+        mNotFound: 'Bu link bulunamadı.', mNoCode: 'Linkte kod bulunamadı.', mClosedSub: 'Bu link artık yeni feedback kabul etmiyor.',
+        mDemoUsed: 'Bu demo link zaten bir kez kullanıldı.', mExpired: 'Bu linkin süresi dolmuş.', mInvalid: 'Bu link artık geçerli değil.',
+        mConnErr: 'Bağlantı hatası: ', mMin10: 'En az 10 karakter yaz.', mClosedRefresh: 'Bu link artık kabul etmiyor. Sayfayı yenile.',
+        mSending: 'Gönderiliyor…', mSendFail: 'Gönderilemedi: ',
+        cLeft: 'Kalan süre: ', cExpired: 'Süre doldu. Bu link artık feedback kabul etmiyor.'
+      },
+      en: {
+        docTitle: 'Leave feedback — Feedback2Me',
+        anon: '🔒 Anonymous',
+        heroDefault: 'Leave an honest feedback 👀',
+        subDefault: "Be honest. Be brief. Be yourself. You don't have to enter your name.",
+        reactionTitle: "What's your first impression? 👀",
+        commentLabel: 'What do you think? *',
+        commentPh: 'A first impression, something you like, or something they could improve…',
+        minChars: 'At least 10 characters',
+        nameLabel: 'Your name', relLabel: 'Your relationship', optional: '· optional',
+        namePh: 'Leave empty to stay anonymous', relPh: 'Friend, coworker, acquaintance…',
+        surveySummary: 'Add a little more context (optional)',
+        surveyHint: 'Optionally add more detail to your feedback. Not required.',
+        svqFam: 'How long have you known them?', famFirst: 'First time seeing them', famShort: 'A few weeks', famMedium: 'A few months', famLong: 'A long time',
+        svqPlat: 'Where do you follow them? (multiple)', platOther: 'Other / web',
+        svqFreq: 'How often do you see them?', freqRare: 'Rarely', freqMonthly: 'A few times a month', freqWeekly: 'A few times a week', freqDaily: 'Almost every day',
+        svqFocus: 'Where could they be stronger? (multiple)',
+        focusEducation: 'Education / how-to', focusEntertainment: 'Entertainment', focusLifestyle: 'Lifestyle / vlog', focusTech: 'Tech / product',
+        focusBusiness: 'Business / career', focusGaming: 'Gaming', focusCreative: 'Creative / art', focusArts: 'Music / performance',
+        svqScore: 'Rate 1–5 (optional)', scaleNote: '1 low · 5 high · Leave empty if unsure',
+        scoreProduction: 'Production quality (audio, video, editing)', scoreClarity: 'Message clarity', scoreTrust: 'Trust / sincerity',
+        scoreEngagement: 'Fun / engagement', scoreConsistency: 'Consistency / cadence', clear: 'Clear',
+        submit: 'Send feedback', trust: 'Name optional · Your comment goes directly to the link owner',
+        successTitle: 'Your feedback has been sent 🎉', successBody: 'Thank you. Your comment was delivered successfully.',
+        acqTitle: 'So, what do people think about you? 👀', acqBody: 'Create your own feedback link and start collecting anonymous comments.', acqCta: 'Create my own link',
+        rx_fire: 'Fire', rx_love: 'Love it', rx_wow: 'Obsessed', rx_eyes: 'Eye-catching', rx_hmm: 'Not sure', rx_fun: 'Fun', rx_meh: 'Missing something',
+        mChecking: 'Checking link…', mNotFoundHero: "We couldn't find this link", mNotFoundSub: 'The link may be mistyped or no longer exist.',
+        mNotFound: 'This link was not found.', mNoCode: 'No code found in the link.', mClosedSub: 'This link is no longer accepting feedback.',
+        mDemoUsed: 'This demo link has already been used once.', mExpired: 'This link has expired.', mInvalid: 'This link is no longer valid.',
+        mConnErr: 'Connection error: ', mMin10: 'Write at least 10 characters.', mClosedRefresh: 'This link no longer accepts feedback. Refresh the page.',
+        mSending: 'Sending…', mSendFail: "Couldn't send: ",
+        cLeft: 'Time left: ', cExpired: "Time's up. This link no longer accepts feedback."
+      }
+    };
+    function detectLang() {
+      var q = new URLSearchParams(location.search).get('lang');
+      if (q === 'tr' || q === 'en') return q;
+      var nav = (navigator.language || 'en').toLowerCase();
+      return nav.indexOf('tr') === 0 ? 'tr' : 'en';
+    }
+    var LANG = detectLang();
+    var T = I18N[LANG];
+    document.documentElement.lang = LANG;
+    document.title = T.docTitle;
+    (function applyI18n() {
+      document.querySelectorAll('[data-i18n]').forEach(function (el) {
+        var k = el.getAttribute('data-i18n'); if (T[k] != null) el.textContent = T[k];
+      });
+      document.querySelectorAll('[data-i18n-ph]').forEach(function (el) {
+        var k = el.getAttribute('data-i18n-ph'); if (T[k] != null) el.setAttribute('placeholder', T[k]);
+      });
+    })();
+
     // === Firebase (değişmedi) ===
     const cfg = {
       apiKey: "AIzaSyCRflC9vEs78jUte24z4mzGU2AXtaVKV_M",
@@ -244,10 +327,7 @@
 
     function resolvePublicApiBase() {
       var meta = document.querySelector('meta[name="ftm-public-api"]');
-      if (meta) {
-        var mc = (meta.getAttribute('content') || '').trim();
-        if (mc) return mc.replace(/\/+$/, '');
-      }
+      if (meta) { var mc = (meta.getAttribute('content') || '').trim(); if (mc) return mc.replace(/\/+$/, ''); }
       if (typeof window.FTM_PUBLIC_API_BASE === 'string' && window.FTM_PUBLIC_API_BASE.trim()) {
         return window.FTM_PUBLIC_API_BASE.trim().replace(/\/+$/, '');
       }
@@ -256,42 +336,39 @@
     var FTM_PUBLIC_API_BASE = resolvePublicApiBase();
     window._useRestApi = false;
 
-    // === Reactions (uygulamadaki kDefaultReactions ile aynı; mood sentiment'ten türer) ===
+    // === Reactions — uygulamadaki kDefaultReactions ile aynı; mood sentiment'ten türer ===
     var REACTIONS = [
-      { key:'fire', emoji:'🔥', label:'Çok iyi', sentiment:1 },
-      { key:'love', emoji:'❤️', label:'Beğendim', sentiment:1 },
-      { key:'wow',  emoji:'😍', label:'Bayıldım', sentiment:1 },
-      { key:'eyes', emoji:'👀', label:'Dikkat çekici', sentiment:0 },
-      { key:'hmm',  emoji:'🤔', label:'Emin değilim', sentiment:0 },
-      { key:'fun',  emoji:'😂', label:'Eğlenceli', sentiment:1 },
-      { key:'meh',  emoji:'🧐', label:'Bir şey eksik', sentiment:-1 }
+      { key:'fire', emoji:'🔥', sentiment:1 },
+      { key:'love', emoji:'❤️', sentiment:1 },
+      { key:'wow',  emoji:'😍', sentiment:1 },
+      { key:'eyes', emoji:'👀', sentiment:0 },
+      { key:'hmm',  emoji:'🤔', sentiment:0 },
+      { key:'fun',  emoji:'😂', sentiment:1 },
+      { key:'meh',  emoji:'🧐', sentiment:-1 }
     ];
     window._reaction = null;
     window._mood = 0;
     (function buildReactions() {
       var box = document.getElementById('reactions');
       REACTIONS.forEach(function (r) {
+        var label = T['rx_' + r.key] || r.key;
         var el = document.createElement('div');
         el.className = 'rx';
         el.setAttribute('role', 'button');
         el.setAttribute('tabindex', '0');
         el.setAttribute('aria-pressed', 'false');
-        el.setAttribute('aria-label', r.label);
+        el.setAttribute('aria-label', label);
         el.dataset.key = r.key;
-        el.innerHTML = '<span class="emo">' + r.emoji + '</span><span>' + r.label + '</span><span class="chk">✓</span>';
+        el.innerHTML = '<span class="emo">' + r.emoji + '</span><span>' + label + '</span><span class="chk">✓</span>';
         function toggle() {
           var already = el.classList.contains('sel');
-          document.querySelectorAll('.rx').forEach(function (n) {
-            n.classList.remove('sel'); n.setAttribute('aria-pressed', 'false');
-          });
+          document.querySelectorAll('.rx').forEach(function (n) { n.classList.remove('sel'); n.setAttribute('aria-pressed', 'false'); });
           if (already) { window._reaction = null; window._mood = 0; return; }
           el.classList.add('sel'); el.setAttribute('aria-pressed', 'true');
           window._reaction = r.key; window._mood = r.sentiment;
         }
         el.addEventListener('click', toggle);
-        el.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
-        });
+        el.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
         box.appendChild(el);
       });
     })();
@@ -319,17 +396,13 @@
       var freq = document.querySelector('input[name="freq"]:checked');
       var plats = Array.from(document.querySelectorAll('input[name="plat"]:checked')).map(function (i) { return i.value; }).sort();
       var focus = Array.from(document.querySelectorAll('input[name="focus"]:checked')).map(function (i) { return i.value; }).sort();
-      function score(name) {
-        var el = document.querySelector('input[name="' + name + '"]:checked');
-        return el ? parseInt(el.value, 10) : null;
-      }
+      function score(name) { var el = document.querySelector('input[name="' + name + '"]:checked'); return el ? parseInt(el.value, 10) : null; }
       var m = {};
       if (fam) m.familiarity = fam.value;
       if (plats.length) m.platforms = plats;
       if (freq) m.watchFrequency = freq.value;
       if (focus.length) m.contentFocus = focus;
-      var sp = score('scoreProduction'), sc = score('scoreClarity'), st = score('scoreTrust'),
-          se = score('scoreEngagement'), scs = score('scoreConsistency');
+      var sp = score('scoreProduction'), sc = score('scoreClarity'), st = score('scoreTrust'), se = score('scoreEngagement'), scs = score('scoreConsistency');
       if (sp != null) m.scoreProduction = sp;
       if (sc != null) m.scoreClarity = sc;
       if (st != null) m.scoreTrust = st;
@@ -340,13 +413,9 @@
 
     function getCode() {
       var raw = '';
-      var p = location.pathname;
-      var m = p.match(/\/f\/([a-zA-Z0-9]+)/);
+      var m = location.pathname.match(/\/f\/([a-zA-Z0-9]+)/);
       if (m) raw = m[1];
-      else {
-        var q = new URLSearchParams(location.search);
-        raw = q.get('code') || q.get('c') || '';
-      }
+      else { var q = new URLSearchParams(location.search); raw = q.get('code') || q.get('c') || ''; }
       return (raw || '').trim().toLowerCase();
     }
 
@@ -357,9 +426,7 @@
     function show(id, html, cls) {
       var el = document.getElementById(id);
       if (!el) return;
-      el.innerHTML = html;
-      el.className = cls ? 'msg ' + cls : 'msg';
-      el.style.display = html ? 'block' : 'none';
+      el.innerHTML = html; el.className = cls ? 'msg ' + cls : 'msg'; el.style.display = html ? 'block' : 'none';
     }
 
     function validUntilMs(v) {
@@ -379,9 +446,7 @@
       return pad(m) + ':' + pad(s);
     }
 
-    function stopLinkCountdown() {
-      if (window._linkCountdownTimer) { clearInterval(window._linkCountdownTimer); window._linkCountdownTimer = null; }
-    }
+    function stopLinkCountdown() { if (window._linkCountdownTimer) { clearInterval(window._linkCountdownTimer); window._linkCountdownTimer = null; } }
 
     function startLinkCountdown(validUntilEpochMs) {
       stopLinkCountdown();
@@ -392,15 +457,13 @@
         var left = validUntilEpochMs - Date.now();
         var txt = formatCountdownLeft(left);
         if (txt == null) {
-          el.textContent = 'Süre doldu. Bu link artık feedback kabul etmiyor.';
-          el.classList.add('expired');
+          el.textContent = T.cExpired; el.classList.add('expired');
           stopLinkCountdown();
           document.getElementById('form').style.display = 'none';
-          show('msg', 'Bu linkin süresi dolmuş.', 'err');
+          show('msg', T.mExpired, 'err');
           return;
         }
-        el.textContent = 'Kalan süre: ' + txt;
-        el.classList.remove('expired');
+        el.textContent = T.cLeft + txt; el.classList.remove('expired');
       }
       tick();
       window._linkCountdownTimer = setInterval(tick, 1000);
@@ -426,33 +489,27 @@
     var code = getCode();
     if (!code) {
       hideLinkCountdown();
-      document.getElementById('hero').textContent = 'Bu linki bulamadık';
-      document.getElementById('subtitle').textContent = 'Link yanlış yazılmış veya artık mevcut olmayabilir.';
-      show('msg', 'Linkte kod bulunamadı.', 'err');
+      document.getElementById('hero').textContent = T.mNotFoundHero;
+      document.getElementById('subtitle').textContent = T.mNotFoundSub;
+      show('msg', T.mNoCode, 'err');
     } else {
-      show('msg', 'Link kontrol ediliyor…', 'load');
+      show('msg', T.mChecking, 'load');
       function fetchLinkDocForGuest() {
         if (FTM_PUBLIC_API_BASE) {
-          return fetch(FTM_PUBLIC_API_BASE + '/public/links/by-code/' + encodeURIComponent(code), {
-            headers: { Accept: 'application/json' }
-          }).then(function (res) {
-            return res.json().catch(function () { return {}; }).then(function (j) {
-              if (res.status === 404) {
-                if (j && j.error === 'demo_used') return { _rest: true, _state: 'demo_used' };
-                return null;
-              }
-              if (!res.ok) throw new Error('Sunucu yanıtı: ' + res.status);
-              if (!j || !j.link) return null;
-              return { _rest: true, link: j.link };
+          return fetch(FTM_PUBLIC_API_BASE + '/public/links/by-code/' + encodeURIComponent(code), { headers: { Accept: 'application/json' } })
+            .then(function (res) {
+              return res.json().catch(function () { return {}; }).then(function (j) {
+                if (res.status === 404) { if (j && j.error === 'demo_used') return { _rest: true, _state: 'demo_used' }; return null; }
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                if (!j || !j.link) return null;
+                return { _rest: true, link: j.link };
+              });
             });
-          });
         }
-        return db.collection('links')
-          .where('code', '==', code).where('isActive', '==', true).limit(1).get()
+        return db.collection('links').where('code', '==', code).where('isActive', '==', true).limit(1).get()
           .then(function (snap) {
             if (!snap.empty) return snap.docs[0];
-            return db.collection('links')
-              .where('code', '==', code).where('linkTier', '==', 'demo').where('demoSubmissionUsed', '==', true).limit(1).get()
+            return db.collection('links').where('code', '==', code).where('linkTier', '==', 'demo').where('demoSubmissionUsed', '==', true).limit(1).get()
               .then(function (snap2) { return snap2.empty ? null : snap2.docs[0]; });
           });
       }
@@ -460,30 +517,27 @@
         .then(function (linkDoc) {
           if (!linkDoc) {
             hideLinkCountdown();
-            document.getElementById('hero').textContent = 'Bu linki bulamadık';
-            document.getElementById('subtitle').textContent = 'Link yanlış yazılmış veya artık mevcut olmayabilir.';
-            show('msg', 'Bu link bulunamadı.', 'err');
+            document.getElementById('hero').textContent = T.mNotFoundHero;
+            document.getElementById('subtitle').textContent = T.mNotFoundSub;
+            show('msg', T.mNotFound, 'err');
             return;
           }
           if (linkDoc._state === 'demo_used') {
             hideLinkCountdown();
-            document.getElementById('subtitle').textContent = 'Bu link artık yeni feedback kabul etmiyor.';
-            show('msg', 'Bu demo link zaten bir kez kullanıldı.', 'err');
+            document.getElementById('subtitle').textContent = T.mClosedSub;
+            show('msg', T.mDemoUsed, 'err');
             return;
           }
           var data;
-          if (linkDoc._rest === true && linkDoc.link) {
-            window._useRestApi = true; data = linkDoc.link; window._linkId = data.id; window._linkRef = null;
-          } else {
-            window._useRestApi = false; data = linkDoc.data(); window._linkId = linkDoc.id; window._linkRef = linkDoc.ref;
-          }
+          if (linkDoc._rest === true && linkDoc.link) { window._useRestApi = true; data = linkDoc.link; window._linkId = data.id; window._linkRef = null; }
+          else { window._useRestApi = false; data = linkDoc.data(); window._linkId = linkDoc.id; window._linkRef = linkDoc.ref; }
           var st = publicLinkStatus(data);
           if (!st.ok) {
             hideLinkCountdown();
-            document.getElementById('subtitle').textContent = 'Bu link artık yeni feedback kabul etmiyor.';
-            if (st.reason === 'expired') show('msg', 'Bu linkin süresi dolmuş.', 'err');
-            else if (st.reason === 'demo_used') show('msg', 'Bu demo link zaten bir kez kullanıldı.', 'err');
-            else show('msg', 'Bu link artık geçerli değil.', 'err');
+            document.getElementById('subtitle').textContent = T.mClosedSub;
+            if (st.reason === 'expired') show('msg', T.mExpired, 'err');
+            else if (st.reason === 'demo_used') show('msg', T.mDemoUsed, 'err');
+            else show('msg', T.mInvalid, 'err');
             return;
           }
           window._linkData = data;
@@ -496,24 +550,23 @@
         })
         .catch(function (e) {
           hideLinkCountdown();
-          var msg = e && e.message ? String(e.message) : 'Bilinmeyen hata';
-          show('msg', 'Bağlantı hatası: ' + escapeHtml(msg), 'err');
+          var msg = e && e.message ? String(e.message) : '?';
+          show('msg', T.mConnErr + escapeHtml(msg), 'err');
         });
     }
 
     document.getElementById('form').addEventListener('submit', async function (e) {
       e.preventDefault();
       var text = document.getElementById('feedback').value.trim();
-      if (text.length < 10) { show('msg', 'En az 10 karakter yaz.', 'err'); return; }
+      if (text.length < 10) { show('msg', T.mMin10, 'err'); return; }
       if (!window._linkId) return;
       if (!window._useRestApi && !window._linkRef) return;
       var st = publicLinkStatus(window._linkData);
-      if (!st.ok) { show('msg', 'Bu link artık kabul etmiyor. Sayfayı yenile.', 'err'); return; }
+      if (!st.ok) { show('msg', T.mClosedRefresh, 'err'); return; }
       var btn = document.getElementById('btn');
       btn.disabled = true;
-      show('msg', 'Gönderiliyor…', 'load');
+      show('msg', T.mSending, 'load');
       try {
-        // mood reaction sentiment'ten türer (seçilmezse 0 = nötr). reaction anahtarı da yazılır (uygulama ile aynı).
         var mood = (window._mood != null) ? window._mood : 0;
         var reaction = window._reaction || null;
         var survey = collectCreatorSurvey();
@@ -522,28 +575,20 @@
             linkId: window._linkId,
             responderName: document.getElementById('name').value.trim() || null,
             relation: document.getElementById('relation').value.trim() || null,
-            mood: mood,
-            textRaw: text
+            mood: mood, textRaw: text
           };
           if (reaction) body.reaction = reaction;
           if (survey) body.creatorSurvey = survey;
           var res = await fetch(FTM_PUBLIC_API_BASE + '/feedbacks', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify(body)
+            method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body)
           });
-          if (!res.ok) {
-            var errBody = await res.text();
-            if (res.status === 410) throw new Error('Bu linkin süresi dolmuş.');
-            throw new Error(errBody || ('HTTP ' + res.status));
-          }
+          if (!res.ok) { var errBody = await res.text(); if (res.status === 410) throw new Error(T.mExpired); throw new Error(errBody || ('HTTP ' + res.status)); }
         } else {
           var payload = {
             linkId: window._linkId,
             responderName: document.getElementById('name').value.trim() || null,
             relation: document.getElementById('relation').value.trim() || null,
-            mood: mood,
-            textRaw: text,
+            mood: mood, textRaw: text,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           };
           if (reaction) payload.reaction = reaction;
@@ -563,7 +608,7 @@
         document.getElementById('subtitle').style.display = 'none';
         document.getElementById('success').style.display = 'block';
       } catch (err) {
-        show('msg', 'Gönderilemedi: ' + escapeHtml(err && err.message ? err.message : String(err)), 'err');
+        show('msg', T.mSendFail + escapeHtml(err && err.message ? err.message : String(err)), 'err');
         btn.disabled = false;
       }
     });
