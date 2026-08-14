@@ -37,6 +37,21 @@ export const feedbacksRoutes: FastifyPluginAsync = async (app) => {
           throw Object.assign(new Error('link_not_found'), { code: 404 });
         }
 
+        // DEMO CONCURRENCY GUARANTEE: demo tek-yorum kuralını compare-and-set ile
+        // enforce et. İki eşzamanlı demo submit'inde updateMany satır kilidi +
+        // `demoSubmissionUsed: false` WHERE koşulu → yalnız BİRİ count=1 alır;
+        // diğeri count=0 → throw ile TÜM transaction (feedback dahil) geri alınır.
+        // Prisma default read-committed'da bile satır kilidi serileştirir.
+        if (link.linkTier === 'demo') {
+          const consumed = await tx.link.updateMany({
+            where: { id: linkId, demoSubmissionUsed: false },
+            data: { demoSubmissionUsed: true, isActive: false },
+          });
+          if (consumed.count === 0) {
+            throw Object.assign(new Error('link_not_found'), { code: 404 });
+          }
+        }
+
         const created = await tx.feedback.create({
           data: {
             linkId,
@@ -48,13 +63,6 @@ export const feedbacksRoutes: FastifyPluginAsync = async (app) => {
             creatorSurvey: creatorSurvey ? (creatorSurvey as object) : undefined,
           },
         });
-
-        if (link.linkTier === 'demo') {
-          await tx.link.update({
-            where: { id: linkId },
-            data: { demoSubmissionUsed: true, isActive: false },
-          });
-        }
 
         return created;
       });

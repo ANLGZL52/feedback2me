@@ -13,11 +13,46 @@ service cloud.firestore {
             && (!link.keys().hasAny(['demoSubmissionUsed']) || link.demoSubmissionUsed == false));
     }
 
+    // Feedback kabulü SUNUCU-yetkilidir: aktif + süresi dolmamış (request.time =
+    // sunucu saati; istemci saati manipülasyonu geçmez) + tier limiti.
+    // DEMO ATOMIC GUARANTEE: demo linke feedback ancak AYNI batch/transaction
+    // içinde link demoSubmissionUsed=true + isActive=false yapılıyorsa kabul
+    // edilir (getAfter = işlem sonrası durum). Yalnız feedback yazıp linki açık
+    // bırakmaya çalışan kötü niyetli istemci REDDEDİLİR → demo tek-yorum garanti.
     function linkAcceptsPublicFeedback(linkId) {
-      let link = get(/databases/$(database)/documents/links/$(linkId)).data;
+      let linkPath = /databases/$(database)/documents/links/$(linkId);
+      let link = get(linkPath).data;
+      let after = getAfter(linkPath).data;
       return link.isActive == true
         && (!link.keys().hasAny(['validUntil']) || request.time < link.validUntil)
-        && linkTierAllowsPublicFeedback(link);
+        && linkTierAllowsPublicFeedback(link)
+        && (link.linkTier != 'demo'
+            || (after.demoSubmissionUsed == true && after.isActive == false));
+    }
+
+    // CREATE güvenliği: validUntil tier'a göre üst süre sınırını AŞAMAZ.
+    // validUntil client saatiyle üretildiği için küçük saat kayması toleransı
+    // (demo 10dk+5, premium 24s+1). Kötü niyetli istemci 30 gün/1 yıl yazamaz.
+    function createValidUntilWithinTierCap(link) {
+      let tier = link.get('linkTier', 'demo');
+      let vu = link.get('validUntil', null);
+      return vu == null
+        || (tier == 'demo'
+            ? vu <= request.time + duration.value(15, 'm')
+            : vu <= request.time + duration.value(25, 'h'));
+    }
+
+    // Owner link update'i lifecycle'ı GERİYE alamaz: tier/kod/sahip/validUntil/
+    // demoSubmissionUsed değişemez; kapalı link (isActive=false) yeniden
+    // AÇILAMAZ. İzin verilen tek yön aktif→pasif (deactivate). Expired/consumed
+    // link immutable → owner yeni link oluşturmalı.
+    function ownerLinkUpdateIsSafe(prev, next) {
+      return next.ownerId == prev.ownerId
+        && next.code == prev.code
+        && next.get('linkTier', '') == prev.get('linkTier', '')
+        && next.get('validUntil', null) == prev.get('validUntil', null)
+        && next.get('demoSubmissionUsed', false) == prev.get('demoSubmissionUsed', false)
+        && !(prev.isActive == false && next.isActive == true);
     }
 
     // --- Kullanıcı profili: kredi/premium alanları SUNUCU-yetkilidir ---
@@ -61,12 +96,16 @@ service cloud.firestore {
         || (resource.data.keys().hasAny(['linkTier']) && resource.data.linkTier == 'demo'
             && resource.data.keys().hasAny(['demoSubmissionUsed'])
             && resource.data.demoSubmissionUsed == true);
-      // Sadece oturum açmış kullanıcı kendi adına link oluşturabilir.
+      // Sadece oturum açmış kullanıcı kendi adına link oluşturabilir + süre sınırı.
       allow create: if request.auth != null
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.ownerId is string
-        && request.resource.data.code is string;
-      allow update, delete: if request.auth != null && request.auth.uid == resource.data.ownerId;
+        && request.resource.data.code is string
+        && createValidUntilWithinTierCap(request.resource.data);
+      // Owner: yalnızca güvenli update (reactivate/uzatma/reset yasak) + delete.
+      allow update: if request.auth != null && request.auth.uid == resource.data.ownerId
+        && ownerLinkUpdateIsSafe(resource.data, request.resource.data);
+      allow delete: if request.auth != null && request.auth.uid == resource.data.ownerId;
       // Demo: tek yorum sonrasi misafir batch (yorum + link kapatma).
       allow update: if resource.data.linkTier == 'demo'
         && resource.data.demoSubmissionUsed == false
