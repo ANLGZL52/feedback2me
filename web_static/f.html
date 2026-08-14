@@ -84,12 +84,13 @@
       border:1px solid var(--border); border-radius:10px; padding:6px 10px; font-size:.85rem; cursor:pointer; }
     .likert .clear{ background:none; border:none; color:var(--text2); font-size:.78rem; cursor:pointer; margin-top:6px; padding:2px 0; }
     .scale-note{ color:var(--text2); font-size:.8rem; margin:0 0 8px; }
-    #success{ display:none; text-align:center; }
+    #success, #already{ display:none; text-align:center; }
     .okicon{ width:88px;height:88px;border-radius:50%; margin:8px auto 16px; display:flex;align-items:center;justify-content:center;
       background:linear-gradient(90deg,var(--primary),var(--violet)); color:#fff; font-size:44px;
       box-shadow:0 8px 22px rgba(53,87,246,0.3); }
-    #success h2{ font-size:1.5rem; font-weight:800; margin:0 0 6px; }
-    #success .body{ color:var(--text2); margin:0 0 22px; }
+    #already .okicon{ background:linear-gradient(90deg,var(--success),var(--primary)); }
+    #success h2, #already h2{ font-size:1.5rem; font-weight:800; margin:0 0 6px; }
+    #success .body, #already .body{ color:var(--text2); margin:0 0 22px; }
     .acq{ text-align:left; background:var(--primarySoft); border-radius:var(--radius); padding:18px; }
     .acq h3{ margin:0 0 6px; font-size:1.05rem; }
     .acq p{ margin:0 0 14px; color:var(--text2); font-size:.92rem; }
@@ -220,6 +221,17 @@
         <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer" data-i18n="acqCta">Kendi linkimi oluştur</a>
       </div>
     </div>
+
+    <div id="already">
+      <div class="okicon">🙌</div>
+      <h2 data-i18n="alreadyTitle">Bu linke zaten feedback bıraktın 🙌</h2>
+      <p class="body" data-i18n="alreadyBody">Teşekkürler. Bu tarayıcıdan aynı linke tekrar feedback gönderemezsin.</p>
+      <div class="acq">
+        <h3 data-i18n="acqTitle">Peki insanlar senin hakkında ne düşünüyor? 👀</h3>
+        <p data-i18n="acqBody">Kendi feedback linkini oluştur ve anonim yorumlar toplamaya başla.</p>
+        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer" data-i18n="acqCta">Kendi linkimi oluştur</a>
+      </div>
+    </div>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
@@ -252,6 +264,7 @@
         submit: 'Feedback\'i gönder', trust: 'İsmin isteğe bağlı · Yorumun doğrudan bu linkin sahibine gider',
         successTitle: 'Feedback\'in gönderildi 🎉', successBody: 'Teşekkürler. Yorumun başarıyla iletildi.',
         acqTitle: 'Peki insanlar senin hakkında ne düşünüyor? 👀', acqBody: 'Kendi feedback linkini oluştur ve anonim yorumlar toplamaya başla.', acqCta: 'Kendi linkimi oluştur',
+        alreadyTitle: 'Bu linke zaten feedback bıraktın 🙌', alreadyBody: 'Teşekkürler. Bu tarayıcıdan aynı linke tekrar feedback gönderemezsin.',
         rx_fire: 'Çok iyi', rx_love: 'Beğendim', rx_wow: 'Bayıldım', rx_eyes: 'Dikkat çekici', rx_hmm: 'Emin değilim', rx_fun: 'Eğlenceli', rx_meh: 'Bir şey eksik',
         mChecking: 'Link kontrol ediliyor…', mNotFoundHero: 'Bu linki bulamadık', mNotFoundSub: 'Link yanlış yazılmış veya artık mevcut olmayabilir.',
         mNotFound: 'Bu link bulunamadı.', mNoCode: 'Linkte kod bulunamadı.', mClosedSub: 'Bu link artık yeni feedback kabul etmiyor.',
@@ -285,6 +298,7 @@
         submit: 'Send feedback', trust: 'Name optional · Your comment goes directly to the link owner',
         successTitle: 'Your feedback has been sent 🎉', successBody: 'Thank you. Your comment was delivered successfully.',
         acqTitle: 'So, what do people think about you? 👀', acqBody: 'Create your own feedback link and start collecting anonymous comments.', acqCta: 'Create my own link',
+        alreadyTitle: "You've already left feedback for this link 🙌", alreadyBody: "Thanks! You can't submit another response to the same link from this browser.",
         rx_fire: 'Fire', rx_love: 'Love it', rx_wow: 'Obsessed', rx_eyes: 'Eye-catching', rx_hmm: 'Not sure', rx_fun: 'Fun', rx_meh: 'Missing something',
         mChecking: 'Checking link…', mNotFoundHero: "We couldn't find this link", mNotFoundSub: 'The link may be mistyped or no longer exist.',
         mNotFound: 'This link was not found.', mNoCode: 'No code found in the link.', mClosedSub: 'This link is no longer accepting feedback.',
@@ -486,6 +500,32 @@
       return { ok: true };
     }
 
+    // === Same-browser anti-repeat (UX CAYDIRICI — GÜVENLİK DEĞİL) ===
+    // Marker YALNIZ başarılı submit sonrası yazılır. localStorage temizleme,
+    // gizli sekme, başka tarayıcı/cihaz ile AŞILABİLİR; bu yüzden "bir kişi
+    // yalnız bir kez" gibi mutlak iddia YOK. Demo güvenliği bu marker'a BAĞLI
+    // DEĞİL — kaynak-doğruluk Firestore/sunucu lifecycle'ıdır. Fingerprint/IP/
+    // login YOK. Anahtar tercihen immutable linkId (yoksa code).
+    function submittedMarkerKey(id) { return 'feedback2me_submitted_' + id; }
+    function hasSubmittedMarker(id) {
+      if (!id) return false;
+      try { return localStorage.getItem(submittedMarkerKey(id)) === '1'; }
+      catch (e) { return false; } // private mode / storage kapalı → sunucu lifecycle devam eder
+    }
+    function writeSubmittedMarker(id) {
+      if (!id) return;
+      try { localStorage.setItem(submittedMarkerKey(id), '1'); }
+      catch (e) { /* yazılamıyorsa sessizce yut; akış bozulmaz */ }
+    }
+    function showAlreadySubmitted() {
+      hideLinkCountdown();
+      show('msg', '');
+      var f = document.getElementById('form'); if (f) f.style.display = 'none';
+      var h = document.getElementById('hero'); if (h) h.style.display = 'none';
+      var s = document.getElementById('subtitle'); if (s) s.style.display = 'none';
+      document.getElementById('already').style.display = 'block';
+    }
+
     var code = getCode();
     if (!code) {
       hideLinkCountdown();
@@ -541,6 +581,8 @@
             return;
           }
           window._linkData = data;
+          // Bu tarayıcı bu linke zaten başarıyla feedback bıraktıysa formu gizle.
+          if (hasSubmittedMarker(window._linkId)) { showAlreadySubmitted(); return; }
           show('msg', '');
           document.getElementById('form').style.display = 'block';
           var vuMs = validUntilMs(data.validUntil);
@@ -601,6 +643,8 @@
           }
           await batch.commit();
         }
+        // Marker YALNIZ buraya (server SUCCESS sonrası) ulaşınca yazılır.
+        writeSubmittedMarker(window._linkId);
         hideLinkCountdown();
         show('msg', '');
         document.getElementById('form').style.display = 'none';

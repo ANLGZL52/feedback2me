@@ -113,6 +113,9 @@ class L10n {
     'pfSuccessBody': 'Your feedback has been sent.',
     'pfSuccessSecondary': 'Your input will help make better decisions.',
     'pfSuccessCreateOwn': 'Create your own feedback link',
+    'pfAlreadyTitle': "You've already left feedback for this link 🙌",
+    'pfAlreadyBody':
+        "Thanks! You can't submit another response to the same link from this browser.",
     'pfInvalidTitle': "This link isn't valid.",
     'pfInvalidBody': 'The link may be invalid or expired. Check it and try again.',
     'pfClosedTitle': 'This link is no longer accepting feedback.',
@@ -727,6 +730,9 @@ class L10n {
     'pfSuccessBody': 'Geri bildirimin gönderildi.',
     'pfSuccessSecondary': 'Katkın daha iyi kararlar alınmasına yardımcı olacak.',
     'pfSuccessCreateOwn': 'Kendi feedback linkini oluştur',
+    'pfAlreadyTitle': 'Bu linke zaten feedback bıraktın 🙌',
+    'pfAlreadyBody':
+        'Teşekkürler. Bu tarayıcıdan aynı linke tekrar feedback gönderemezsin.',
     'pfInvalidTitle': 'Bu link geçerli değil.',
     'pfInvalidBody': 'Link geçersiz olabilir ya da süresi dolmuş olabilir. Kontrol edip tekrar dene.',
     'pfClosedTitle': 'Bu link artık feedback kabul etmiyor.',

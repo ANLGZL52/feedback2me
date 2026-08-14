@@ -33,6 +33,7 @@ import 'screens/premium_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/report_service.dart';
 import 'services/community_summary_store.dart';
+import 'services/submitted_marker.dart';
 import 'widgets/insights/community_summary_v2.dart';
 import 'widgets/insights/comment_card.dart';
 import 'widgets/profile/profile_header.dart';
@@ -4506,6 +4507,9 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   int _step = 0; // 0=reaction, 1=comment (yalnızca UI adımı)
   bool _submitting = false;
   bool _submitted = false;
+  bool _alreadySubmitted = false; // bu tarayıcı bu linke zaten yanıt verdi (UX)
+  // Same-browser anti-repeat mantığı [SubmittedMarker]'da (UX caydırıcı —
+  // GÜVENLİK DEĞİL; kaynak-doğruluk sunucu lifecycle'ı). Fingerprint/IP/login YOK.
 
   bool get _needsManualCode =>
       widget.linkCode == null || widget.linkCode!.trim().isEmpty;
@@ -4540,14 +4544,20 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
     try {
       final link = await appData.getLinkByCode(code);
       if (!mounted) return;
+      if (link == null) {
+        setState(() {
+          _resolving = false;
+          _resolveError = true;
+        });
+        return;
+      }
+      final already = await SubmittedMarker.has(link.id);
+      if (!mounted) return;
       setState(() {
         _resolving = false;
-        if (link == null) {
-          _resolveError = true;
-        } else {
-          _resolvedLink = link;
-          _linkController.text = code;
-        }
+        _resolvedLink = link;
+        _linkController.text = code;
+        _alreadySubmitted = already;
       });
     } catch (_) {
       if (!mounted) return;
@@ -4651,6 +4661,8 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
         textRaw: _feedbackController.text.trim(),
         creatorSurvey: _creatorSurveyKey.currentState?.buildPayload(),
       );
+      // Marker YALNIZ server SUCCESS sonrası; hata olursa yazılmaz.
+      await SubmittedMarker.write(link.id);
       if (!mounted) return;
       setState(() {
         _submitting = false;
@@ -4686,6 +4698,7 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   @override
   Widget build(BuildContext context) {
     if (_submitted) return _buildSuccess(context);
+    if (_alreadySubmitted) return _buildAlreadySubmitted(context);
     if (_resolveError) return _buildInvalid(context);
     if (_closedError) return _buildClosed(context);
     if (_resolving) {
@@ -4988,6 +5001,59 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
             const SizedBox(height: AppSpacing.xs),
             Text(L10n.get(context, 'pfSuccessSecondary'),
                 style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            FeedbackSecondaryButton(
+              label: L10n.get(context, 'pfSuccessCreateOwn'),
+              icon: Icons.add_link_rounded,
+              onPressed: () => Navigator.of(context).pushReplacement(
+                MaterialPageRoute<void>(builder: (_) => const _AuthGate()),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s),
+            Center(
+              child: FeedbackTextButton(
+                label: L10n.get(context, 'close'),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Bu tarayıcı bu linke zaten yanıt verdiyse (marker) gösterilir.
+  /// Server lifecycle'ı DEĞİL, yalnızca UX caydırıcı.
+  Widget _buildAlreadySubmitted(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context, showBack: false),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.huge),
+            Center(
+              child: Container(
+                width: 96,
+                height: 96,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  shape: BoxShape.circle,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.waving_hand_rounded,
+                    color: AppColors.onPrimary, size: 48),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'pfAlreadyTitle'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'pfAlreadyBody'),
+                style: AppType.body, textAlign: TextAlign.center),
             const SizedBox(height: AppSpacing.xxl),
             FeedbackSecondaryButton(
               label: L10n.get(context, 'pfSuccessCreateOwn'),
