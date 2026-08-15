@@ -1,0 +1,58 @@
+name: Server Demo Concurrency Test
+
+# Sadece REST demo tek-yorum concurrency invariant'ını GERÇEK PostgreSQL üzerinde
+# doğrular. Disposable CI test ortamı — PRODUCTION INFRA/DB DEĞİL.
+on:
+  push:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-concurrency-test.yml'
+  workflow_dispatch:
+
+jobs:
+  concurrency-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: feedback2me_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+
+    env:
+      # Yalnız CI içindeki disposable Postgres — production secret DEĞİL.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/feedback2me_test
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Init disposable test DB schema
+        run: npx prisma db push --skip-generate
+
+      - name: Run demo concurrency test
+        run: node --test test/demo-concurrency.test.mjs
