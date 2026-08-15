@@ -197,11 +197,21 @@ describe('PREMIUM', () => {
     );
   });
 
-  it('10b) aktif abonelik (isPremium) + kredi sabit + Premium create → ALLOW', async () => {
+  it('10b) LEGACY isPremium=true + credit=0 + Premium create → DENY (bypass kaldırıldı)', async () => {
+    // Güncel model salt-kredi; backend isPremium grant etmez. Legacy isPremium
+    // artık kredisiz premium link YARATMAZ.
     await seedUser('owner1', { isPremium: true, paidLinkCredits: 0, freeDemoLinkUsed: true });
-    await assertSucceeds(
-      createLinkBatch(ownerDb(), { id: 'p10b', tier: 'premium' }),
-    );
+    await assertFails(createLinkBatch(ownerDb(), { id: 'p10b', tier: 'premium' }));
+  });
+
+  it('10c) LEGACY premiumUntil gelecekte + credit=0 + Premium create → DENY', async () => {
+    await seedUser('owner1', {
+      isPremium: true,
+      premiumUntil: new Date(Date.now() + 30 * 24 * HOUR).toISOString(),
+      paidLinkCredits: 0,
+      freeDemoLinkUsed: true,
+    });
+    await assertFails(createLinkBatch(ownerDb(), { id: 'p10c', tier: 'premium' }));
   });
 
   it('11) Premium create ama credit decrement YOK → DENY', async () => {

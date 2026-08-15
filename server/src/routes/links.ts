@@ -30,19 +30,15 @@ export const linksRoutes: FastifyPluginAsync = async (app) => {
           linkTier = 'demo';
           validUntil = new Date(now.getTime() + 10 * 60 * 1000);
           userData.freeDemoLinkUsed = true;
+        } else if (user.paidLinkCredits > 0) {
+          // Salt-kredi model (subscription YOK; backend isPremium GRANT ETMEZ):
+          // 1 kredi = 1 premium link. Legacy isPremium/premiumUntil bypass'i
+          // KALDIRILDI — Firestore kurallariyla tutarli.
+          linkTier = 'premium';
+          validUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+          userData.paidLinkCredits = { decrement: 1 };
         } else {
-          const subPremium =
-            user.isPremium && (!user.premiumUntil || user.premiumUntil > now);
-          if (subPremium) {
-            linkTier = 'premium';
-            validUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-          } else if (user.paidLinkCredits > 0) {
-            linkTier = 'premium';
-            validUntil = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-            userData.paidLinkCredits = { decrement: 1 };
-          } else {
-            throw Object.assign(new Error('link_requires_credit'), { code: 402 });
-          }
+          throw Object.assign(new Error('link_requires_credit'), { code: 402 });
         }
 
         if (Object.keys(userData).length > 0) {

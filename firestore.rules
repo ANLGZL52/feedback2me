@@ -60,12 +60,13 @@ service cloud.firestore {
     function userExists(uid) { return exists(userDoc(uid)); }
     function creditsBefore(uid) { return userExists(uid) ? creditsOf(get(userDoc(uid)).data) : 0; }
     function demoUsedBefore(uid) { return userExists(uid) ? demoUsedOf(get(userDoc(uid)).data) : false; }
-    function isPremiumBefore(uid) { return userExists(uid) ? isPremiumOf(get(userDoc(uid)).data) : false; }
 
     // Link create AYNI atomic islemde entitlement'i dogru tuketmeli:
     //  - DEMO: freeDemoLinkUsed false→true (bir ucretsiz demo hakki; ikinci demo DENY).
-    //  - PREMIUM: ya isPremium=true (abonelik, kredi sabit) ya kredi before>=1 &&
-    //    after == before-1. Kredi harcamadan Premium olusturma → DENY.
+    //  - PREMIUM: kredi before>=1 && after == before-1 (1 kredi = 1 premium link).
+    //    Guncel is modeli SALT-KREDI (subscription YOK; backend isPremium GRANT
+    //    ETMEZ, yalnizca paidLinkCredits verir → functions/src/index.ts). Bu yuzden
+    //    eski isPremium bypass'i KALDIRILDI: her premium link create kredi tuketir.
     function linkCreateConsumesEntitlement(link) {
       let uid = link.ownerId;
       let tier = link.get('linkTier', 'demo');
@@ -73,10 +74,8 @@ service cloud.firestore {
       return tier == 'demo'
         ? (demoUsedBefore(uid) == false && demoUsedOf(after) == true)
         : (userExists(uid)
-            && (isPremiumBefore(uid) == true
-                  ? creditsOf(after) == creditsBefore(uid)
-                  : (creditsBefore(uid) >= 1
-                      && creditsOf(after) == creditsBefore(uid) - 1)));
+            && creditsBefore(uid) >= 1
+            && creditsOf(after) == creditsBefore(uid) - 1);
     }
 
     // Owner link update'i lifecycle'i GERIYE alamaz: sahip/kod/tier/createdAt/
