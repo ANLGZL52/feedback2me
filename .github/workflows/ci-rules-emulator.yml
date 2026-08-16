@@ -1,0 +1,30 @@
+name: CI Rules Emulator (IAP entitlement proof)
+
+# Ephemeral verification: runs PR #15's exact firestore.rules against the
+# Firestore emulator (Java) and executes the entitlement rules tests. Read-only,
+# offline demo project — never touches production Firebase/IAM/rules.
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/iap-rules-emulator-proof]
+
+permissions:
+  contents: read
+
+jobs:
+  rules-emulator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Install firebase-tools
+        run: npm i -g firebase-tools
+      - name: Install rules-test deps
+        run: npm --prefix test/rules install --no-audit --no-fund
+      - name: Run Firestore rules emulator tests (offline demo project)
+        run: firebase emulators:exec --only firestore --project demo-iap-rules "node --test test/rules"
