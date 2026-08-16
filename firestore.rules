@@ -72,7 +72,12 @@ service cloud.firestore {
         && noPrivilegeEscalation(resource.data, request.resource.data);
       allow delete: if request.auth != null && request.auth.uid == userId;
     }
-    match /users/{userId}/{document=**} {
+    // Alt koleksiyonlar (ör. audienceScoreSnapshots) — kullanıcının kendi verisi.
+    // ⚠️ `{document=**}` SIFIR-veya-daha-fazla segment eşler → users/{uid}
+    // DOKÜMANININ KENDİSİNİ de eşleyip yukarıdaki entitlement kilidini OR ile
+    // BYPASS ederdi. Bu yüzden en az bir alt-koleksiyon segmenti ({subCollection})
+    // ZORUNLU → yalnız gerçek alt-koleksiyon dokümanlarını kapsar, users/{uid}'i DEĞİL.
+    match /users/{userId}/{subCollection}/{docId=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
