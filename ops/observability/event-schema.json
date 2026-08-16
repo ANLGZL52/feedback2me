@@ -37,5 +37,45 @@
       "public_link_open", "report_generation_start", "report_generation_success", "report_generation_failure_code",
       "iap_start", "iap_verify_success", "iap_verify_failure_code"
     ]
+  },
+  "backendRuntimeEvent": {
+    "note": "Runtime Observability Phase 2 — Railway/Fastify backend runtime events. Emitted by the server (structured JSON stdout, redacted) and normalized by the read-only ops collector (ops/monitor/checks/railway-runtime-logs.mjs). SAFE FIELDS ONLY. Health-check events (eventType=health) stay SEPARATE from these runtime events.",
+    "fields": {
+      "timestamp": "ISO-8601 UTC",
+      "source": "server (Fastify) | monitor (collector-normalized)",
+      "environment": "production | staging",
+      "service": "feedback2me",
+      "eventType": "one of eventTypes below",
+      "severity": "info | warn | error",
+      "routeId": "CANONICAL route template only (e.g. POST /feedbacks, GET /public/links/:code) — never a URL with a real code/value",
+      "method": "GET | POST | ...",
+      "statusClass": "2xx | 3xx | 4xx | 5xx",
+      "latencyMs": "number | null",
+      "errorCode": "stable safe code (see below) | null",
+      "correlationId": "opaque per-request id (Fastify request.id) — NEVER derived from email/userId/feedbackId/token",
+      "componentId": "node-railway-api | node-postgres | node-ai-proxy | node-railway-jwt | null",
+      "journeyIds": "[j-*] affected (optional)",
+      "deploymentId": "Railway deployment id (safe metadata) | null",
+      "releaseSha": "git short sha | null",
+      "retryable": "boolean | null",
+      "provider": "openai | null",
+      "dbOperationCategory": "READ | WRITE | TRANSACTION | CONNECT | null"
+    },
+    "eventTypes": [
+      "server.startup.ok", "server.startup.error", "server.runtime.error",
+      "server.request.completed", "server.request.failed",
+      "db.operation.failed", "ai.proxy.failed", "ai.proxy.timeout", "auth.failed"
+    ],
+    "errorCodes": [
+      "VALIDATION_ERROR", "AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED", "AUTH_FORBIDDEN",
+      "DB_CONNECT_FAILED", "DB_QUERY_FAILED", "DB_TRANSACTION_FAILED",
+      "AI_PROVIDER_TIMEOUT", "AI_PROVIDER_ERROR", "INTERNAL_ERROR"
+    ],
+    "redactionDenyList": [
+      "authorization", "cookie", "set-cookie", "password", "token", "accessToken",
+      "refreshToken", "jwt", "DATABASE_URL", "OPS_POSTGRES_DATABASE_URL", "RAILWAY_TOKEN",
+      "OPS_RAILWAY_TOKEN", "OPENAI_API_KEY", "receipt", "purchaseToken",
+      "request.body", "response.body", "email", "name", "prompt", "feedback text"
+    ]
   }
 }
