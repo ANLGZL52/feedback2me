@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 // Feedback2Me RELEASE PREFLIGHT. Combines the latest health snapshot + CI evidence
-// + static architecture risks into a GO/NO-GO gate. exit 0 = ready, 1 = blocked.
-// Does NOT deploy, write, or touch production.
+// + static architecture risks into a GO/NO-GO gate. Does NOT deploy, write, or
+// touch production.
+//
+// EXIT CODES (distinct so the observability workflow can tell a release verdict
+// from a real execution error — see .github/workflows/ops-health.yml):
+//   0  = READY            (release readiness verdict)
+//   1  = NOT READY        (release readiness verdict — a VALID computed result,
+//                          NOT a monitoring failure; blockers remain honest)
+//   2  = EXECUTION ERROR  (no snapshot / unreadable / crash — a real failure)
+// Optional arg: a snapshot path (defaults to ops-status/latest.json) for testing.
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -9,15 +17,21 @@ import { releaseReadiness } from './engine.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, '..', '..');
-const policy = JSON.parse(readFileSync(join(REPO, 'ops', 'checks', 'health-policy.json'), 'utf8'));
-const latestPath = join(REPO, 'ops-status', 'latest.json');
 
-if (!existsSync(latestPath)) {
-  console.error('NO SNAPSHOT — run `node ops/monitor/run.mjs` first.');
-  process.exit(1);
+let policy, snap, rr;
+try {
+  policy = JSON.parse(readFileSync(join(REPO, 'ops', 'checks', 'health-policy.json'), 'utf8'));
+  const latestPath = process.argv[2] || join(REPO, 'ops-status', 'latest.json');
+  if (!existsSync(latestPath)) {
+    console.error('NO SNAPSHOT — run `node ops/monitor/run.mjs` first.');
+    process.exit(2); // execution error, NOT a readiness verdict
+  }
+  snap = JSON.parse(readFileSync(latestPath, 'utf8'));
+  rr = releaseReadiness(snap, policy);
+} catch (e) {
+  console.error('PREFLIGHT EXECUTION ERROR: ' + (e && e.message));
+  process.exit(2);
 }
-const snap = JSON.parse(readFileSync(latestPath, 'utf8'));
-const rr = releaseReadiness(snap, policy);
 
 const S = (v) => (v == null ? 'UNKNOWN' : v);
 const ci = snap.ciEvidence || {};
