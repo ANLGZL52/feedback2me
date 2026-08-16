@@ -65,8 +65,10 @@
       "server.startup.ok", "server.startup.error", "server.runtime.error",
       "server.request.completed", "server.request.failed",
       "db.operation.failed", "ai.proxy.failed", "ai.proxy.timeout", "auth.failed",
-      "railway.http.request"
+      "railway.http.request",
+      "gcp.function.execution", "gcp.function.error", "gcp.function.warning"
     ],
+    "gcpFunctionNote": "source=gcp-functions events come from Google Cloud Logging (Logging v2 entries.list) for deployed Cloud Functions. Safe fields ONLY: service(function name)/region/severity/eventType/errorCode/gcpExecutionId/revision/resourceType. Raw textPayload/jsonPayload/stack are DROPPED after classification — NEVER srcIp / body / receipt / purchaseToken / JWT / email / secrets. errorCodes: FUNCTION_RUNTIME_ERROR/TIMEOUT/PERMISSION_DENIED/UNAVAILABLE/VALIDATION_ERROR. Requires (a) a deployed function and (b) a read-only GCP identity (WIF) -> GCP_ACCESS_TOKEN.",
     "railwayHttpRequestNote": "source=railway-http events come from Railway's httpLogs (the AUTHORITATIVE request-level source, independent of the app's stdout). Safe fields ONLY: method, routeId (canonicalized — never a real code), statusClass, httpStatus, latencyMs, railwayRequestId (Railway edge id — NOT the Fastify correlationId), deploymentId. NEVER srcIp / clientUa / query / headers (not even fetched from the API).",
     "errorCodes": [
       "VALIDATION_ERROR", "AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED", "AUTH_FORBIDDEN",

@@ -1,0 +1,108 @@
+// Read-only GCP / Firebase Cloud Functions log collector (Runtime Observability
+// Phase 3). Queries Cloud Logging (Logging v2 entries.list) for a BOUNDED, recent,
+// function-scoped window and normalizes entries into PII-safe gcp.function.* events.
+//
+// PROVEN STATE (2026-08-16): no Cloud Function is deployed for feedbacktome-79655
+// (iapVerify callable URL = 404) and no read-only GCP identity is configured, so
+// this collector is FOUNDATION — it activates once (a) a function is deployed and
+// (b) a least-privilege GCP identity (WIF preferred) provides GCP_ACCESS_TOKEN.
+//
+// SAFETY: raw textPayload / jsonPayload / stack traces are DROPPED after
+// classification — only allow-listed safe fields are emitted. Bounded query, small
+// page size, NO pagination loop, timeout. Missing token -> UNKNOWN/NOT_CONFIGURED
+// (not a function outage); 403 -> DOWN/GCP_PERMISSION_DENIED (a collector-auth
+// problem, NOT a Cloud Function outage).
+
+const LOGGING_API = 'https://logging.googleapis.com/v2/entries:list';
+export const DEFAULT_PAGE_SIZE = 50;   // bounded — never a project-wide dump
+export const DEFAULT_TIMEOUT_MS = 8000;
+export const DEFAULT_LOOKBACK_MIN = 30; // recent window only (cost control)
+const PROJECT = 'feedbacktome-79655';
+
+// Map a Cloud Logging severity + message to a STABLE safe error category.
+export function classifyGcp(entry) {
+  const sev = String(entry.severity || 'DEFAULT').toUpperCase();
+  const msg = String(
+    (entry.jsonPayload && (entry.jsonPayload.message || entry.jsonPayload.error)) ||
+    entry.textPayload || '',
+  );
+  let errorCode = null;
+  if (sev === 'ERROR' || sev === 'CRITICAL' || sev === 'ALERT' || sev === 'EMERGENCY') {
+    if (/timeout|deadline/i.test(msg)) errorCode = 'FUNCTION_TIMEOUT';
+    else if (/permission|forbidden|denied|unauthorized/i.test(msg)) errorCode = 'FUNCTION_PERMISSION_DENIED';
+    else if (/unavailable|econnrefused|enotfound/i.test(msg)) errorCode = 'FUNCTION_UNAVAILABLE';
+    else if (/invalid|validation|invalid-argument/i.test(msg)) errorCode = 'FUNCTION_VALIDATION_ERROR';
+    else errorCode = 'FUNCTION_RUNTIME_ERROR';
+  }
+  const eventType = errorCode ? 'gcp.function.error'
+    : sev === 'WARNING' ? 'gcp.function.warning'
+    : 'gcp.function.execution';
+  return { eventType, errorCode, severity: sev.toLowerCase() };
+}
+
+// Extract a safe function/service name + region from an entry's resource labels.
+function resourceInfo(entry) {
+  const r = entry.resource || {};
+  const l = r.labels || {};
+  // 1st-gen: resource.type=cloud_function, labels.function_name/region.
+  // 2nd-gen: resource.type=cloud_run_revision, labels.service_name/location.
+  const name = l.function_name || l.service_name || null;
+  const region = l.region || l.location || null;
+  return { name, region, resourceType: r.type || null };
+}
+
+// Normalize ONE Cloud Logging entry -> a safe event, or null to drop.
+// Raw payload/stack is NEVER emitted — only allow-listed metadata + a safe code.
+export function normalizeLogEntry(entry, opts = {}) {
+  if (!entry || typeof entry !== 'object') return null;
+  const { name, region, resourceType } = resourceInfo(entry);
+  // Ignore unrelated GCP services: only cloud_function / cloud_run_revision.
+  if (resourceType && resourceType !== 'cloud_function' && resourceType !== 'cloud_run_revision') return null;
+  if (opts.functionAllowList && name && !opts.functionAllowList.includes(name)) return null;
+  const { eventType, errorCode, severity } = classifyGcp(entry);
+  const labels = entry.labels || {};
+  return {
+    timestamp: entry.timestamp || entry.receiveTimestamp || null,
+    source: 'gcp-functions', service: name || 'unknown-function', region,
+    eventType, severity, errorCode,
+    resourceType: resourceType || null,
+    gcpExecutionId: labels.execution_id || labels['run.googleapis.com/execution_id'] || null,
+    revision: labels.revision_name || (entry.resource && entry.resource.labels && entry.resource.labels.revision_name) || null,
+    componentId: 'node-cloud-functions',
+    // NOTE: raw textPayload / jsonPayload / stack are intentionally NOT included.
+  };
+}
+
+async function defaultFetchEntries(token, project, pageSize, lookbackMin, timeoutMs) {
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const sinceIso = new Date(Date.now() - lookbackMin * 60000).toISOString();
+    const filter = `(resource.type="cloud_function" OR resource.type="cloud_run_revision") AND timestamp>="${sinceIso}"`;
+    const res = await fetch(LOGGING_API, {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ resourceNames: [`projects/${project}`], filter, pageSize, orderBy: 'timestamp desc' }),
+    });
+    if (res.status === 401 || res.status === 403) return { auth: 'FAILED', entries: null };
+    if (!res.ok) return { auth: 'OK', entries: [], httpStatus: res.status };
+    const j = await res.json().catch(() => null);
+    return { auth: 'OK', entries: (j && j.entries) || [] }; // single page only — no pagination loop
+  } finally { clearTimeout(to); }
+}
+
+export async function collect(opts = {}, deps = {}) {
+  const token = opts.token || process.env.GCP_ACCESS_TOKEN;
+  if (!token) return { status: 'UNKNOWN', errorCode: 'NOT_CONFIGURED', events: [], note: 'GCP_ACCESS_TOKEN not configured (WIF/read-only identity required)' };
+  const project = opts.project || PROJECT;
+  const pageSize = Math.min(opts.pageSize || DEFAULT_PAGE_SIZE, DEFAULT_PAGE_SIZE);
+  const lookbackMin = opts.lookbackMin || DEFAULT_LOOKBACK_MIN;
+  const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const fetchEntries = deps.fetchEntries || defaultFetchEntries;
+  let r;
+  try { r = await fetchEntries(token, project, pageSize, lookbackMin, timeoutMs); }
+  catch (e) { return { status: 'DOWN', errorCode: e && e.name === 'AbortError' ? 'TIMEOUT' : 'COLLECTOR_ERROR', events: [] }; }
+  if (!r || r.auth === 'FAILED') return { status: 'DOWN', errorCode: 'GCP_PERMISSION_DENIED', events: [] };
+  const events = (r.entries || []).map((e) => normalizeLogEntry(e, opts)).filter(Boolean);
+  return { status: 'HEALTHY', errorCode: null, entriesScanned: (r.entries || []).length, events };
+}
