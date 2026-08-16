@@ -2,7 +2,7 @@
 // Run: node --test ops/monitor/checks/gcp-functions-logs.test.mjs
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { collect, normalizeLogEntry, classifyGcp } from './gcp-functions-logs.mjs';
+import { collect, normalizeLogEntry, classifyGcp, extractOpenAiMeta } from './gcp-functions-logs.mjs';
 
 const ENV = 'GCP_ACCESS_TOKEN';
 afterEach(() => { delete process.env[ENV]; });
@@ -101,4 +101,106 @@ test('classifyGcp: severity → event type mapping', () => {
   assert.equal(classifyGcp({ severity: 'WARNING', textPayload: 'x' }).eventType, 'gcp.function.warning');
   assert.equal(classifyGcp({ severity: 'INFO' }).eventType, 'gcp.function.execution');
   assert.equal(classifyGcp({ severity: 'ERROR', textPayload: 'permission denied' }).errorCode, 'FUNCTION_PERMISSION_DENIED');
+});
+
+// --- aiSummary OpenAI structured-event normalization (safe allow-list) -------
+// A cloud_run_revision entry whose jsonPayload is an aiSummary obs event.
+const aiEntry = (payload, o = {}) => ({
+  timestamp: '2026-08-16T20:08:40Z', severity: 'INFO',
+  resource: { type: 'cloud_run_revision', labels: { service_name: 'aisummary', location: 'us-central1', revision_name: 'aisummary-00002-abc' } },
+  labels: { 'run.googleapis.com/execution_id': 'exec-oai-1' },
+  jsonPayload: payload, ...o,
+});
+// Real successful production shape (identifiers sanitized).
+const successPayload = () => ({
+  eventType: 'openai.request.completed', statusClass: '2xx', latencyMs: 2153, openaiProcessingMs: 1665,
+  inputTokens: 660, outputTokens: 131, totalTokens: 791, errorCode: null, model: 'gpt-4o-mini',
+  provider: 'openai', source: 'functions', service: 'aiSummary',
+  clientRequestId: 'client-req-SANITIZED', openaiRequestId: 'req_SANITIZED',
+  message: 'aiSummary openai.request.completed',
+});
+
+test('OAI success: openai.request.completed → allow-listed metadata preserved', () => {
+  const e = normalizeLogEntry(aiEntry(successPayload()));
+  assert.equal(e.eventType, 'openai.request.completed');
+  assert.equal(e.errorCode, null);
+  assert.equal(e.provider, 'openai');
+  assert.equal(e.service, 'aisummary');
+  assert.deepEqual(e.openai, {
+    statusClass: '2xx', model: 'gpt-4o-mini', latencyMs: 2153, openaiProcessingMs: 1665,
+    inputTokens: 660, outputTokens: 131, totalTokens: 791,
+    openaiRequestId: 'req_SANITIZED', clientRequestId: 'client-req-SANITIZED',
+  });
+});
+
+test('OAI failure A: OPENAI_AUTH_FAILED (4xx) preserved', () => {
+  const e = normalizeLogEntry(aiEntry({ ...successPayload(), eventType: 'openai.request.failed', statusClass: '4xx', errorCode: 'OPENAI_AUTH_FAILED', inputTokens: null, outputTokens: null, totalTokens: null }, { severity: 'ERROR' }));
+  assert.equal(e.eventType, 'openai.request.failed');
+  assert.equal(e.errorCode, 'OPENAI_AUTH_FAILED');
+  assert.equal(e.openai.statusClass, '4xx');
+  assert.equal(e.openai.totalTokens, null);
+});
+
+test('OAI failure B: OPENAI_RATE_LIMITED (4xx) preserved', () => {
+  const e = normalizeLogEntry(aiEntry({ ...successPayload(), eventType: 'openai.request.failed', statusClass: '4xx', errorCode: 'OPENAI_RATE_LIMITED' }, { severity: 'ERROR' }));
+  assert.equal(e.errorCode, 'OPENAI_RATE_LIMITED');
+});
+
+test('OAI failure C: openai.timeout preserved', () => {
+  const e = normalizeLogEntry(aiEntry({ ...successPayload(), eventType: 'openai.timeout', statusClass: 'none', errorCode: 'OPENAI_TIMEOUT' }, { severity: 'ERROR' }));
+  assert.equal(e.eventType, 'openai.timeout');
+  assert.equal(e.errorCode, 'OPENAI_TIMEOUT');
+});
+
+test('OAI PRIVACY: sensitive/unknown fields NEVER survive normalization', () => {
+  const dirty = {
+    ...successPayload(),
+    prompt: 'SENSITIVE_PROMPT_TEXT', completion: 'SENSITIVE_COMPLETION', feedback: 'raw feedback body',
+    uid: 'user-uid-123', email: 'jane@example.com', authorization: 'Bearer eyJhbGciSECRET',
+    token: 'FIREBASE_ID_TOKEN', OPENAI_API_KEY: 'sk-SECRET-KEY', stack: 'Error at x\n at y',
+    extraSecret: 'NESTED', requestBody: { text: 'body' }, responseBody: { choices: [1] },
+    nested: { prompt: 'ALSO_SENSITIVE' },
+  };
+  const e = normalizeLogEntry(aiEntry(dirty));
+  const s = JSON.stringify(e);
+  for (const bad of ['SENSITIVE_PROMPT_TEXT', 'SENSITIVE_COMPLETION', 'raw feedback body', 'user-uid-123', 'jane@example.com', 'eyJhbGciSECRET', 'FIREBASE_ID_TOKEN', 'sk-SECRET-KEY', 'Error at x', 'NESTED', 'ALSO_SENSITIVE']) {
+    assert.ok(!s.includes(bad), `leaked: ${bad}`);
+  }
+  // Only the allow-listed openai keys exist.
+  assert.deepEqual(
+    Object.keys(e.openai).sort(),
+    ['clientRequestId', 'inputTokens', 'latencyMs', 'model', 'openaiProcessingMs', 'openaiRequestId', 'outputTokens', 'statusClass', 'totalTokens'].sort(),
+  );
+});
+
+test('OAI malformed numerics → null, never crash', () => {
+  const e = normalizeLogEntry(aiEntry({ ...successPayload(), latencyMs: 'abc', totalTokens: {}, inputTokens: null, outputTokens: 131 }));
+  assert.equal(e.openai.latencyMs, null);
+  assert.equal(e.openai.totalTokens, null);
+  assert.equal(e.openai.inputTokens, null);
+  assert.equal(e.openai.outputTokens, 131);
+});
+
+test('OAI oversized ids are bounded', () => {
+  const e = normalizeLogEntry(aiEntry({ ...successPayload(), openaiRequestId: 'r'.repeat(500) }));
+  assert.ok(e.openai.openaiRequestId.length <= 64);
+});
+
+test('OAI: extractOpenAiMeta reads a JSON string in textPayload too', () => {
+  const meta = extractOpenAiMeta({ textPayload: JSON.stringify(successPayload()), resource: { type: 'cloud_run_revision', labels: {} } });
+  assert.equal(meta.eventType, 'openai.request.completed');
+  assert.equal(meta.metrics.totalTokens, 791);
+});
+
+test('OAI guard: non-aiSummary jsonPayload is NOT treated as an OpenAI event', () => {
+  assert.equal(extractOpenAiMeta(aiEntry({ eventType: 'openai.request.completed', source: 'other', service: 'x' })), null);
+  // A generic entry still normalizes as before (no openai overlay).
+  const e = normalizeLogEntry(aiEntry({ message: 'hello', source: 'someservice' }, { severity: 'ERROR', textPayload: 'boom' }));
+  assert.equal(e.openai, undefined);
+  assert.equal(e.provider, undefined);
+  assert.ok(e.eventType.startsWith('gcp.function.'));
+});
+
+test('OAI guard: unknown eventType from aiSummary is rejected', () => {
+  assert.equal(extractOpenAiMeta(aiEntry({ source: 'functions', service: 'aiSummary', eventType: 'openai.mystery' })), null);
 });
