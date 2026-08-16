@@ -20,10 +20,11 @@
  * See README "App Check activation" for the safe enable path.
  */
 import { onCall, HttpsError, type CallableRequest } from 'firebase-functions/v2/https';
-import { defineSecret } from 'firebase-functions/params';
+import { defineSecret, defineString } from 'firebase-functions/params';
 import { getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
+import { JWT } from 'google-auth-library';
 import {
   handleAiSummary,
   evaluateRateLimit,
@@ -32,12 +33,24 @@ import {
   type HandlerLogEvent,
   type RateWindowState,
 } from './ai-core.js';
+import {
+  creditForProduct,
+  idempotencyKey,
+  grantCredit,
+  parseAppleReceipt,
+  parseGooglePurchase,
+  type VerifyResult,
+} from './iap-core.js';
 
-// Guarded so this file merges cleanly with any other function file that also
-// initializes the Admin app (e.g. a future iapVerify index).
+// Guarded so both callables (aiSummary, iapVerify) can initialize the Admin app
+// exactly once even though each is defined in this single file.
 if (!getApps().length) initializeApp();
 
 const OPENAI_API_KEY = defineSecret('OPENAI_API_KEY');
+// IAP verification secrets/params — bound ONLY to iapVerify (see README).
+const APPLE_SHARED_SECRET = defineSecret('APPLE_SHARED_SECRET');
+const PLAY_SERVICE_ACCOUNT_JSON = defineSecret('PLAY_SERVICE_ACCOUNT_JSON');
+const ANDROID_PACKAGE_NAME = defineString('ANDROID_PACKAGE_NAME');
 
 /**
  * Per-user fixed-window rate limit via an atomic Firestore transaction on
@@ -100,5 +113,127 @@ export const aiSummary = onCall(
       console.error(JSON.stringify({ source: 'functions', service: 'aiSummary', eventType: 'server.runtime.error', severity: 'ERROR', message: 'aiSummary unexpected error' }));
       throw new HttpsError('internal', 'Beklenmeyen hata.', { errorCode: 'AI_UNEXPECTED' });
     }
+  },
+);
+
+// ===========================================================================
+// iapVerify — server-authoritative IAP receipt verification + credit grant.
+//
+// The client can no longer write paidLinkCredits (firestore.rules is locked);
+// credit is granted ONLY here, after a store receipt is verified, via the Admin
+// SDK (which bypasses rules). Flow: purchase -> iapVerify({platform, productId,
+// verificationData, transactionId}) -> verify with Apple/Google -> idempotent
+// +1 credit. The idempotency key is store-authoritative (never client-supplied),
+// so replays grant +0. Provider parsing/replay/atomic-grant logic is in
+// iap-core.ts (network-free, unit-tested).
+//
+// Secrets/params (configure before deploy — none set here):
+//   APPLE_SHARED_SECRET, PLAY_SERVICE_ACCOUNT_JSON (secrets), ANDROID_PACKAGE_NAME (param)
+// ===========================================================================
+
+const APPLE_PROD = 'https://buy.itunes.apple.com/verifyReceipt';
+const APPLE_SANDBOX = 'https://sandbox.itunes.apple.com/verifyReceipt';
+
+/** Verify an Apple receipt (legacy verifyReceipt; 21007 -> retry sandbox). Network/parse error = transient. */
+async function verifyApple(receiptData: string, productId: string, sharedSecret: string): Promise<VerifyResult> {
+  const body = JSON.stringify({ 'receipt-data': receiptData, password: sharedSecret, 'exclude-old-transactions': true });
+  async function call(url: string): Promise<any> {
+    const res = await fetch(url, { method: 'POST', body });
+    return (await res.json()) as any;
+  }
+  let json: any;
+  try {
+    json = await call(APPLE_PROD);
+    if (json?.status === 21007) json = await call(APPLE_SANDBOX);
+  } catch {
+    return { ok: false, reason: 'apple_network', transient: true };
+  }
+  return parseAppleReceipt(json, productId);
+}
+
+/** Verify a Google Play purchase token via androidpublisher. Product/package bound by the URL path. */
+async function verifyGoogle(productId: string, purchaseToken: string, serviceAccountJson: string, packageName: string): Promise<VerifyResult> {
+  let creds: { client_email: string; private_key: string };
+  try {
+    creds = JSON.parse(serviceAccountJson);
+  } catch {
+    return { ok: false, reason: 'play_bad_service_account', transient: true };
+  }
+  const client = new JWT({ email: creds.client_email, key: creds.private_key, scopes: ['https://www.googleapis.com/auth/androidpublisher'] });
+  const url =
+    `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/` +
+    `${encodeURIComponent(packageName)}/purchases/products/` +
+    `${encodeURIComponent(productId)}/tokens/${encodeURIComponent(purchaseToken)}`;
+  let res: Response;
+  try {
+    const { token } = await client.getAccessToken();
+    if (!token) return { ok: false, reason: 'play_no_access_token', transient: true };
+    res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  } catch {
+    return { ok: false, reason: 'play_network', transient: true };
+  }
+  if (!res.ok) return { ok: false, reason: `play_http_${res.status}`, transient: res.status >= 500 };
+  let data: any;
+  try {
+    data = (await res.json()) as any;
+  } catch {
+    return { ok: false, reason: 'play_bad_json', transient: false };
+  }
+  return parseGooglePurchase(data, purchaseToken);
+}
+
+export const iapVerify = onCall(
+  {
+    region: 'us-central1',
+    secrets: [APPLE_SHARED_SECRET, PLAY_SERVICE_ACCOUNT_JSON],
+    enforceAppCheck: false, // client not App Check-ready yet; Firebase Auth still required
+  },
+  async (request: CallableRequest) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Giriş gerekli.');
+
+    const data = (request.data ?? {}) as {
+      platform?: string;
+      productId?: string;
+      verificationData?: string;
+      transactionId?: string | null;
+    };
+    const platform = String(data.platform ?? '');
+    const productId = String(data.productId ?? '');
+    const verificationData = String(data.verificationData ?? '');
+    if (!verificationData || !productId) throw new HttpsError('invalid-argument', 'Eksik doğrulama verisi.');
+    const credit = creditForProduct(productId);
+    if (credit == null) throw new HttpsError('invalid-argument', 'Bilinmeyen ürün.');
+
+    let result: VerifyResult;
+    if (platform === 'ios' || platform === 'apple') {
+      result = await verifyApple(verificationData, productId, APPLE_SHARED_SECRET.value());
+    } else if (platform === 'android' || platform === 'google') {
+      result = await verifyGoogle(productId, verificationData, PLAY_SERVICE_ACCOUNT_JSON.value(), ANDROID_PACKAGE_NAME.value());
+    } else {
+      throw new HttpsError('invalid-argument', 'Geçersiz platform.');
+    }
+
+    if (!result.ok) {
+      // Transient (network/store outage/config) -> 'unavailable': client keeps the
+      // purchase queued and retries (no loss). Permanent reject -> 'permission-denied':
+      // client consumes it, no credit.
+      if (result.transient) throw new HttpsError('unavailable', `Doğrulama geçici olarak başarısız (retry): ${result.reason}`);
+      throw new HttpsError('permission-denied', `Makbuz doğrulanamadı: ${result.reason}`);
+    }
+
+    // Idempotent, atomic grant. Key derives ONLY from store-authoritative identity
+    // (result.transactionId or a hash of the verified material) — the client
+    // transactionId is correlation metadata only, never part of the key.
+    const key = idempotencyKey(platform, result.transactionId, verificationData);
+    const outcome = await grantCredit(getFirestore(), {
+      uid,
+      key,
+      platform,
+      productId,
+      credit,
+      clientTransactionId: data.transactionId ?? null,
+    });
+    return { ok: true, ...outcome };
   },
 );

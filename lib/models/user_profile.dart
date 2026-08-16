@@ -28,7 +28,10 @@ class UserProfile {
   /// Satın alınan premium link hakları (her link 24 saat, çoklu yorum); oluşturulunca 1 azalır.
   final int paidLinkCredits;
 
-  /// Eski / manuel premium bayrağı: süre dolmamışsa premium link oluşturma hakkı (Firestore ile uyum).
+  /// DEPRECATED (salt-kredi modeli): eski isPremium/premiumUntil artık entitlement
+  /// KARARI VERMEZ. Yalnızca eski veriler için hesaplanır; premium link oluşturma
+  /// hakkı SADECE paidLinkCredits'tir. Bkz. [canCreatePaidPremiumLink].
+  @Deprecated('Salt-kredi modeli: entitlement kararında kullanma; paidLinkCredits geçerli')
   bool get hasActivePremium {
     if (!isPremium) return false;
     final u = premiumUntil;
@@ -39,8 +42,10 @@ class UserProfile {
   /// Henüz ücretsiz demo link hakkı var mı.
   bool get hasFreeDemoAvailable => !freeDemoLinkUsed;
 
-  /// Aktif premium süresi veya kredi ile premium link oluşturulabilir mi.
-  bool get canCreatePaidPremiumLink => hasActivePremium || paidLinkCredits > 0;
+  /// Premium link oluşturma hakkı SADECE satın alınan kredi ile verilir (SALT-KREDİ).
+  /// Eski isPremium/premiumUntil bypass'i KALDIRILDI (sunucu-yetkili iapVerify +
+  /// kilitli firestore.rules ile tutarlı).
+  bool get canCreatePaidPremiumLink => paidLinkCredits > 0;
 
   UserProfile copyWith({
     String? uid,

@@ -106,45 +106,17 @@ class FirestoreService implements AppDataBackend {
     return created;
   }
 
-  /// Web: [runTransaction] bazen auth token ile uyumsuz davranıp permission-denied veriyor;
-  /// önce okuma + [WriteBatch] aynı kurallarla genelde sorunsuz çalışır.
+  /// Web: ATOMİK transaction. Önceki sürüm okuma + [WriteBatch] kullanıyordu; bu
+  /// transactional OLMAYAN okuma iki eşzamanlı create'te aynı krediyi iki kez
+  /// harcayabiliyordu (TOCTOU double-spend → kredisiz premium). Transaction,
+  /// okunan user dokümanı çakışırsa işlemi iptal edip tekrar dener → 1 kredi = 1
+  /// link. Token yenileme, web'de eski oturumdan kalan permission-denied'i önlemek
+  /// için korunur.
   Future<FeedbackLink?> _createLinkWeb(String ownerId, {String? title}) async {
     try {
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
     } catch (_) {}
-
-    final userRef = _users.doc(ownerId);
-    final code = _shortCode();
-    final id = _links.doc().id;
-    final linkRef = _links.doc(id);
-
-    // Web: önbellekte eski anonim oturumdan kalan boş/yanlış okuma permission-denied’e yol açabiliyor.
-    final userSnap = await userRef.get(
-      const GetOptions(source: Source.server),
-    );
-    final batch = _db.batch();
-    final link = _computeLinkForCreate(
-      ownerId: ownerId,
-      title: title,
-      userSnapData: userSnap.data(),
-      code: code,
-      id: id,
-      txSet: (path, data, {bool merge = false}) {
-        if (merge) {
-          batch.set(path, data, SetOptions(merge: true));
-        } else {
-          batch.set(path, data);
-        }
-      },
-      linkRef: linkRef,
-      userRef: userRef,
-    );
-
-    if (link == null) {
-      throw StateError('link_requires_credit');
-    }
-    await batch.commit();
-    return link;
+    return _createLinkTransaction(ownerId, title: title);
   }
 
   /// Transaction veya batch için ortak mantık; [txSet] ilk argüman [DocumentReference].
@@ -168,13 +140,16 @@ class FirestoreService implements AppDataBackend {
     late final DateTime validUntil;
     final Map<String, dynamic> userPatch = {};
 
+    // SALT-KREDİ modeli: premium link YALNIZCA 1 paidLinkCredit tüketerek
+    // oluşturulur. Eski isPremium/premiumUntil/hasActivePremium BYPASS'i kaldırıldı
+    // (artık entitlement kararı vermez). Kredi kaynağı yalnızca sunucu-yetkili
+    // iapVerify Cloud Function'dır; istemci paidLinkCredits'i doğrudan yazamaz
+    // (firestore.rules kilitli). Kredi tüketimi link create ile AYNI atomic
+    // transaction/batch içinde olur (kural: linkCreateConsumesEntitlement).
     if (profile.hasFreeDemoAvailable) {
       tier = 'demo';
       validUntil = now.add(const Duration(minutes: 10));
       userPatch['freeDemoLinkUsed'] = true;
-    } else if (profile.hasActivePremium) {
-      tier = 'premium';
-      validUntil = now.add(const Duration(hours: 24));
     } else if (profile.paidLinkCredits > 0) {
       tier = 'premium';
       validUntil = now.add(const Duration(hours: 24));

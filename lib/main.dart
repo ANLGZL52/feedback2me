@@ -1425,8 +1425,9 @@ class _LinkTierHeaderBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = profile;
-    final premiumEligible = isLoggedIn &&
-        (p?.hasActivePremium == true || (p?.paidLinkCredits ?? 0) > 0);
+    // SALT-KREDİ: premium rozeti/oluşturma hakkı yalnızca satın alınan kredi ile
+    // (eski isPremium/hasActivePremium bypass'i kaldırıldı).
+    final premiumEligible = isLoggedIn && (p?.paidLinkCredits ?? 0) > 0;
     final needCredit = isLoggedIn &&
         p != null &&
         p.freeDemoLinkUsed &&
