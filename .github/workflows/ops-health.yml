@@ -14,6 +14,7 @@ permissions:
   contents: read
   actions: read
   issues: write # for the spam-safe P0/DOWN alert (ops/monitor/alert.mjs)
+  id-token: write # OIDC token for GCP Workload Identity Federation (read-only Cloud Logging); no static keys
 
 jobs:
   monitor:
@@ -36,13 +37,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # FIREBASE_WEB_API_KEY optional; defaults to the public web key already in web_static/f.html
         run: node ops/monitor/run.mjs
-      - name: Collect Railway runtime logs (read-only; NOT_CONFIGURED without the secret)
+      # Short-lived GCP credential via Workload Identity Federation (NO static key,
+      # NO stored token). Runs ONLY when the (non-secret) WIF repo variables are set,
+      # and ONLY authorizes because the WIF provider trusts this repo on ref=main.
+      # A failure here is non-fatal: the collector then reports NOT_CONFIGURED.
+      - name: GCP auth (WIF, read-only Cloud Logging — no static credentials)
+        id: gcp_auth
+        if: ${{ vars.GCP_WIF_PROVIDER != '' && vars.GCP_WIF_SERVICE_ACCOUNT != '' }}
+        continue-on-error: true
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_WIF_SERVICE_ACCOUNT }}
+          token_format: access_token
+          # Least-privilege scope: read Cloud Logging only.
+          access_token_scopes: https://www.googleapis.com/auth/logging.read
+          access_token_lifetime: 300s
+      - name: Collect runtime logs (Railway + GCP; read-only; NOT_CONFIGURED without creds)
         id: runtime_logs
         # continue-on-error: a collector/auth failure is NOT a backend outage and must
         # not fail the observability workflow. Missing token -> UNKNOWN/NOT_CONFIGURED.
         continue-on-error: true
         env:
           OPS_RAILWAY_TOKEN: ${{ secrets.OPS_RAILWAY_TOKEN }}
+          # Ephemeral WIF access token (empty when WIF not configured/authorized) — the
+          # GCP collector treats an empty token as NOT_CONFIGURED. Never persisted/printed.
+          GCP_ACCESS_TOKEN: ${{ steps.gcp_auth.outputs.access_token }}
         run: node ops/monitor/collect-runtime.mjs
       - name: Ops engine self-tests
         id: engine_tests
