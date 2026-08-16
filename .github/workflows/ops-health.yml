@@ -18,10 +18,18 @@ permissions:
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    # Dedicated read-only Postgres observability credential (NOT the app DATABASE_URL).
+    # Absent -> the probe reports UNKNOWN/NO_CREDENTIAL and this workflow stays SUCCESS.
+    # Masked by Actions; never echoed, never written to the summary/artifact.
+    env:
+      OPS_POSTGRES_DATABASE_URL: ${{ secrets.OPS_POSTGRES_DATABASE_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
+      - name: Install ops Postgres driver (only when the direct probe is configured)
+        if: env.OPS_POSTGRES_DATABASE_URL != ''
+        run: npm --prefix ops install --no-audit --no-fund
       - name: Run read-only health checks
         id: checks
         env:
@@ -37,6 +45,9 @@ jobs:
       - name: Ops preflight semantics tests (observability vs release readiness)
         id: preflight_tests
         run: node --test ops/monitor/preflight.test.mjs
+      - name: Ops postgres-probe tests (sanitized; no real DB)
+        id: postgres_tests
+        run: node --test ops/monitor/checks/postgres-direct.test.mjs
       - name: Release readiness (informational — NOT READY does NOT fail this workflow)
         id: readiness
         # Observability health != product release readiness. exit 0=READY, 1=NOT READY
@@ -80,7 +91,7 @@ jobs:
       - name: Ops run summary (observability execution vs release readiness — no PII)
         if: always()
         env:
-          OBS_OK: ${{ steps.checks.outcome == 'success' && steps.engine_tests.outcome == 'success' && steps.alert_tests.outcome == 'success' && steps.preflight_tests.outcome == 'success' && steps.readiness.outcome == 'success' && steps.artifact.outcome == 'success' }}
+          OBS_OK: ${{ steps.checks.outcome == 'success' && steps.engine_tests.outcome == 'success' && steps.alert_tests.outcome == 'success' && steps.preflight_tests.outcome == 'success' && steps.postgres_tests.outcome == 'success' && steps.readiness.outcome == 'success' && steps.artifact.outcome == 'success' }}
           READINESS: ${{ steps.readiness.outputs.readiness }}
           ART_OUTCOME: ${{ steps.artifact.outcome }}
           ALERT_OUTCOME: ${{ steps.alert.outcome }}

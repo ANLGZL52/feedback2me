@@ -11,5 +11,8 @@
     "ops:release-check": "node monitor/release-check.mjs",
     "test": "node --test monitor/engine.test.mjs"
   },
+  "optionalDependencies": {
+    "pg": "^8.13.1"
+  },
   "engines": { "node": ">=20" }
 }
