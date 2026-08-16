@@ -18,28 +18,39 @@ import { dirname, join } from 'node:path';
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /**
- * Pure alert decision (exported for tests). Runtime-only:
- *  - down: components whose live status === 'DOWN'
- *  - openIncidents: incidents with status === 'OPEN' (live-sourced by construction)
+ * Pure alert decision (exported for tests). Runtime-only, DOWN is the authority.
+ *
+ * LIVE DOWN is the sole alert trigger:
+ *  - a live component whose status === 'DOWN', OR
+ *  - an OPEN incident whose underlying component is CURRENTLY DOWN.
+ *
+ * DEGRADED is dashboard-only and NEVER alerts — even though reconcileIncidents
+ * opens an OPEN incident for a DEGRADED component (severity 'P2'), so a blanket
+ * "any open incident" trigger would wrongly fire on DEGRADED. We therefore gate
+ * incidents on the component's current DOWN status, not on incident presence.
+ * Incident severities in this model are status-derived (DOWN->P1, DEGRADED->P2)
+ * and are never P0, so there is no "live-sourced P0 incident" concept to honor.
  * Release blockers (snapshot.blockers) are IGNORED here on purpose.
  */
 export function decideAlert(snapshot) {
   const s = snapshot || {};
-  const down = Object.entries(s.components || {})
+  const comp = s.components || {};
+  const statusOf = (id) => (comp[id] && comp[id].status) || 'UNKNOWN';
+  const down = Object.entries(comp)
     .filter(([, c]) => c && c.status === 'DOWN')
     .map(([id]) => id);
   const openInc = (s.incidents || []).filter((i) => i && i.status === 'OPEN');
-  // A DEGRADED-only state never alerts; only an OPEN incident already at P0 counts.
-  const p0Inc = openInc.filter((i) => i.severity === 'P0');
-  const alert = down.length > 0 || openInc.length > 0;
+  // Only incidents whose underlying component is CURRENTLY DOWN are alertable.
+  const alertableInc = openInc.filter((i) => i.componentId && statusOf(i.componentId) === 'DOWN');
+  const alert = down.length > 0 || alertableInc.length > 0;
   return {
     alert,
     down,
     openIncidentCount: openInc.length,
-    p0IncidentCount: p0Inc.length,
+    alertableIncidentCount: alertableInc.length,
     reasons: [
       ...down.map((id) => `component ${id} DOWN`),
-      ...openInc.map((i) => `incident ${i.componentId || i.id} ${i.status}`),
+      ...alertableInc.map((i) => `incident ${i.componentId} DOWN`),
     ],
   };
 }
@@ -78,8 +89,8 @@ function main() {
   const body = [
     `RUNTIME incident — overall **${s.overall}**, release **${s.release || '?'}**, build **${s.build ?? '?'}**.`,
     d.down.length ? `\n**DOWN components:** ${d.down.join(', ')}` : '',
-    d.openIncidentCount ? `\n**Open incidents:** ${d.openIncidentCount}${d.p0IncidentCount ? ` (P0: ${d.p0IncidentCount})` : ''}` : '',
-    `\n\n_Live signals only (component DOWN / open incident). Release-readiness blockers are excluded by design. No PII/secret._`,
+    d.alertableIncidentCount ? `\n**Alertable incidents (component DOWN):** ${d.alertableIncidentCount}` : '',
+    `\n\n_Live DOWN only (component DOWN / incident whose component is DOWN). DEGRADED and release-readiness blockers are excluded by design. No PII/secret._`,
   ].filter(Boolean).join('');
 
   try {

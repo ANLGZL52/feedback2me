@@ -19,8 +19,11 @@ test('TEST 1: live component DOWN → WOULD ALERT', () => {
   assert.equal(decideAlert(snap({ components: comp({ 'node-firestore': 'DOWN' }) })).alert, true);
 });
 
-test('TEST 2: open live incident → WOULD ALERT', () => {
-  const s = snap({ incidents: [{ id: 'inc-1', componentId: 'node-firestore', status: 'OPEN', severity: 'P1' }] });
+test('TEST 2: open incident whose component is currently DOWN → WOULD ALERT', () => {
+  const s = snap({
+    components: comp({ 'node-firestore': 'DOWN' }),
+    incidents: [{ id: 'inc-1', componentId: 'node-firestore', status: 'OPEN', severity: 'P1' }],
+  });
   assert.equal(decideAlert(s).alert, true);
 });
 
@@ -59,6 +62,26 @@ test('TEST 8: version-config-document-missing → NO ALERT', () => {
 
 test('TEST 9: live DEGRADED only → NO ALERT (dashboard-only)', () => {
   const s = snap({ components: comp({ 'node-firestore-rules': 'DEGRADED' }) });
+  assert.equal(decideAlert(s).alert, false);
+});
+
+test('TEST 9b: DEGRADED component + its OPEN P2 incident → NO ALERT (the key fix)', () => {
+  // reconcileIncidents opens a P2 OPEN incident for a DEGRADED component; a blanket
+  // "any open incident" trigger would wrongly alert. Component is not DOWN → no alert.
+  const s = snap({
+    components: comp({ 'node-firestore': 'DEGRADED' }),
+    incidents: [{ id: 'inc-deg', componentId: 'node-firestore', status: 'OPEN', severity: 'P2' }],
+  });
+  assert.equal(decideAlert(s).alert, false);
+  assert.equal(decideAlert(s).openIncidentCount, 1);      // incident exists...
+  assert.equal(decideAlert(s).alertableIncidentCount, 0); // ...but is NOT alertable
+});
+
+test('TEST 9c: OPEN incident but component already recovered to HEALTHY → NO ALERT (stale incident)', () => {
+  const s = snap({
+    components: comp({ 'node-firestore': 'HEALTHY' }),
+    incidents: [{ id: 'inc-stale', componentId: 'node-firestore', status: 'OPEN', severity: 'P1' }],
+  });
   assert.equal(decideAlert(s).alert, false);
 });
 
