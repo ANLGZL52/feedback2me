@@ -58,7 +58,7 @@ jobs:
         run: node --test ops/monitor/checks/postgres-direct.test.mjs
       - name: Ops runtime-log collector tests (redaction/normalization; no network)
         id: runtimelog_tests
-        run: node --test ops/monitor/checks/railway-runtime-logs.test.mjs ops/monitor/checks/railway-http-logs.test.mjs
+        run: node --test ops/monitor/checks/railway-runtime-logs.test.mjs ops/monitor/checks/railway-http-logs.test.mjs ops/monitor/checks/gcp-functions-logs.test.mjs
       - name: Release readiness (informational — NOT READY does NOT fail this workflow)
         id: readiness
         # Observability health != product release readiness. exit 0=READY, 1=NOT READY

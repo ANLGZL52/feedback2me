@@ -54,7 +54,7 @@
       "currentObservability": "PARTIAL", "releaseClass": "A", "blockingReason": null },
     { "componentId": "node-cloud-functions", "componentName": "Cloud Function iapVerify", "architectureVisible": true,
       "liveHealthCheck": { "available": true, "active": false, "method": "reachability probe (GET callable URL): 404 = NOT DEPLOYED (verified 2026-08-16). Function EXISTS/REACHABLE/LOGS/SANDBOX-E2E are separate statuses.", "interval": "-" },
-      "runtimeLogs": { "available": true, "active": false, "source": "GCP Functions logs", "adapter": "requires GCP credential" }, "metrics": { "available": false, "active": false },
+      "runtimeLogs": { "available": true, "active": false, "source": "GCP Cloud Logging (gcp.function.* events)", "adapter": "ops/monitor/checks/gcp-functions-logs.mjs (read-only collector: IMPLEMENTED + tested 15/15). ACTIVE needs (a) a DEPLOYED function (iapVerify currently 404/NOT DEPLOYED) + (b) a read-only GCP identity via WIF -> GCP_ACCESS_TOKEN." }, "metrics": { "available": false, "active": false },
       "synthetic": { "available": true, "active": false, "environment": "staging sandbox (syn-iap-verify)" },
       "requiresCredential": ["GCP credential (logs)", "Blaze plan + secrets (to deploy)"], "requiresDeployment": true, "requiresStaging": true, "requiresNativeBuild": true, "requiresPublicRelease": false,
       "currentObservability": "CODE_ONLY", "releaseClass": "B (deploy+reachability) / D (sandbox E2E)",
