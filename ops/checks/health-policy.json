@@ -1,0 +1,197 @@
+{
+  "description": "Path-based health policy. Journey status is derived from component status using these dependency semantics (NOT a naive 'one dep down = app down'). Architecture (components/edges/journeys) stays source-of-truth in docs/architecture/*.json; this file only encodes fallback/degrade rules and thresholds.",
+  "environment": {
+    "backendMode": "firestore-default",
+    "note": "Production default build = Firestore (USE_RAILWAY_API unset). Railway REST is opt-in; its journeys are only critical in REST-mode builds."
+  },
+  "thresholds": {
+    "degradeOnFailures": 1,
+    "downOnConsecutiveFailures": 2,
+    "recoverOnConsecutiveSuccesses": 2,
+    "p0InvariantImmediateDown": true
+  },
+  "criticalJourneys": ["j-owner-start", "j-create-demo", "j-create-premium", "j-public-feedback"],
+  "overall": {
+    "rule": "worst status among criticalJourneys; CRITICAL if any critical journey DOWN, DEGRADED if any DEGRADED, HEALTHY if all HEALTHY, else UNKNOWN"
+  },
+  "releaseCriticalJourneys": ["j-owner-start", "j-create-demo", "j-create-premium", "j-public-feedback", "j-purchase-credit"],
+  "releaseCriticalNote": "Journeys that MUST be verified to ship. UNKNOWN (not verified) BLOCKS release (Phase 13) — distinct from DOWN. j-ai-summary is NOT release-critical (heuristic fallback). j-legacy-cutover is a migration gate, not per-build critical.",
+  "platform": {
+    "componentScope": {
+      "node-apple-store": ["ios"],
+      "node-google-play": ["android"]
+    },
+    "note": "Components scoped to one platform block only that platform (e.g. Apple App Store fail -> iOS BLOCK, Android may be READY). Everything else (Firebase core, Firestore, hosting) blocks BOTH. Firebase Auth carries both Google+Apple, so it blocks both (can't distinguish provider live).",
+    "requiredJourneys": {
+      "ios": ["j-owner-start", "j-create-demo", "j-create-premium", "j-public-feedback", "j-purchase-credit"],
+      "android": ["j-owner-start", "j-create-demo", "j-create-premium", "j-public-feedback", "j-purchase-credit"]
+    }
+  },
+  "journeys": {
+    "j-owner-start": {
+      "critical": true,
+      "hardDeps": ["node-firebase-auth"],
+      "softDeps": ["node-firestore"],
+      "softDegradeNote": "appConfig read is fail-open; Firestore down degrades gate check but app still opens",
+      "fallbackGroups": []
+    },
+    "j-create-demo": {
+      "critical": true,
+      "hardDeps": ["node-firebase-auth", "node-firestore", "node-firestore-rules"],
+      "softDeps": [],
+      "fallbackGroups": [{ "primary": "node-firestore", "alternates": ["node-railway-api"], "activeInMode": "railway" }]
+    },
+    "j-create-premium": {
+      "critical": true,
+      "hardDeps": ["node-firebase-auth", "node-firestore", "node-firestore-rules", "node-credits"],
+      "softDeps": [],
+      "fallbackGroups": [{ "primary": "node-firestore", "alternates": ["node-railway-api"], "activeInMode": "railway" }]
+    },
+    "j-public-feedback": {
+      "critical": true,
+      "hardDeps": ["node-firebase-hosting", "node-fhtml", "node-firestore", "node-firestore-rules"],
+      "softDeps": [],
+      "fallbackGroups": [{ "primary": "node-firestore", "alternates": ["node-railway-api", "node-postgres"], "note": "f.html REST fallback via meta tag; if Firestore down but Railway up -> DEGRADED (fallback available)" }]
+    },
+    "j-public-feedback-rest": {
+      "critical": false,
+      "hardDeps": ["node-railway-api", "node-postgres"],
+      "softDeps": [],
+      "fallbackGroups": [],
+      "note": "Only live in REST-mode builds / when f.html has ftm-public-api meta"
+    },
+    "j-purchase-credit": {
+      "critical": false,
+      "hardDeps": ["node-cloud-functions"],
+      "softDeps": ["node-apple-store", "node-google-play"],
+      "fallbackGroups": [],
+      "note": "Server-side IAP verification (iapVerify) is now wired + code-verified (ci-functions-iap + flutter iap tests). Live status stays UNKNOWN/NOT VERIFIED until a real sandbox E2E runs (syn-iap-verify, not-configured) — security-architecture-fixed != store-purchase-E2E-verified."
+    },
+    "j-ai-summary": {
+      "critical": false,
+      "hardDeps": ["node-firestore"],
+      "softDeps": ["node-ai-proxy", "node-openai"],
+      "softDegradeNote": "AI proxy/OpenAI down -> DEGRADED (heuristic fallback keeps the journey working)",
+      "fallbackGroups": []
+    },
+    "j-history": {
+      "critical": false,
+      "hardDeps": ["node-firestore"],
+      "softDeps": [],
+      "fallbackGroups": [{ "primary": "node-firestore", "alternates": ["node-postgres"], "activeInMode": "railway" }]
+    },
+    "j-legacy-cutover": {
+      "critical": false,
+      "hardDeps": ["node-firestore-rules"],
+      "softDeps": ["node-firestore"],
+      "fallbackGroups": []
+    }
+  },
+  "staticRisks": [
+    {
+      "id": "iap-purchase-ownership-unbound",
+      "severity": "P1",
+      "badge": "REVIEW",
+      "componentId": "node-cloud-functions",
+      "journeys": ["j-purchase-credit"],
+      "title": "IAP purchase not bound to the buyer identity (no appAccountToken / obfuscatedAccountId check)",
+      "evidence": "functions/src/index.ts (iapVerify grants to request.auth.uid; receipt/token ownership not verified)",
+      "releaseBlocker": true,
+      "resolution": "Bind the purchase to the buyer: verify Apple appAccountToken (StoreKit2) / Google obfuscatedExternalAccountId == uid. Client already sets PurchaseParam.applicationUserName=uid; surface + check it server-side. Legacy Apple verifyReceipt cannot expose this, so Apple binding needs StoreKit2.",
+      "note": "NOT a free-credit hole: processedPurchases is global (one store txId = one credit system-wide), so this is first-claim-wins, not multiplication. Risk is receipt theft / credit misattribution (needs another user's receipt). P0 (verification+idempotency) stays closed. Decide before broad launch."
+    },
+    {
+      "id": "iap-apple-bundle-unbound",
+      "severity": "P2",
+      "badge": "REVIEW",
+      "componentId": "node-cloud-functions",
+      "journeys": ["j-purchase-credit"],
+      "title": "Apple receipt bundle_id not explicitly checked in verifyApple",
+      "evidence": "functions/src/index.ts verifyApple / functions/src/iap-core.ts parseAppleReceipt",
+      "releaseBlocker": false,
+      "note": "Mitigated: APPLE_SHARED_SECRET is app-specific, so a receipt from another app fails verifyReceipt (21004). Defense-in-depth: also assert receipt.bundle_id == expected bundle. Non-blocking."
+    },
+    {
+      "id": "server-oauth-unimplemented",
+      "severity": "P2",
+      "badge": "TODO",
+      "componentId": "node-railway-jwt",
+      "journeys": [],
+      "title": "Railway auth is a dev-login bridge only (real OAuth is a TODO)",
+      "evidence": "server/src/routes/auth.ts:10-13",
+      "releaseBlocker": false
+    },
+    {
+      "id": "railway-cors-open",
+      "severity": "P2",
+      "badge": "REVIEW",
+      "componentId": "node-railway-api",
+      "journeys": [],
+      "title": "Railway CORS is fully open (origin:true)",
+      "evidence": "server/src/index.ts:42-45",
+      "releaseBlocker": false
+    },
+    {
+      "id": "build-number-unconfirmed",
+      "severity": "P1",
+      "badge": "CONFIRM",
+      "componentId": "node-flutter-ios",
+      "journeys": [],
+      "title": "Store build history unknown — cannot confirm next iOS CFBundleVersion / Android versionCode is monotonic",
+      "evidence": "pubspec.yaml (1.0.3+20) / kAppBuild=20 / codemagic.yaml",
+      "releaseBlocker": true,
+      "resolution": "Confirm the last published build numbers in App Store Connect / Play Console; ensure the new build increments both, and pubspec +BUILD == kAppBuild.",
+      "note": "Release gate cannot pick a next build number. User action."
+    },
+    {
+      "id": "ispremium-audit-pending",
+      "severity": "P1",
+      "badge": "AUDIT",
+      "componentId": "node-credits",
+      "journeys": ["j-create-premium"],
+      "title": "Production read-only audit of users where isPremium==true not yet run",
+      "evidence": "firestore.rules noPrivilegeEscalation (legacy isPremium bypass removed)",
+      "releaseBlocker": true,
+      "resolution": "Run the read-only audit (Firebase Console query users where isPremium==true, or admin script); migrate any found (grant credits) before the credit-only rules go live.",
+      "note": "Needs production read credentials — not run by ops (no prod creds). User action."
+    }
+  ],
+  "liveDriftBlockers": [
+    {
+      "id": "appconfig-rule-drift",
+      "severity": "P1",
+      "componentId": "node-firestore-rules",
+      "journeys": ["j-owner-start", "j-legacy-cutover"],
+      "title": "appConfig/version public-read allowed in repo but DENIED live (403) — deployment drift",
+      "triggersWhen": "node-firestore-rules live check returns 403 RULES_DENY (deployed rules deny the appConfig public read)",
+      "triggersOnStatus": ["DEGRADED", "DOWN"],
+      "triggersOnErrorCode": ["RULES_DENY"],
+      "releaseBlocker": true,
+      "resolution": "RESOLVED 2026-08-16: deployed firestore:rules to feedbacktome-79655 via the authorized Firebase deploy account; live appConfig/version now returns 404 (read allowed), not 403. This blocker only re-fires if the live check again reports RULES_DENY.",
+      "note": "Rule ACCESS health. Distinct from version-config-document-missing (CONFIG health). VersionGate is fail-open, so even a rules-deny does NOT lock users — it silently disables the gate. Sourced from the live check, not static."
+    },
+    {
+      "id": "version-config-document-missing",
+      "severity": "P1",
+      "componentId": "node-version-gate-svc",
+      "journeys": ["j-owner-start", "j-legacy-cutover"],
+      "title": "appConfig/version document does not exist in production — min-version gate INACTIVE",
+      "triggersWhen": "appConfig live read returns 404 (APPCONFIG_MISSING): rules ALLOW the read but the config doc is not created yet",
+      "triggersOnErrorCode": ["APPCONFIG_MISSING"],
+      "releaseBlocker": true,
+      "resolution": "After the Bridge Release build is confirmed (see build-number-unconfirmed), create appConfig/version { minSupportedBuild <= BridgeBuild, latestBuild } via Admin SDK / Firebase console. Do NOT create it before the build number is known (a too-high minSupportedBuild would lock current clients).",
+      "note": "CONFIGURATION health, NOT rule health. Rules drift is RESOLVED (read allowed → 404). VersionGate is FAIL-OPEN, so the owner app still opens; the min-version gate is merely INACTIVE until the doc exists. Coupled to build-number-unconfirmed. Sourced from the live check (errorCode APPCONFIG_MISSING)."
+    }
+  ],
+  "releaseGate": {
+    "p0BlocksRelease": true,
+    "p1RequiresManual": true,
+    "p2Warning": true,
+    "requiredCiInvariants": ["ci-flutter-analyze", "ci-flutter-test", "ci-rules-emulator", "ci-server-build", "ci-web-build", "ci-rest-concurrency", "ci-architecture-validation", "ci-ops-tests", "ci-functions-iap"],
+    "requiredLiveCritical": ["j-public-feedback"],
+    "releaseCriticalUnknownBlocks": true,
+    "scopedFreshness": true,
+    "unknownCriticalSeverity": "P1",
+    "note": "A release-critical journey that is UNKNOWN (not verified — e.g. synthetic auth/IAP not configured) BLOCKS release (P1), distinct from DOWN. CI evidence must be PASS and match the release commit SHA (stale => blocker)."
+  }
+}

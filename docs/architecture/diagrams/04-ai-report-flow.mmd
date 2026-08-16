@@ -1,0 +1,13 @@
+%% AI community summary / personal impression. Render: mmdc -i 04-ai-report-flow.mmd -o 04-ai-report-flow.svg
+flowchart TD
+  A[Owner opens link summary/report] --> B[ReportService.generateCommunitySummary report_service.dart:961]
+  B --> C[fetch REAL feedbacks via appData]
+  C --> D{AI_PROXY_URL set?}
+  D -->|no| E[heuristic fallback report_service.dart:1086]
+  D -->|yes| F[OpenAiAudienceClient._chat POST /ai/chat no key openai_audience_client.dart:654]
+  F --> G[Railway /ai/chat proxy server key ai.ts:18]
+  G --> H[OpenAI chat/completions gpt-4o-mini ai.ts:53]
+  H --> I[parse choices0.message.content -> CommunityFeedbackSummary]
+  G -.->|no OPENAI_API_KEY -> 503| E
+  I --> J[render summary; cache expired-link summary in SharedPreferences]
+  E --> J

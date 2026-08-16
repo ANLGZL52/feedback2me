@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://feedback2me/ops/health-snapshot.schema.json",
+  "title": "Feedback2Me Health Snapshot (ops-status/latest.json)",
+  "description": "Merged current state the dashboard reads. Architecture (what) comes from docs/architecture/*.json; this file adds current health (how it is running now).",
+  "type": "object",
+  "required": ["generatedAt", "environment", "overall", "components", "journeys"],
+  "additionalProperties": false,
+  "properties": {
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "runId": { "type": ["string", "null"] },
+    "environment": { "type": "string", "enum": ["production", "staging", "ci", "local", "simulation"] },
+    "release": { "type": ["string", "null"], "description": "release sha / tag" },
+    "build": { "type": ["integer", "string", "null"], "description": "app build number" },
+    "minSupportedBuild": { "type": ["integer", "null"] },
+    "overall": { "type": "string", "enum": ["HEALTHY", "DEGRADED", "CRITICAL", "UNKNOWN"] },
+    "components": {
+      "type": "object",
+      "description": "map componentId -> { status, lastCheck, lastGood, lastFailure, latencyMs, errorCode, checkId }",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["HEALTHY", "DEGRADED", "DOWN", "UNKNOWN", "CHECKING"] },
+          "lastCheck": { "type": ["string", "null"] },
+          "lastGood": { "type": ["string", "null"] },
+          "lastFailure": { "type": ["string", "null"] },
+          "latencyMs": { "type": ["number", "null"] },
+          "errorCode": { "type": ["string", "null"] },
+          "checkId": { "type": ["string", "null"] },
+          "consecutiveFail": { "type": ["integer", "null"] },
+          "consecutiveOk": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "edges": {
+      "type": "object",
+      "description": "map edgeId -> { status } (derived from endpoints unless a direct edge check exists)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": { "status": { "type": "string", "enum": ["HEALTHY", "DEGRADED", "DOWN", "UNKNOWN"] } }
+      }
+    },
+    "journeys": {
+      "type": "object",
+      "description": "map journeyId -> { status, fallbackUsed, affectedBy[] }",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["HEALTHY", "DEGRADED", "DOWN", "UNKNOWN"] },
+          "fallbackUsed": { "type": "boolean" },
+          "affectedBy": { "type": "array", "items": { "type": "string" } },
+          "staticRisk": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "incidents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "componentId": { "type": ["string", "null"] },
+          "edgeId": { "type": ["string", "null"] },
+          "journeys": { "type": "array", "items": { "type": "string" } },
+          "severity": { "type": "string", "enum": ["P0", "P1", "P2", "info"] },
+          "status": { "type": "string", "enum": ["OPEN", "RESOLVED"] },
+          "startedAt": { "type": ["string", "null"] },
+          "resolvedAt": { "type": ["string", "null"] },
+          "firstBad": { "type": ["string", "null"] },
+          "lastBad": { "type": ["string", "null"] },
+          "lastGood": { "type": ["string", "null"] },
+          "release": { "type": ["string", "null"] },
+          "build": { "type": ["integer", "string", "null"] },
+          "errorCode": { "type": ["string", "null"] },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "ciEvidence": {
+      "type": "object",
+      "description": "LAST VERIFIED CI invariant results (not live health)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "UNKNOWN"] },
+          "verifiedAt": { "type": ["string", "null"] },
+          "detail": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "description": "release blockers (static + live)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "type": "string", "enum": ["P0", "P1", "P2"] },
+          "title": { "type": "string" },
+          "source": { "type": "string" }
+        }
+      }
+    }
+  }
+}

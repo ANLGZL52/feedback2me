@@ -1,0 +1,199 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1360" height="900" viewBox="0 0 1360 900" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8"/></marker>
+    <marker id="af" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#f59e0b"/></marker>
+    <marker id="aw" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/></marker>
+  </defs>
+  <rect width="1360" height="900" fill="#f7f8fb"/>
+  <text x="30" y="34" font-size="18" font-weight="800" fill="#0f172a">Feedback2Me — System Architecture</text>
+  <text x="30" y="52" font-size="12" fill="#475569">Left→right layered runtime + separate release plane · code-verified · see system-master.html for interactive detail</text>
+
+  <!-- column headers -->
+  <g font-size="12" font-weight="700" fill="#64748b" letter-spacing="0.5">
+    <text x="30" y="86">CLIENTS</text>
+    <text x="300" y="86">ENTRY / ACCESS</text>
+    <text x="570" y="86">APPLICATION / BUSINESS</text>
+    <text x="850" y="86">DATA / SECURITY / BACKEND</text>
+    <text x="1160" y="86">EXTERNAL</text>
+  </g>
+
+  <!-- ================= PRIMARY EDGES ================= -->
+  <g fill="none" stroke="#94a3b8" stroke-width="1.7" marker-end="url(#a)">
+    <path d="M230,123 H300"/>                          <!-- app -> gates -->
+    <path d="M230,545 H265 V496 H300"/>                <!-- browser -> hosting -->
+    <path d="M400,518 V524"/>                           <!-- hosting -> f.html -->
+    <path d="M500,123 H535 V131 H570"/>                <!-- gates -> appdata -->
+    <path d="M670,154 V170"/>                           <!-- appdata -> firestoreSvc -->
+    <path d="M500,545 H540 V320 H850"/>                <!-- f.html -> rules (public write) -->
+    <path d="M770,545 H812 V320 H850"/>                <!-- feedbackform -> (appdata/rules) public -->
+  </g>
+
+  <!-- ================= NODES ================= -->
+  <!-- Clients -->
+  <g>
+    <rect x="30" y="100" width="200" height="46" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="42" y="123" font-size="12" font-weight="600" fill="#0f172a">Flutter App (iOS + Android)</text>
+    <text x="42" y="138" font-size="9.5" fill="#475569">com.anlgzl.feedback2meapp · app.feedbacktome</text>
+  </g>
+  <g>
+    <rect x="30" y="200" width="200" height="40" rx="10" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.4" stroke-dasharray="4 3"/>
+    <text x="42" y="219" font-size="11.5" font-weight="600" fill="#334155">Flutter Web (build source)</text>
+    <text x="42" y="233" font-size="9.5" fill="#64748b">NOT served · web_static/ is</text>
+  </g>
+  <g>
+    <rect x="30" y="522" width="200" height="46" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="42" y="545" font-size="12" font-weight="600" fill="#0f172a">Responder Browser</text>
+    <text x="42" y="560" font-size="9.5" fill="#475569">anonymous — no auth</text>
+  </g>
+
+  <!-- Entry / Access -->
+  <g>
+    <rect x="300" y="96" width="200" height="54" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="312" y="117" font-size="12" font-weight="600" fill="#0f172a">App Gates</text>
+    <text x="312" y="132" font-size="9.5" fill="#475569">_AppLaunchGate · _MinVersionGate</text>
+    <text x="312" y="144" font-size="9.5" fill="#475569">_AuthGate  (min-ver = owner only)</text>
+  </g>
+  <g>
+    <rect x="300" y="474" width="200" height="44" rx="10" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+    <text x="312" y="495" font-size="12" font-weight="600" fill="#0f172a">Firebase Hosting</text>
+    <text x="312" y="510" font-size="9.5" fill="#475569">serves web_static/ · rewrites /f</text>
+  </g>
+  <g>
+    <rect x="300" y="524" width="200" height="44" rx="10" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+    <text x="312" y="545" font-size="12" font-weight="600" fill="#0f172a">f.html public page</text>
+    <text x="312" y="560" font-size="9.5" fill="#475569">/f/&lt;code&gt; · Firestore direct default</text>
+  </g>
+
+  <!-- Application / Business -->
+  <g>
+    <rect x="570" y="108" width="200" height="46" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="582" y="131" font-size="12" font-weight="600" fill="#0f172a">AppDataBackend</text>
+    <text x="582" y="146" font-size="9.5" fill="#475569">compile-time XOR (default Firestore)</text>
+  </g>
+  <g>
+    <rect x="570" y="170" width="200" height="42" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="582" y="191" font-size="12" font-weight="600" fill="#0f172a">FirestoreService</text>
+    <text x="582" y="205" font-size="9.5" fill="#475569">default backend</text>
+  </g>
+  <g>
+    <rect x="570" y="222" width="200" height="42" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="582" y="243" font-size="12" font-weight="600" fill="#0f172a">RailwayApiService</text>
+    <text x="582" y="257" font-size="9.5" fill="#475569">opt-in backend</text>
+  </g>
+  <g>
+    <rect x="570" y="300" width="200" height="42" rx="10" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="582" y="321" font-size="12" font-weight="600" fill="#0f172a">ReportService + AI client</text>
+    <text x="582" y="335" font-size="9.5" fill="#475569">summarize real feedback · no key</text>
+  </g>
+  <g>
+    <rect x="570" y="522" width="200" height="46" rx="10" fill="#eff6ff" stroke="#2563eb" stroke-width="1.5"/>
+    <text x="582" y="545" font-size="12" font-weight="600" fill="#0f172a">FeedbackFormScreen</text>
+    <text x="582" y="560" font-size="9.5" fill="#475569">in-app feedback (deeplink/manual)</text>
+  </g>
+  <g>
+    <rect x="570" y="650" width="200" height="46" rx="10" fill="#fff1f2" stroke="#dc2626" stroke-width="1.6"/>
+    <text x="582" y="671" font-size="12" font-weight="600" fill="#991b1b">IapService ⚠</text>
+    <text x="582" y="686" font-size="9.5" fill="#991b1b">client-direct credit (see §S gap)</text>
+  </g>
+
+  <!-- Data / Security / Backend -->
+  <g>
+    <rect x="850" y="100" width="200" height="42" rx="10" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+    <text x="862" y="121" font-size="12" font-weight="600" fill="#0f172a">Firebase Auth</text>
+    <text x="862" y="135" font-size="9.5" fill="#475569">Google + Apple only</text>
+  </g>
+  <!-- shield -->
+  <g>
+    <path d="M850,205 Q850,199 858,199 H1042 Q1050,199 1050,205 V233 Q950,255 850,233 Z" fill="#fffbeb" stroke="#b45309" stroke-width="1.8"/>
+    <text x="862" y="221" font-size="12" font-weight="700" fill="#0f172a">Firestore Rules ◇</text>
+    <text x="862" y="235" font-size="9.5" fill="#475569">security boundary (client↔Firestore)</text>
+  </g>
+  <!-- firestore cylinder -->
+  <g>
+    <path d="M850,300 a100,7 0 0 0 200,0 v40 a100,7 0 0 1 -200,0 Z M850,300 a100,7 0 0 1 200,0" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.6"/>
+    <text x="862" y="322" font-size="12" font-weight="600" fill="#0f172a">Cloud Firestore</text>
+    <text x="862" y="336" font-size="9" fill="#475569">users·links·feedbacks·appConfig</text>
+  </g>
+  <g>
+    <rect x="850" y="430" width="200" height="44" rx="10" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.5"/>
+    <text x="862" y="451" font-size="12" font-weight="600" fill="#0f172a">Railway API</text>
+    <text x="862" y="465" font-size="9.5" fill="#475569">Fastify + Prisma (opt-in)</text>
+  </g>
+  <!-- postgres cylinder -->
+  <g>
+    <path d="M850,510 a100,7 0 0 0 200,0 v34 a100,7 0 0 1 -200,0 Z M850,510 a100,7 0 0 1 200,0" fill="#f5f3ff" stroke="#7c3aed" stroke-width="1.6"/>
+    <text x="862" y="530" font-size="12" font-weight="600" fill="#0f172a">PostgreSQL</text>
+    <text x="862" y="544" font-size="9" fill="#475569">separate domain</text>
+  </g>
+  <g>
+    <rect x="850" y="650" width="200" height="46" rx="10" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+    <text x="862" y="671" font-size="12" font-weight="600" fill="#0f172a">CF: iapVerify</text>
+    <text x="862" y="686" font-size="9.5" fill="#475569">Admin SDK · bypass rules · NOT wired</text>
+  </g>
+
+  <!-- External -->
+  <g>
+    <rect x="1150" y="300" width="180" height="42" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+    <text x="1162" y="321" font-size="12" font-weight="600" fill="#0f172a">OpenAI</text>
+    <text x="1162" y="335" font-size="9.5" fill="#475569">gpt-4o-mini (server-side)</text>
+  </g>
+  <g>
+    <rect x="1150" y="640" width="180" height="42" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+    <text x="1162" y="661" font-size="12" font-weight="600" fill="#0f172a">Apple App Store</text>
+    <text x="1162" y="675" font-size="9.5" fill="#475569">billing + receipts</text>
+  </g>
+  <g>
+    <rect x="1150" y="690" width="180" height="42" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="1.5"/>
+    <text x="1162" y="711" font-size="12" font-weight="600" fill="#0f172a">Google Play</text>
+    <text x="1162" y="725" font-size="9.5" fill="#475569">billing + receipts</text>
+  </g>
+
+  <!-- explicit key edges over nodes -->
+  <g fill="none" stroke="#94a3b8" stroke-width="1.7" marker-end="url(#a)">
+    <path d="M770,191 H812 V216 H850"/>                <!-- firestoreSvc -> rules -->
+    <path d="M950,242 V296"/>                          <!-- rules -> firestore -->
+    <path d="M770,321 H1150"/>                          <!-- report/ai -> openai (conceptual) -->
+    <path d="M948,650 V346"/>                           <!-- CF -> firestore (grant, admin bypass) -->
+    <path d="M1050,668 H1122 V661 H1150"/>              <!-- CF -> apple -->
+    <path d="M1050,682 H1112 V711 H1150"/>              <!-- CF -> play -->
+  </g>
+  <g fill="none" stroke="#dc2626" stroke-width="2" stroke-dasharray="2 3" marker-end="url(#aw)">
+    <path d="M770,673 H815 V233 H850"/>                 <!-- IAP client-direct -> rules (GAP) -->
+  </g>
+  <g fill="none" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#af)">
+    <path d="M500,546 H520 V452 H850"/>                 <!-- f.html REST fallback -> railway -->
+    <path d="M770,243 H830 V452 H850"/>                 <!-- railwaySvc -> railway api -->
+    <path d="M1050,452 V544"/>                           <!-- railway -> postgres -->
+  </g>
+
+  <!-- edge labels (sparse) -->
+  <g font-size="9" fill="#475569">
+    <text x="790" y="205">create+entitlement</text>
+    <text x="905" y="285">authorized r/w</text>
+    <text x="612" y="450" fill="#f59e0b">REST fallback</text>
+    <text x="905" y="470" fill="#f59e0b">Prisma</text>
+    <text x="790" y="230" fill="#dc2626">⚠ client credit</text>
+    <text x="960" y="500">grant (Admin bypass)</text>
+  </g>
+
+  <!-- ================= RELEASE PLANE ================= -->
+  <rect x="20" y="760" width="1320" height="120" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="36" y="782" font-size="11" font-weight="800" fill="#64748b" letter-spacing="1">RELEASE / OPERATIONS PLANE — build &amp; deploy (not user traffic)</text>
+  <g font-size="10">
+    <g><rect x="40" y="798" width="180" height="44" rx="9" fill="#f1f5f9" stroke="#64748b"/><text x="52" y="817" font-weight="600" fill="#0f172a">Codemagic CI</text><text x="52" y="832" fill="#475569">iOS → TestFlight</text></g>
+    <g><rect x="250" y="798" width="180" height="44" rx="9" fill="#f1f5f9" stroke="#64748b"/><text x="262" y="817" font-weight="600" fill="#0f172a">App Store Connect</text><text x="262" y="832" fill="#475569">TestFlight / App Store</text></g>
+    <g><rect x="470" y="798" width="180" height="44" rx="9" fill="#f1f5f9" stroke="#64748b"/><text x="482" y="817" font-weight="600" fill="#0f172a">Google Play Console</text><text x="482" y="832" fill="#475569">manual</text></g>
+    <g><rect x="690" y="798" width="180" height="44" rx="9" fill="#f1f5f9" stroke="#64748b"/><text x="702" y="817" font-weight="600" fill="#0f172a">GitHub Actions</text><text x="702" y="832" fill="#475569">server concurrency test</text></g>
+    <g><rect x="910" y="798" width="180" height="44" rx="9" fill="#f1f5f9" stroke="#64748b"/><text x="922" y="817" font-weight="600" fill="#0f172a">Firebase Deploy</text><text x="922" y="832" fill="#475569">hosting / fn / rules</text></g>
+    <g><rect x="1130" y="798" width="185" height="44" rx="9" fill="#f1f5f9" stroke="#64748b"/><text x="1142" y="817" font-weight="600" fill="#0f172a">Railway Deploy</text><text x="1142" y="832" fill="#475569">API + web (2 Dockerfiles)</text></g>
+  </g>
+
+  <!-- legend -->
+  <g font-size="10" fill="#475569">
+    <text x="1050" y="34" font-weight="700" fill="#0f172a">Legend</text>
+    <line x1="1050" y1="44" x2="1075" y2="44" stroke="#94a3b8" stroke-width="1.7" marker-end="url(#a)"/><text x="1082" y="47">required</text>
+    <line x1="1050" y1="58" x2="1075" y2="58" stroke="#f59e0b" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#af)"/><text x="1082" y="61">fallback / opt-in</text>
+    <line x1="1200" y1="44" x2="1225" y2="44" stroke="#dc2626" stroke-width="2" stroke-dasharray="2 3" marker-end="url(#aw)"/><text x="1232" y="47">⚠ security gap</text>
+    <text x="1200" y="61">◇ shield=boundary · ▭ cyl=datastore</text>
+  </g>
+</svg>

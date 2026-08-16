@@ -1,0 +1,41 @@
+{
+  "description": "Feedback2Me Ops V2 — single canonical operational event model. Every observability source (health check, runtime telemetry, deploy, incident, synthetic, security signal) emits this shape. ops/monitor/run.mjs already emits the health/synthetic subset; runtime sources (Flutter/server) must conform to the same schema. STRICT RULE: no PII/secret — see forbiddenFields. Emitters must pass values through an allow-list (see ops/monitor/run.mjs safeDetails()).",
+  "version": "2.0.0",
+  "event": {
+    "timestamp": "ISO-8601 UTC (required)",
+    "environment": "production | staging | simulation | ci (required)",
+    "source": "monitor | flutter-ios | flutter-android | server | functions | github-actions (required)",
+    "componentId": "node-* or null",
+    "edgeId": "e-*/r-* or null",
+    "journeyId": "j-* or null",
+    "eventType": "health | runtime | deploy | incident | synthetic | security (required)",
+    "status": "HEALTHY | DEGRADED | DOWN | UNKNOWN | PASS | FAIL | '' ",
+    "severity": "P0 | P1 | P2 | null",
+    "latencyMs": "number | null",
+    "httpStatus": "number | null",
+    "errorCode": "short UPPER_SNAKE code (e.g. RULES_DENY, APPCONFIG_MISSING, NOT_DEPLOYED, auth_failure_code) | null",
+    "releaseSha": "git short sha | null",
+    "appBuild": "pubspec build number | null",
+    "correlationId": "per-operation random UUID (NOT a userId) | runId (required)",
+    "message": "short operational message, no content/PII (required)",
+    "metadata": "object — allow-listed operational keys only"
+  },
+  "correlationId": {
+    "rule": "A random per-operation UUID generated at the start of a client operation and propagated through the services it calls (app -> Firebase/server -> OpenAI), so one journey's events can be joined. MUST NOT be derived from userId/email/deviceId.",
+    "example": "op-3f9a1c2e-... (uuid v4)"
+  },
+  "forbiddenFields": [
+    "feedback text / report content", "user name", "email", "auth token / idToken / JWT",
+    "Apple receipt / verificationData", "Google purchaseToken", "service-account keys", "API keys",
+    "raw request/response bodies", "IP addresses", "userId as correlationId"
+  ],
+  "runtimeEventTypes": {
+    "note": "Phase 13 privacy-safe client telemetry — codes only, never content.",
+    "allowed": [
+      "app_start", "auth_start", "auth_success", "auth_failure_code",
+      "link_create_start", "link_create_success", "link_create_failure_code",
+      "public_link_open", "report_generation_start", "report_generation_success", "report_generation_failure_code",
+      "iap_start", "iap_verify_success", "iap_verify_failure_code"
+    ]
+  }
+}

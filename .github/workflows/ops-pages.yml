@@ -1,0 +1,61 @@
+# External Ops dashboard via GitHub Pages (Phase 17) — PREPARED, MANUAL-ONLY.
+#
+# Why external: the dashboard must stay reachable even if the app's own hosting
+# (Firebase) or backend (Railway) is down — so it is NOT served from either.
+#
+# SAFETY / EXPOSURE AUDIT (read before enabling):
+#  - Publishes ONLY operational metadata: the dashboard HTML, ops-status/latest.json
+#    (component statuses + blockers), the architecture map, check-matrix/health-policy
+#    (check config + already-public target URLs), and the observability coverage/
+#    activation JSON. NO secrets (only secret NAMES are listed), NO PII, NO event
+#    JSONL, NO user content. The Firebase web API key is already public (web_static/f.html).
+#  - Residual risk: it makes the architecture/ops map publicly visible (recon aid).
+#    Enable only if you accept that, or restrict Pages visibility (GitHub Enterprise
+#    private Pages). This workflow is workflow_dispatch-only and never auto-publishes.
+#  - To activate: repo Settings -> Pages -> Source = GitHub Actions, then run this
+#    workflow manually. It does NOT run on schedule/push.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ops-pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Refresh the live snapshot (read-only)
+        env: { GH_TOKEN: ${{ github.token }} }
+        run: node ops/monitor/run.mjs || true
+      - name: Assemble the static ops site (preserve the dashboard's relative paths)
+        run: |
+          set -e
+          mkdir -p _site/ops/dashboard _site/ops/checks _site/ops/observability _site/ops/fixtures _site/ops-status _site/docs/architecture
+          cp ops/dashboard/index.html                 _site/ops/dashboard/index.html
+          cp ops/checks/health-policy.json            _site/ops/checks/
+          cp ops/checks/check-matrix.json             _site/ops/checks/
+          cp ops/observability/component-coverage.json _site/ops/observability/
+          cp ops/fixtures/simulation-health.json      _site/ops/fixtures/
+          cp ops-status/latest.json                   _site/ops-status/ 2>/dev/null || echo '{}' > _site/ops-status/latest.json
+          cp docs/architecture/component-inventory.json _site/docs/architecture/
+          cp docs/architecture/dependency-graph.json    _site/docs/architecture/
+          cp docs/architecture/user-journeys.json       _site/docs/architecture/
+          # Landing redirect to the dashboard.
+          printf '<meta http-equiv="refresh" content="0; url=ops/dashboard/index.html">' > _site/index.html
+          # NOTE: ops-status/events/ is intentionally NOT published (Logs view stays empty on the mirror).
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+      - id: deploy
+        uses: actions/deploy-pages@v4

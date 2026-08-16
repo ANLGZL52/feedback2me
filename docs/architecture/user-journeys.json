@@ -1,0 +1,156 @@
+{
+  "generatedBy": "architecture discovery (read-only) — journeys traced from repo",
+  "project": "Feedback2Me (feedbacktome-79655)",
+  "journeys": [
+    {
+      "id": "j-owner-start",
+      "name": "Owner App Start + Version Gate + Auth",
+      "entry": "App launch (iOS/Android)",
+      "steps": [
+        "main() init Firebase + prefs + IAP warm (main.dart:64)",
+        "_AppLaunchGate: no deeplink -> owner path (main.dart:395-409)",
+        "_MinVersionGate: VersionGate.isUpdateRequired() reads appConfig/version (fail-open) (main.dart:432)",
+        "if update required -> _ForceUpdateScreen (store URL); else continue",
+        "_AuthGate subscribes authStateChanges; on login ensureRailwayBackendSession (main.dart:515-518)",
+        "authenticated/timeout -> LandingScreen"
+      ],
+      "components": ["node-launch-gate", "node-min-version-gate", "node-version-gate-svc", "node-auth-gate", "node-firebase-auth"],
+      "dataStores": ["node-firestore (appConfig)", "node-shared-prefs"],
+      "externalDependencies": ["node-firebase-auth"],
+      "securityBoundaries": ["Firebase Auth", "appConfig public-read"],
+      "failurePoints": ["appConfig read (fail-open -> app opens)", "auth timeout (1s web/3s mobile -> LandingScreen)"]
+    },
+    {
+      "id": "j-create-demo",
+      "name": "Create Demo Link (first link, free)",
+      "entry": "Owner taps Create Link",
+      "steps": [
+        "_createLink resolves ownerId (main.dart:1813)",
+        "appData.createLink -> _computeLinkForCreate: !freeDemoLinkUsed -> demo, validUntil now+10m, freeDemoLinkUsed=true (firestore_service.dart:171-174)",
+        "Firestore atomic create: createdAt=serverTimestamp + user entitlement burn",
+        "Rules validate createdAtWithinCompatWindow + demo entitlement (freeDemoLinkUsed false->true) (firestore.rules:83-98,157-162)",
+        "link doc created; share URL = feedbacktome-79655.web.app/f/<code>"
+      ],
+      "components": ["node-firestore-service", "node-firestore-rules", "node-demo-lifecycle"],
+      "dataStores": ["node-firestore (links, users)"],
+      "externalDependencies": [],
+      "securityBoundaries": ["Firestore rules: entitlement + createdAt window"],
+      "failurePoints": ["second demo attempt -> DENY", "rules reject if createdAt outside +-2min window"]
+    },
+    {
+      "id": "j-create-premium",
+      "name": "Create Premium Link (spends 1 credit)",
+      "entry": "Owner taps Create Link with credits > 0",
+      "steps": [
+        "_computeLinkForCreate: freeDemoLinkUsed true, paidLinkCredits>0 -> premium, validUntil now+24h, decrement credit (firestore_service.dart:178-184)",
+        "Firestore atomic: link create + user paidLinkCredits -1 (same batch)",
+        "Rules: linkCreateConsumesEntitlement requires before>=1 && after==before-1 (firestore.rules:83-98)",
+        "if credits==0 -> link_requires_credit (402) -> snackbar to PremiumScreen (main.dart:1914-1924)"
+      ],
+      "components": ["node-firestore-service", "node-firestore-rules", "node-premium-lifecycle", "node-credits"],
+      "dataStores": ["node-firestore (links, users)"],
+      "externalDependencies": [],
+      "securityBoundaries": ["Firestore rules: atomic credit burn; legacy isPremium bypass removed"],
+      "failurePoints": ["no credits -> PremiumScreen", "credit not decremented -> rules DENY"]
+    },
+    {
+      "id": "j-public-feedback",
+      "name": "Public Anonymous Feedback Submit (/f/<code>)",
+      "entry": "Responder opens shared link in browser",
+      "steps": [
+        "Browser GET /f/<code> -> Hosting rewrite -> f.html (firebase.json:52-53)",
+        "getCode() parses code from path (f.html:428-434)",
+        "resolvePublicApiBase: default empty -> Firestore direct (f.html:342-350)",
+        "Firestore query links where code + isActive (f.html:549-554)",
+        "publicLinkStatus gate (expiry/demo-used/inactive) + localStorage marker check (f.html:493-527)",
+        "Submit: db.batch feedback + (if demo) close link {demoSubmissionUsed:true,isActive:false} (f.html:629-644)",
+        "Rules feedbacks.create: linkAcceptsPublicFeedback get()+getAfter() atomic demo (firestore.rules:61-70,179-182)",
+        "On success: write localStorage marker + success + acquisition CTA (f.html:646-653)"
+      ],
+      "components": ["node-firebase-hosting", "node-fhtml", "node-firestore-rules", "node-demo-lifecycle", "node-local-storage"],
+      "dataStores": ["node-firestore (links, feedbacks)", "node-local-storage"],
+      "externalDependencies": [],
+      "securityBoundaries": ["ANONYMOUS (no Firebase Auth)", "Firestore rules gate the write", "NOT affected by min-version gate"],
+      "failurePoints": ["expired/consumed link -> gate blocks", "concurrent demo submit -> only 1 wins (getAfter)", "storage disabled -> marker fail-open"]
+    },
+    {
+      "id": "j-public-feedback-rest",
+      "name": "Public Feedback via Railway REST (opt-in fallback)",
+      "entry": "f.html with <meta name=ftm-public-api> configured",
+      "steps": [
+        "resolvePublicApiBase returns REST base (f.html:342-350)",
+        "GET /public/links/by-code/<code> (Fastify, no auth) (links.ts:89-111)",
+        "POST /feedbacks -> $transaction: demo updateMany compare-and-set + feedback.create (feedbacks.ts:17-81)",
+        "1 success / 1 rejection under concurrency (row lock)"
+      ],
+      "components": ["node-fhtml", "node-railway-api", "node-postgres", "node-demo-lifecycle"],
+      "dataStores": ["node-postgres"],
+      "externalDependencies": [],
+      "securityBoundaries": ["Fastify app-code checks (NOT Firestore rules)", "Postgres row-lock demo guarantee"],
+      "failurePoints": ["410 expired", "404 demo_used"]
+    },
+    {
+      "id": "j-purchase-credit",
+      "name": "Purchase Premium Credit (IAP)",
+      "entry": "Owner taps buy on PremiumScreen",
+      "steps": [
+        "iapService.startPurchase -> InAppPurchase.buyConsumable premium_link_single (iap_service.dart:231)",
+        "_onPurchaseUpdates on purchased -> _grantLinkCreditToCurrentUser (iap_service.dart:160-202)",
+        "INTENDED: call iapVerify Cloud Function -> Apple/Google receipt verify -> Admin SDK grant (functions/src/index.ts:119-199)",
+        "CURRENT (GAP): client writes paidLinkCredits+1 directly, no verification (iap_service.dart:202-213)"
+      ],
+      "components": ["node-iap-service", "node-apple-store", "node-google-play", "node-cloud-functions", "node-credits"],
+      "dataStores": ["node-firestore (users, processedPurchases)"],
+      "externalDependencies": ["node-apple-store", "node-google-play"],
+      "securityBoundaries": ["SHOULD be Cloud Function iapVerify (Admin SDK, idempotent)", "CURRENT client-direct write is a security gap"],
+      "failurePoints": ["client-direct grant would be rejected by committed rules noPrivilegeEscalation", "free-premium exploit if deployed rules unlocked"]
+    },
+    {
+      "id": "j-ai-summary",
+      "name": "AI Community Summary / Personal Impression",
+      "entry": "Owner opens link summary/report",
+      "steps": [
+        "reportService.generateCommunitySummary fetches feedbacks via appData (report_service.dart:961)",
+        "if AI_PROXY_URL set: OpenAiAudienceClient._chat POST /ai/chat (no key on client) (openai_audience_client.dart:23,654)",
+        "Railway /ai/chat proxies to OpenAI chat/completions gpt-4o-mini (server key) (ai.ts:3,44,53-60)",
+        "parse choices[0].message.content -> CommunityFeedbackSummary",
+        "if AI off/fails -> heuristic fallback (report_service.dart:1086)",
+        "expired-link summaries cached in SharedPreferences"
+      ],
+      "components": ["node-report-service", "node-openai-client", "node-ai-proxy", "node-openai", "node-community-summary"],
+      "dataStores": ["node-firestore (feedbacks)", "node-shared-prefs (cache)"],
+      "externalDependencies": ["node-openai"],
+      "securityBoundaries": ["OpenAI key server-side only", "AI summarizes real feedbacks (no fabrication)"],
+      "failurePoints": ["AI_PROXY_URL unset -> heuristic", "proxy 503 (no OPENAI_API_KEY) -> heuristic", "rate limit 40/min"]
+    },
+    {
+      "id": "j-history",
+      "name": "Saved Report / History",
+      "entry": "Owner opens history",
+      "steps": [
+        "audienceScoreHistoryStream (Firestore users/{uid}/audienceScoreSnapshots OR Railway /audience-snapshots)",
+        "detail loads reportBody/full (large AI JSON split out for 1MiB limit) (firestore_service.dart:471-476)"
+      ],
+      "components": ["node-firestore-service", "node-railway-api-service"],
+      "dataStores": ["node-firestore (snapshots) OR node-postgres"],
+      "externalDependencies": [],
+      "securityBoundaries": ["own-uid subcollection (rules 133-135)"],
+      "failurePoints": []
+    },
+    {
+      "id": "j-legacy-cutover",
+      "name": "Legacy vs Gate-Aware Client (migration)",
+      "entry": "Old pre-gate client after strict cutover",
+      "steps": [
+        "Pre-gate client has NO _MinVersionGate; never reads appConfig -> cannot self-block",
+        "Transitional rules ±2min window: old client (client Timestamp createdAt) still creates (firestore.rules:44-48)",
+        "Strict cutover (createdAt==request.time): old client link create -> permission-denied (retry x3, generic snackbar) (main.dart:1879-1963)"
+      ],
+      "components": ["node-min-version-gate", "node-firestore-rules"],
+      "dataStores": ["node-firestore (appConfig, links)"],
+      "externalDependencies": [],
+      "securityBoundaries": ["min-version gate manages gate-aware clients only; strict cutover drops pre-gate legacy"],
+      "failurePoints": ["pre-gate client link create fails after strict cutover (intentional cutoff)"]
+    }
+  ]
+}

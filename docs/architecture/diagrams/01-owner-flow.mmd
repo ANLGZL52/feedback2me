@@ -1,0 +1,15 @@
+%% Owner flow: launch -> version gate -> auth -> create link. Render: mmdc -i 01-owner-flow.mmd -o 01-owner-flow.svg
+flowchart TD
+  A[App launch main.dart:64] --> B[_AppLaunchGate main.dart:395]
+  B -->|no deeplink| C[_MinVersionGate main.dart:417]
+  C -->|VersionGate.isUpdateRequired| D{kAppBuild < minSupportedBuild?}
+  D -->|yes| E[_ForceUpdateScreen -> store URL]
+  D -->|no / read fails fail-open| F[_AuthGate main.dart:497]
+  F -->|Firebase Auth Google/Apple| G[LandingScreen owner home]
+  G --> H[Create Link _createLink main.dart:1813]
+  H --> I{entitlement _computeLinkForCreate firestore_service.dart:171}
+  I -->|first link, free| J[DEMO now+10m, freeDemoLinkUsed=true]
+  I -->|paidLinkCredits>0| K[PREMIUM now+24h, credit -1]
+  I -->|no credit| L[402 link_requires_credit -> PremiumScreen]
+  J --> M[Firestore atomic create + rules validate firestore.rules:83-162]
+  K --> M

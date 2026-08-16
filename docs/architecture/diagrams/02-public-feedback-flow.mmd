@@ -1,0 +1,17 @@
+%% Public anonymous feedback (/f/code). Render: mmdc -i 02-public-feedback-flow.mmd -o 02-public-feedback-flow.svg
+flowchart TD
+  A[Responder opens /f/code] --> B[Firebase Hosting rewrite -> f.html firebase.json:52-53]
+  B --> C[getCode parse code f.html:428]
+  C --> D{resolvePublicApiBase f.html:342}
+  D -->|default: no meta tag| E[Firestore direct: query links by code f.html:549]
+  D -.->|meta ftm-public-api set| F[Railway REST /public/links/by-code links.ts:89]
+  E --> G[publicLinkStatus gate expiry/demo-used/inactive f.html:493]
+  F --> G
+  G --> H{localStorage marker present? f.html:509}
+  H -->|yes| I[Already-submitted state]
+  H -->|no| J[Show form]
+  J --> K[Submit]
+  K -->|Firestore| L[batch: feedback + demo close f.html:629-644 -> rules getAfter atomic firestore.rules:61-70]
+  K -.->|REST| M[POST /feedbacks $transaction updateMany compare-and-set feedbacks.ts:45]
+  L --> N[Success + write marker + acquisition CTA]
+  M --> N
