@@ -206,7 +206,7 @@ async function boot(){
   const health=await loadJsonl('../../ops-status/events/'+day+'.jsonl','health');
   const runtime=await loadJsonl('../../ops-status/runtime-events/'+day+'.jsonl','runtime');
   // normalize runtime events to the Logs table shape (they use evt/route/etc.).
-  runtime.forEach(e=>{e.eventType=e.evt||e.eventType;e.componentId=e.component||e.componentId;e.journeyId=null;e.timestamp=e.ts||e.timestamp;e.correlationId=e.cid||e.correlationId;e.errorCode=e.code||e.errorCode;e.routeId=e.route||e.routeId;e.source=e.src||e.source;});
+  runtime.forEach(e=>{e.eventType=e.evt||e.eventType;e.componentId=e.component||e.componentId;e.journeyId=null;e.timestamp=e.ts||e.timestamp;e.correlationId=e.cid||e.correlationId||e.railwayRequestId;e.errorCode=e.code||e.errorCode;e.routeId=e.route||e.routeId;e.source=e.src||e.source;if(e.httpStatus&&!e.status)e.status=e.statusClass;});
   EVENTS=[...health,...runtime].sort((a,b)=>String(a.timestamp||'').localeCompare(String(b.timestamp||'')));
   const sel=document.getElementById('sim'); SIM.scenarios.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.label;sel.appendChild(o);});
   sel.addEventListener('change',()=>{simId=sel.value;recompute();render();});

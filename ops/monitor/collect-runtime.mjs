@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, appendFileSync } fr
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { collect } from './checks/railway-runtime-logs.mjs';
+import { collect as collectHttp } from './checks/railway-http-logs.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DIR = join(REPO, 'ops-status', 'runtime-events');
@@ -19,24 +20,31 @@ const file = join(DIR, day + '.jsonl');
 
 // safe fingerprint (Phase 15) — only non-content fields.
 const fp = (e) => [e.componentId, e.eventType, e.errorCode, e.routeId, e.statusClass].join('|');
-// dedup key so the same log line (same deployment+timestamp+type) is stored once.
-const key = (e) => [e.deploymentId, e.timestamp, e.eventType, e.correlationId || fp(e)].join('#');
+// dedup key so the same request/line is stored once. Prefer a per-request id
+// (Fastify correlationId or Railway requestId) so distinct requests aren't collapsed.
+const key = (e) => [e.deploymentId, e.timestamp, e.eventType, e.correlationId || e.railwayRequestId || fp(e)].join('#');
 
 function output(name, value) {
   if (process.env.GITHUB_OUTPUT) { try { appendFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`); } catch {} }
 }
 
 const r = await collect({ limit: 200 }).catch((e) => ({ status: 'DOWN', errorCode: 'COLLECTOR_ERROR', events: [], _e: String(e && e.message) }));
+// Railway HTTP logs = the AUTHORITATIVE request-level source (works even when the
+// app's structured stdout events don't reach environmentLogs).
+const rh = await collectHttp({ limit: 200 }).catch((e) => ({ status: 'DOWN', errorCode: 'COLLECTOR_ERROR', events: [] }));
 
-console.log(`[runtime-logs] status=${r.status} errorCode=${r.errorCode || 'null'} scanned=${r.logLinesScanned ?? 0} events=${(r.events || []).length}`);
-output('status', r.status);
-output('errorCode', r.errorCode || '');
+const allEvents = [...(r.events || []), ...(rh.events || [])];
+console.log(`[runtime-logs] env: status=${r.status} scanned=${r.logLinesScanned ?? 0} events=${(r.events || []).length} | http: status=${rh.status} rows=${rh.rowsScanned ?? 0} events=${(rh.events || []).length}`);
+output('status', r.status === 'UNKNOWN' && rh.status === 'UNKNOWN' ? 'UNKNOWN' : (r.status === 'HEALTHY' || rh.status === 'HEALTHY' ? 'HEALTHY' : 'DOWN'));
+output('errorCode', r.errorCode || rh.errorCode || '');
 
-if (r.status === 'UNKNOWN') {
+if (r.status === 'UNKNOWN' && rh.status === 'UNKNOWN') {
   // NOT_CONFIGURED — nothing to store; not an error.
   output('events', 0);
   process.exit(0);
 }
+// override r.events with the merged set for storage below.
+r.events = allEvents;
 
 // Persist new events only (dedup vs today's file), bounded to MAX_LINES.
 if (!existsSync(DIR)) mkdirSync(DIR, { recursive: true });
