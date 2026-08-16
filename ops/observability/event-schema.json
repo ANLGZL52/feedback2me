@@ -66,9 +66,11 @@
       "server.request.completed", "server.request.failed",
       "db.operation.failed", "ai.proxy.failed", "ai.proxy.timeout", "auth.failed",
       "railway.http.request",
-      "gcp.function.execution", "gcp.function.error", "gcp.function.warning"
+      "gcp.function.execution", "gcp.function.error", "gcp.function.warning",
+      "openai.request.completed", "openai.request.failed", "openai.rate_limited", "openai.timeout", "openai.fallback.required"
     ],
     "gcpFunctionNote": "source=gcp-functions events come from Google Cloud Logging (Logging v2 entries.list) for deployed Cloud Functions. Safe fields ONLY: service(function name)/region/severity/eventType/errorCode/gcpExecutionId/revision/resourceType. Raw textPayload/jsonPayload/stack are DROPPED after classification — NEVER srcIp / body / receipt / purchaseToken / JWT / email / secrets. errorCodes: FUNCTION_RUNTIME_ERROR/TIMEOUT/PERMISSION_DENIED/UNAVAILABLE/VALIDATION_ERROR. Requires (a) a deployed function and (b) a read-only GCP identity (WIF) -> GCP_ACCESS_TOKEN.",
+    "aiSummaryOpenAiNote": "The deployed aiSummary callable emits PII-safe structured events (functions/src/ai-core.ts buildObsEvent). gcp-functions-logs.mjs preserves them via a STRICT allow-list built field-by-field (never a source copy+prune): top-level eventType(openai.*)/errorCode/provider='openai' plus an `openai` object with ONLY statusClass, model, latencyMs, openaiProcessingMs, inputTokens, outputTokens, totalTokens, openaiRequestId, clientRequestId (ids bounded, numerics coerced to null on malformed). NEVER prompt / completion / feedback / survey / mood / relationship / UID / email / Firebase token / OPENAI_API_KEY / Authorization / raw jsonPayload / textPayload / stack. This PR is NORMALIZATION-ONLY: the scheduled GCP collector remains NOT ACTIVE and WIF remains NOT CONFIGURED, so overall runtime observability stays PARTIAL (not FULL).",
     "railwayHttpRequestNote": "source=railway-http events come from Railway's httpLogs (the AUTHORITATIVE request-level source, independent of the app's stdout). Safe fields ONLY: method, routeId (canonicalized — never a real code), statusClass, httpStatus, latencyMs, railwayRequestId (Railway edge id — NOT the Fastify correlationId), deploymentId. NEVER srcIp / clientUa / query / headers (not even fetched from the API).",
     "errorCodes": [
       "VALIDATION_ERROR", "AUTH_MISSING", "AUTH_INVALID", "AUTH_EXPIRED", "AUTH_FORBIDDEN",

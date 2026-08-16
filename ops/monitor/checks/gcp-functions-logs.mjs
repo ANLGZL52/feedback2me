@@ -51,6 +51,73 @@ function resourceInfo(entry) {
   return { name, region, resourceType: r.type || null };
 }
 
+// --- aiSummary OpenAI structured events ------------------------------------
+// The aiSummary function emits PII-safe structured events (see
+// functions/src/ai-core.ts buildObsEvent) via console.log(JSON.stringify(...)),
+// which Cloud Logging surfaces in jsonPayload (or, occasionally, a JSON string
+// in textPayload). We preserve ONLY an explicit allow-list of operational
+// metadata — NEVER prompt / feedback / completion / key / token / uid / raw
+// payload. The output object is BUILT from the allow-list, never copied from the
+// source and pruned, so unknown/sensitive fields cannot leak by accident.
+const OPENAI_EVENT_TYPES = new Set([
+  'openai.request.completed',
+  'openai.request.failed',
+  'openai.rate_limited',
+  'openai.timeout',
+  'openai.fallback.required',
+]);
+
+function numOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null; // malformed numeric -> null (never throws)
+}
+function safeStr(v, max) {
+  return typeof v === 'string' && v.length ? v.slice(0, max) : null; // bounded; drops non-strings
+}
+
+// Locate the structured JSON payload of a log entry, if any.
+function payloadObject(entry) {
+  const jp = entry.jsonPayload;
+  if (jp && typeof jp === 'object' && !Array.isArray(jp)) return jp;
+  const tp = entry.textPayload;
+  if (typeof tp === 'string') {
+    const s = tp.trim();
+    if (s.length > 1 && s.length < 20000 && s[0] === '{' && s[s.length - 1] === '}') {
+      try {
+        const o = JSON.parse(s);
+        if (o && typeof o === 'object' && !Array.isArray(o)) return o;
+      } catch { /* not JSON -> ignore */ }
+    }
+  }
+  return null;
+}
+
+// Extract allow-listed OpenAI metadata from an aiSummary event, or null.
+export function extractOpenAiMeta(entry) {
+  const p = payloadObject(entry);
+  if (!p) return null;
+  // Only our own aiSummary provider events — never arbitrary jsonPayloads.
+  if (p.source !== 'functions' || p.service !== 'aiSummary') return null;
+  if (typeof p.eventType !== 'string' || !OPENAI_EVENT_TYPES.has(p.eventType)) return null;
+  return {
+    eventType: p.eventType,
+    errorCode: safeStr(p.errorCode, 40), // e.g. OPENAI_RATE_LIMITED | null
+    // Allow-listed metrics/ids ONLY — explicit fields, no spread.
+    metrics: {
+      statusClass: safeStr(p.statusClass, 8),
+      model: safeStr(p.model, 40),
+      latencyMs: numOrNull(p.latencyMs),
+      openaiProcessingMs: numOrNull(p.openaiProcessingMs),
+      inputTokens: numOrNull(p.inputTokens),
+      outputTokens: numOrNull(p.outputTokens),
+      totalTokens: numOrNull(p.totalTokens),
+      openaiRequestId: safeStr(p.openaiRequestId, 64),
+      clientRequestId: safeStr(p.clientRequestId, 64),
+    },
+  };
+}
+
 // Normalize ONE Cloud Logging entry -> a safe event, or null to drop.
 // Raw payload/stack is NEVER emitted — only allow-listed metadata + a safe code.
 export function normalizeLogEntry(entry, opts = {}) {
@@ -61,7 +128,7 @@ export function normalizeLogEntry(entry, opts = {}) {
   if (opts.functionAllowList && name && !opts.functionAllowList.includes(name)) return null;
   const { eventType, errorCode, severity } = classifyGcp(entry);
   const labels = entry.labels || {};
-  return {
+  const out = {
     timestamp: entry.timestamp || entry.receiveTimestamp || null,
     source: 'gcp-functions', service: name || 'unknown-function', region,
     eventType, severity, errorCode,
@@ -71,6 +138,16 @@ export function normalizeLogEntry(entry, opts = {}) {
     componentId: 'node-cloud-functions',
     // NOTE: raw textPayload / jsonPayload / stack are intentionally NOT included.
   };
+  // aiSummary OpenAI events: overlay the safe provider eventType/errorCode and a
+  // strictly allow-listed `openai` metadata object. Generic GCP logs are untouched.
+  const oai = extractOpenAiMeta(entry);
+  if (oai) {
+    out.eventType = oai.eventType;
+    out.errorCode = oai.errorCode; // OpenAI-normalized safe code (or null)
+    out.provider = 'openai'; // constant we set — not copied from the payload
+    out.openai = oai.metrics;
+  }
+  return out;
 }
 
 async function defaultFetchEntries(token, project, pageSize, lookbackMin, timeoutMs) {
