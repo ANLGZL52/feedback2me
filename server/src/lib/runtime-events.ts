@@ -75,11 +75,24 @@ export function runtimeError(o: { code: string; cid?: string; route?: string; me
 export function dbFailed(o: { code: string; dbOp: string; cid?: string }): void {
   write({ evt: 'db.operation.failed', level: 'error', code: o.code, dbOp: o.dbOp, cid: o.cid, component: 'node-postgres' });
 }
-export function aiFailed(o: { code: string; ms?: number; cid?: string; retryable?: boolean }): void {
-  write({ evt: o.code === 'AI_PROVIDER_TIMEOUT' ? 'ai.proxy.timeout' : 'ai.proxy.failed', level: 'error', code: o.code, ms: o.ms, cid: o.cid, provider: 'openai', component: 'node-ai-proxy', retryable: o.retryable });
-}
 export function authFailed(o: { code: string; route?: string; cid?: string }): void {
   write({ evt: 'auth.failed', level: 'warn', code: o.code, route: o.route, cid: o.cid, component: 'node-railway-jwt' });
+}
+// NOTE: this backend hosts NO AI proxy route (the /ai/chat proxy is a separate
+// service), so ai.proxy.* events have no call-site here and are intentionally
+// not emitted by this server.
+
+/** Map a @fastify/jwt verify failure to a safe auth category (never the token). */
+export function mapAuthErrorCode(err: unknown): string {
+  const code = String((err as { code?: unknown })?.code ?? '');
+  if (/NO_AUTHORIZATION/i.test(code)) return 'AUTH_MISSING';
+  if (/EXPIRED/i.test(code)) return 'AUTH_EXPIRED';
+  return 'AUTH_INVALID';
+}
+
+/** DB operation category from the request method (safe heuristic; never the SQL). */
+export function dbOpCategory(method?: string): string {
+  return method === 'GET' || method === 'HEAD' ? 'READ' : method ? 'WRITE' : 'TRANSACTION';
 }
 export function startupError(o: { code: string }): void {
   write({ evt: 'server.startup.error', level: 'error', code: o.code, component: 'node-railway-api' });
