@@ -36,6 +36,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           # FIREBASE_WEB_API_KEY optional; defaults to the public web key already in web_static/f.html
         run: node ops/monitor/run.mjs
+      - name: Collect Railway runtime logs (read-only; NOT_CONFIGURED without the secret)
+        id: runtime_logs
+        # continue-on-error: a collector/auth failure is NOT a backend outage and must
+        # not fail the observability workflow. Missing token -> UNKNOWN/NOT_CONFIGURED.
+        continue-on-error: true
+        env:
+          OPS_RAILWAY_TOKEN: ${{ secrets.OPS_RAILWAY_TOKEN }}
+        run: node ops/monitor/collect-runtime.mjs
       - name: Ops engine self-tests
         id: engine_tests
         run: node --test ops/monitor/engine.test.mjs
@@ -88,6 +96,7 @@ jobs:
           path: |
             ops-status/latest.json
             ops-status/events/
+            ops-status/runtime-events/
           retention-days: 14
       # FINAL step — derives its verdict from the REAL outcomes of the steps above
       # (never hardcoded). Runs after the artifact upload so it can report it truthfully.
@@ -98,6 +107,8 @@ jobs:
           READINESS: ${{ steps.readiness.outputs.readiness }}
           ART_OUTCOME: ${{ steps.artifact.outcome }}
           ALERT_OUTCOME: ${{ steps.alert.outcome }}
+          RTLOG_STATUS: ${{ steps.runtime_logs.outputs.status }}
+          RTLOG_EVENTS: ${{ steps.runtime_logs.outputs.events }}
         run: |
           if [ "$OBS_OK" = "true" ]; then OBS="SUCCESS"; else OBS="FAILURE"; fi
           # Alert delivery is best-effort; report its true outcome honestly.
@@ -108,6 +119,7 @@ jobs:
             echo "- **Observability execution:** $OBS  _(monitor=${{ steps.checks.outcome }}, engine-tests=${{ steps.engine_tests.outcome }}, alert-tests=${{ steps.alert_tests.outcome }}, preflight-tests=${{ steps.preflight_tests.outcome }}, readiness=${{ steps.readiness.outcome }}, artifact=$ART_OUTCOME)_"
             echo "- **Release readiness:** ${READINESS:-UNKNOWN}  _(does not affect observability execution)_"
             echo "- **Artifact upload:** $ART_OUTCOME"
+            echo "- **Runtime-log collector:** ${RTLOG_STATUS:-UNKNOWN} (Railway backend); runtime events collected this run: ${RTLOG_EVENTS:-0}. _Collector state is separate from backend health — a collector failure is NOT a backend outage._"
             if [ -f ops-status/latest.json ]; then
               node -e "const s=require('./ops-status/latest.json');const down=Object.values(s.components||{}).filter(c=>c.status==='DOWN').length;const oi=(s.incidents||[]).filter(i=>i.status==='OPEN').length;const bl=(s.blockers||[]).filter(b=>b.releaseBlocking);const p0=bl.filter(b=>b.severity==='P0').length,p1=bl.filter(b=>b.severity==='P1').length;const ad=process.env.ALERT_OUTCOME==='failure'?'BEST-EFFORT FAILURE':(down===0&&oi===0?'NO ALERT REQUIRED':'ALERT DELIVERED/UPDATED');console.log('- **Live DOWN:** '+down+'  ·  **Open incidents:** '+oi+'  ·  **Overall:** '+s.overall);console.log('- **Alert delivery:** '+ad);console.log('- **Release blockers:** P0='+p0+' P1='+p1+'  (P0 in this lightweight runner are CI-evidence gaps, not runtime outages)');"
             fi

@@ -199,12 +199,15 @@ async function boot(){
   }catch(e){document.getElementById('panel').innerHTML='<div class="warnbox">Could not load architecture/policy JSON: '+e.message+'<br>Serve from repo root or ops/ and open ops/dashboard/index.html.</div>';return;}
   try{ LIVE_SNAP=await j('../../ops-status/latest.json'); }catch(e){ LIVE_SNAP=emptySnap(); }
   try{ COVERAGE=await j('../observability/component-coverage.json'); }catch(e){ COVERAGE={components:[]}; }
-  // Logs: fetch the day's operational events JSONL (PII-safe, produced by run.mjs).
-  try{
-    const day=(LIVE_SNAP.generatedAt||new Date().toISOString()).slice(0,10);
-    const txt=await fetch('../../ops-status/events/'+day+'.jsonl').then(r=>r.ok?r.text():'');
-    EVENTS=txt.split('\n').filter(Boolean).map(l=>{try{return JSON.parse(l);}catch{return null;}}).filter(Boolean);
-  }catch(e){ EVENTS=[]; }
+  // Logs: two PII-safe streams — HEALTH events (run.mjs) + backend RUNTIME events
+  // (railway-runtime-logs collector). Tagged with `kind` so the Logs tab distinguishes them.
+  const day=(LIVE_SNAP.generatedAt||new Date().toISOString()).slice(0,10);
+  const loadJsonl=async(path,kind)=>{try{const t=await fetch(path).then(r=>r.ok?r.text():'');return t.split('\n').filter(Boolean).map(l=>{try{const o=JSON.parse(l);o.kind=kind;return o;}catch{return null;}}).filter(Boolean);}catch(e){return [];}};
+  const health=await loadJsonl('../../ops-status/events/'+day+'.jsonl','health');
+  const runtime=await loadJsonl('../../ops-status/runtime-events/'+day+'.jsonl','runtime');
+  // normalize runtime events to the Logs table shape (they use evt/route/etc.).
+  runtime.forEach(e=>{e.eventType=e.evt||e.eventType;e.componentId=e.component||e.componentId;e.journeyId=null;e.timestamp=e.ts||e.timestamp;e.correlationId=e.cid||e.correlationId;e.errorCode=e.code||e.errorCode;e.routeId=e.route||e.routeId;e.source=e.src||e.source;});
+  EVENTS=[...health,...runtime].sort((a,b)=>String(a.timestamp||'').localeCompare(String(b.timestamp||'')));
   const sel=document.getElementById('sim'); SIM.scenarios.forEach(s=>{const o=document.createElement('option');o.value=s.id;o.textContent=s.label;sel.appendChild(o);});
   sel.addEventListener('change',()=>{simId=sel.value;recompute();render();});
   document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;mode=b.dataset.mode;[...document.querySelectorAll('#nav button')].forEach(x=>x.classList.toggle('active',x===b));render();});
@@ -366,31 +369,37 @@ function renderCoverage(){
       </tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 // ---- Logs view (Phase 18): operational events, PII-safe, filterable ----
+let logKind='all'; // all | health | runtime
 function renderLogs(){
   const p=document.getElementById('panel');
   const f=(logFilter||'').toLowerCase();
-  const match=e=>!f||[e.componentId,e.journeyId,e.errorCode,e.correlationId,e.eventType,e.source].some(v=>v&&String(v).toLowerCase().includes(f));
+  const kindMatch=e=>logKind==='all'||(e.kind||'health')===logKind;
+  const match=e=>kindMatch(e)&&(!f||[e.componentId,e.journeyId,e.errorCode,e.correlationId,e.eventType,e.source,e.routeId].some(v=>v&&String(v).toLowerCase().includes(f)));
   const evs=EVENTS.filter(match).slice(-300).reverse();
+  const hc=EVENTS.filter(e=>(e.kind||'health')==='health').length, rc=EVENTS.filter(e=>e.kind==='runtime').length;
   const rows=evs.map(e=>`<tr>
     <td class="muted" style="white-space:nowrap;font-size:10px">${(e.timestamp||'').slice(11,19)}</td>
+    <td><span class="pill ${e.kind==='runtime'?'DEGRADED':'HEALTHY'}" style="font-size:9px">${(e.kind||'health').toUpperCase()}</span></td>
     <td>${e.source||'monitor'}</td>
     <td style="white-space:nowrap">${e.componentId||'—'}</td>
-    <td>${e.journeyId||'—'}</td>
-    <td>${e.eventType||'health'}</td>
-    <td>${e.status?`<span class="pill ${e.status}" style="font-size:10px">${e.status}</span>`:'—'}</td>
-    <td>${e.severity||''}</td>
+    <td style="white-space:nowrap">${e.eventType||'—'}</td>
+    <td class="muted" style="white-space:nowrap;font-size:10px">${e.routeId||e.journeyId||'—'}</td>
+    <td>${e.status?`<span class="pill ${e.status}" style="font-size:10px">${e.status}</span>`:(e.statusClass||'—')}</td>
+    <td>${e.severity||e.level||''}</td>
     <td>${e.errorCode||'—'}</td>
-    <td style="text-align:right">${e.latencyMs!=null?e.latencyMs+'ms':''}</td>
-    <td class="muted" style="font-size:10px">${e.releaseSha||''}${e.appBuild?'+'+e.appBuild:''}</td>
+    <td style="text-align:right">${e.latencyMs!=null?e.latencyMs+'ms':(e.ms!=null?e.ms+'ms':'')}</td>
     <td class="muted" style="font-size:9px">${e.correlationId||''}</td>
   </tr>`).join('');
-  p.innerHTML=`<h2>Logs <span class="muted" style="font-weight:400;font-size:12px">(${EVENTS.length} events${f?`, ${evs.length} matched`:''})</span></h2>
-    <p class="muted" style="font-size:11px">Operational events only (health/synthetic/deploy/incident/runtime). No feedback/user content, no tokens/PII. Source: <code>ops-status/events/&lt;date&gt;.jsonl</code> — local/artifact; empty on a static Pages mirror.</p>
-    <input id="logf" placeholder="filter: component / journey / errorCode / correlationId" value="${logFilter||''}"
+  const btn=(k,l)=>`<button data-lk="${k}" style="padding:3px 9px;margin-right:4px;border-radius:7px;border:1px solid var(--line);cursor:pointer;background:${logKind===k?'#0f172a':'#fff'};color:${logKind===k?'#fff':'#0f172a'};font:inherit;font-size:11px">${l}</button>`;
+  p.innerHTML=`<h2>Logs <span class="muted" style="font-weight:400;font-size:12px">(${EVENTS.length}: ${hc} health · ${rc} runtime${f?`, ${evs.length} matched`:''})</span></h2>
+    <p class="muted" style="font-size:11px"><b>HEALTH</b> events (probes) and backend <b>RUNTIME</b> events (Railway/Fastify, PII-safe) — two distinct streams. No feedback/user content, no tokens/PII. Never raw Railway logs. Sources: <code>ops-status/events/</code> + <code>ops-status/runtime-events/</code> (artifact; empty until the collector + backend instrumentation are live).</p>
+    <div style="margin-bottom:6px">${btn('all','All')}${btn('health','Health only')}${btn('runtime','Runtime only')}</div>
+    <input id="logf" placeholder="filter: component / eventType / routeId / errorCode / correlationId" value="${logFilter||''}"
       style="width:100%;padding:6px 8px;margin-bottom:6px;border:1px solid var(--line);border-radius:8px;font:inherit">
-    ${EVENTS.length?`<div style="overflow:auto;max-height:66vh"><table style="border-collapse:collapse;font-size:11px;width:100%">
-      <thead><tr style="text-align:left;position:sticky;top:0;background:#fff"><th>Time</th><th>Src</th><th>Component</th><th>Journey</th><th>Type</th><th>Status</th><th>Sev</th><th>errorCode</th><th>Lat</th><th>rel+build</th><th>corrId</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>`:'<div class="warnbox">No events for this date. Run <code>node ops/monitor/run.mjs</code> or download the CI <code>ops-status</code> artifact.</div>'}`;
+    ${EVENTS.length?`<div style="overflow:auto;max-height:60vh"><table style="border-collapse:collapse;font-size:11px;width:100%">
+      <thead><tr style="text-align:left;position:sticky;top:0;background:#fff"><th>Time</th><th>Kind</th><th>Src</th><th>Component</th><th>Type</th><th>Route/Journey</th><th>Status</th><th>Sev</th><th>errorCode</th><th>Lat</th><th>corrId</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`:'<div class="warnbox">No events for this date. Health events come from <code>node ops/monitor/run.mjs</code>; runtime events from the Railway collector (needs OPS_RAILWAY_TOKEN + backend instrumentation).</div>'}`;
+  p.querySelectorAll('[data-lk]').forEach(b=>b.addEventListener('click',()=>{logKind=b.dataset.lk;renderLogs();}));
   const inp=document.getElementById('logf');
   if(inp)inp.addEventListener('input',()=>{logFilter=inp.value;const pos=inp.selectionStart;renderLogs();const n=document.getElementById('logf');if(n){n.focus();try{n.setSelectionRange(pos,pos);}catch{}}});
 }
