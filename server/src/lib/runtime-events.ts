@@ -6,6 +6,7 @@
 // copies ONLY an allow-list of fields and redacts every string. This makes it hard
 // to accidentally log a request body, feedback text, token, email, or credential.
 import { randomUUID } from 'node:crypto';
+import { writeSync } from 'node:fs';
 
 const RELEASE = (process.env.RAILWAY_GIT_COMMIT_SHA ?? '').slice(0, 7) || null;
 
@@ -55,7 +56,10 @@ export function buildSafeEvent(input: RuntimeEventInput): Record<string, unknown
 }
 
 function write(input: RuntimeEventInput): void {
-  try { process.stdout.write(JSON.stringify(buildSafeEvent(input)) + '\n'); } catch { /* never throw from logging */ }
+  // SYNCHRONOUS write to fd 1: process.stdout.write is async-buffered on a pipe
+  // (containers), so events emitted right before Railway idles/tears down the
+  // container are lost. writeSync flushes immediately and survives the shutdown.
+  try { writeSync(1, JSON.stringify(buildSafeEvent(input)) + '\n'); } catch { /* never throw from logging */ }
 }
 
 /** Opaque per-request correlation id — never derived from user data. */
