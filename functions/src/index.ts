@@ -78,8 +78,11 @@ export const aiSummary = onCall(
     region: 'us-central1',
     secrets: [OPENAI_API_KEY],
     enforceAppCheck: false, // client not App Check-ready yet; Firebase Auth still required
-    timeoutSeconds: 120,
+    timeoutSeconds: 240, // must exceed the 180s provider budget (ai-core REQUEST_TIMEOUT_MS)
     memory: '256MiB',
+    // Cost guard: cap fan-out so a traffic burst cannot multiply OpenAI spend
+    // without bound. Generous for legitimate per-user report generation.
+    maxInstances: 10,
   },
   async (request: CallableRequest) => {
     try {

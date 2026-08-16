@@ -268,10 +268,17 @@ describe('Phase 19 — aiSummary security/behavior matrix', () => {
     assert.equal(fetched, false, 'must not call provider when rate limited');
   });
 
-  test('18b. rate-limit store hiccup -> does NOT block a legitimate user (availability)', async () => {
-    const { deps } = makeDeps({ consumeRateLimit: async () => { throw new Error('firestore down'); } });
-    const out = await handleAiSummary('user-1', digestData(), deps);
-    assert.equal(out.ok, true);
+  test('18b. rate-limit store failure -> FAIL CLOSED (no unmetered provider spend)', async () => {
+    let fetched = false;
+    const { deps } = makeDeps({
+      consumeRateLimit: async () => { throw new Error('firestore down'); },
+      fetch: async () => { fetched = true; return fakeRes({ status: 200, json: OK_JSON }); },
+    });
+    await assert.rejects(
+      () => handleAiSummary('user-1', digestData(), deps),
+      (e) => e instanceof AiError && e.code === 'AI_RATELIMIT_STORE_UNAVAILABLE' && e.httpsCode === 'unavailable',
+    );
+    assert.equal(fetched, false, 'must NOT call the paid provider when the rate-limit store is down');
   });
 });
 

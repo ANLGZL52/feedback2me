@@ -26,23 +26,30 @@ class OpenAiAudienceClient {
   /// kimlik doğrulaması gerektirir). Aksi halde heuristik yedek kullanılır.
   bool get isConfigured => FirebaseAuth.instance.currentUser != null;
 
+  /// Callable yanıt zarfından modelin ham JSON metnini güvenle çıkarır.
+  /// `{ok:true, content:"..."}` değilse (ok:false / Map değil / boş içerik) null.
+  /// Saf ve test edilebilir (Firebase bağımlılığı yok).
+  static String? contentFromCallableData(dynamic data) {
+    if (data is Map && data['ok'] == true) {
+      final content = data['content'];
+      if (content is String && content.trim().isNotEmpty) {
+        return content.trim();
+      }
+    }
+    return null;
+  }
+
   /// aiSummary callable'ına güvenli çağrı. Başarıda modelin ham JSON metnini,
   /// aksi halde (unauthenticated / rate-limit / sağlayıcı hatası / ağ) null döner.
   Future<String?> _callAiSummary(Map<String, dynamic> payload) async {
     try {
       final callable = _functions.httpsCallable(
         'aiSummary',
-        options: HttpsCallableOptions(timeout: const Duration(seconds: 120)),
+        // Sunucu sağlayıcı bütçesi 180s; istemci zaman aşımı bunu aşmalı.
+        options: HttpsCallableOptions(timeout: const Duration(seconds: 200)),
       );
       final res = await callable.call(payload);
-      final data = res.data;
-      if (data is Map && data['ok'] == true) {
-        final content = data['content'];
-        if (content is String && content.trim().isNotEmpty) {
-          return content.trim();
-        }
-      }
-      return null;
+      return contentFromCallableData(res.data);
     } on FirebaseFunctionsException catch (_) {
       // unauthenticated / resource-exhausted / unavailable / internal → yedek.
       return null;

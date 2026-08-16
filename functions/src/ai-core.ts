@@ -26,7 +26,7 @@ export const MODEL = 'gpt-4o-mini'; // P0 migration: DO NOT change model in this
 export const TEMPERATURE = 0.28;
 export const CHUNK_MAX_TOKENS = 1200; // partial_digest output cap
 export const REFINE_MAX_TOKENS = 9000; // refine_report output cap
-export const REQUEST_TIMEOUT_MS = 60000; // server-side hard timeout per provider call
+export const REQUEST_TIMEOUT_MS = 180000; // matches the historical client budget (180s) — parity
 
 // ---------------------------------------------------------------------------
 // Input limits (Phase 10 — token/cost abuse protection). Reject BEFORE OpenAI.
@@ -780,8 +780,13 @@ export async function handleAiSummary(
       }
     } catch (e) {
       if (e instanceof AiError) throw e;
+      // FAIL CLOSED. This is a cost/authority boundary for a paid provider: if the
+      // rate-limit store is unavailable we cannot bound spend, so we must NOT let an
+      // authenticated caller through unmetered. The client falls back to the local
+      // heuristic report (no crash) — losing AI enrichment is acceptable; unbounded
+      // OpenAI spend is not.
       log({
-        level: 'warn',
+        level: 'error',
         event: buildObsEvent('openai.request.failed', {
           operation: parsed.operation,
           clientRequestId,
@@ -789,6 +794,11 @@ export async function handleAiSummary(
           retryable: true,
         }),
       });
+      throw new AiError(
+        'unavailable',
+        'AI_RATELIMIT_STORE_UNAVAILABLE',
+        'Hız sınırı doğrulanamadı; lütfen tekrar deneyin.',
+      );
     }
   }
 
