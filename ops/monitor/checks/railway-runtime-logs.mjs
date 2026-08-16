@@ -102,15 +102,20 @@ async function defaultFetchLogs(token, limit, timeoutMs) {
         body: JSON.stringify({ query, variables }) });
       return { status: res.status, json: await res.json().catch(() => null) };
     };
+    // Latest deployment id (safe metadata for the events).
     const dq = await gql(`query($input: DeploymentListInput!){ deployments(first:1, input:$input){ edges { node { id } } } }`,
       { input: { projectId: PROJECT, environmentId: ENV, serviceId: SERVICE } });
     if (dq.status === 401 || dq.status === 403) return { auth: 'FAILED', logs: null };
-    const depId = dq.json?.data?.deployments?.edges?.[0]?.node?.id;
-    if (!depId) return { auth: 'OK', logs: [], deploymentId: null };
-    const lq = await gql(`query($id:String!,$limit:Int){ deploymentLogs(deploymentId:$id, limit:$limit){ timestamp message severity } }`,
-      { id: depId, limit });
+    const depId = dq.json?.data?.deployments?.edges?.[0]?.node?.id || null;
+    // RUNTIME stream = environmentLogs (deploymentLogs only returns the deploy/startup
+    // phase). Scope to the feedback2me service; bounded via beforeLimit (most recent N).
+    const lq = await gql(`query($e:String!,$n:Int){ environmentLogs(environmentId:$e, beforeLimit:$n){ timestamp message severity tags { serviceId } } }`,
+      { e: ENV, n: limit });
     if (lq.status === 401 || lq.status === 403) return { auth: 'FAILED', logs: null };
-    return { auth: 'OK', logs: lq.json?.data?.deploymentLogs || [], deploymentId: depId };
+    const all = lq.json?.data?.environmentLogs || [];
+    // keep only this service's lines (environmentLogs also carries e.g. Postgres logs).
+    const logs = all.filter((l) => !l.tags || !l.tags.serviceId || l.tags.serviceId === SERVICE);
+    return { auth: 'OK', logs, deploymentId: depId };
   } finally { clearTimeout(to); }
 }
 
