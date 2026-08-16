@@ -29,6 +29,8 @@ jobs:
         run: node ops/monitor/run.mjs
       - name: Ops engine self-tests
         run: node --test ops/monitor/engine.test.mjs
+      - name: Ops alert-calibration tests (runtime-only alerting)
+        run: node --test ops/monitor/alert.test.mjs
       - name: Release preflight (non-blocking here; informational)
         run: node ops/monitor/preflight.mjs || echo "preflight NOT READY (see output)"
       - name: Alert on P0 / DOWN (spam-safe — only P0/DOWN, never steady-state P1s)
