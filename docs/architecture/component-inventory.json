@@ -1,0 +1,419 @@
+{
+  "$schema": "./component-inventory.schema (informal)",
+  "generatedBy": "architecture discovery (read-only) — evidence = repo source only",
+  "project": "Feedback2Me (feedbacktome-79655)",
+  "appVersion": "1.0.3+20",
+  "planes": ["RUNTIME", "RELEASE"],
+  "layers": [
+    "CLIENTS",
+    "ENTRY_ACCESS",
+    "APPLICATION_BUSINESS",
+    "DATA_SECURITY_BACKEND",
+    "EXTERNAL_SERVICES",
+    "RELEASE_OPERATIONS"
+  ],
+  "categories": [
+    "CLIENT", "ROUTING", "AUTH", "SERVICE", "DATABASE", "SECURITY",
+    "BACKEND", "AI", "PUBLIC_WEB", "IAP", "EXTERNAL_SERVICE",
+    "DEPLOYMENT", "CI", "CONFIG", "LOCAL_STATE", "BUSINESS_RULE", "STORE"
+  ],
+  "components": [
+    {
+      "id": "node-flutter-ios", "name": "Flutter iOS App", "category": "CLIENT",
+      "type": "mobile-app", "runtime": "iOS (Dart/Flutter)", "plane": "RUNTIME", "layer": "CLIENTS",
+      "location": "lib/main.dart, ios/Runner", "entrypoints": ["main()"],
+      "dependencies": ["node-launch-gate", "node-firebase-auth", "node-cloud-functions"],
+      "dependents": [], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "device", "external": false, "criticality": "high",
+      "evidence": ["lib/main.dart:64", "ios/Runner.xcodeproj/project.pbxproj:378 (bundle com.anlgzl.feedback2meapp)"]
+    },
+    {
+      "id": "node-flutter-android", "name": "Flutter Android App", "category": "CLIENT",
+      "type": "mobile-app", "runtime": "Android (Dart/Flutter)", "plane": "RUNTIME", "layer": "CLIENTS",
+      "location": "lib/main.dart, android/", "entrypoints": ["main()"],
+      "dependencies": ["node-launch-gate", "node-firebase-auth", "node-cloud-functions"],
+      "dependents": [], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "device", "external": false, "criticality": "high",
+      "evidence": ["lib/main.dart:64", "android/app/build.gradle.kts:33 (applicationId app.feedbacktome)"]
+    },
+    {
+      "id": "node-flutter-web", "name": "Flutter Web (build source, NOT served)", "category": "CLIENT",
+      "type": "web-build-source", "runtime": "build artifact", "plane": "RUNTIME", "layer": "CLIENTS",
+      "location": "web/", "entrypoints": ["web/index.html"],
+      "dependencies": [], "dependents": [], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "n/a", "external": false, "criticality": "low",
+      "notes": "Flutter web build source exists but Firebase Hosting serves web_static/ instead.",
+      "evidence": ["web/index.html:15", "firebase.json:16 (public = web_static)"]
+    },
+    {
+      "id": "node-public-browser", "name": "Anonymous Responder Browser", "category": "CLIENT",
+      "type": "browser", "runtime": "web browser", "plane": "RUNTIME", "layer": "CLIENTS",
+      "location": "external user device", "entrypoints": ["/f/<code> URL"],
+      "dependencies": ["node-firebase-hosting"], "dependents": [], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "anonymous (no auth)", "external": true, "criticality": "high",
+      "evidence": ["firebase.json:52-53 (rewrite /f, /f/**)"]
+    },
+
+    {
+      "id": "node-firebase-hosting", "name": "Firebase Hosting", "category": "DEPLOYMENT",
+      "type": "static-hosting", "runtime": "Firebase (Google)", "plane": "RUNTIME", "layer": "ENTRY_ACCESS",
+      "location": "firebase.json (public=web_static)", "entrypoints": ["/f", "/f/**", "/privacy", "/terms", "/support", "/"],
+      "dependencies": ["node-fhtml"], "dependents": ["node-public-browser"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "public CDN", "external": false, "criticality": "high",
+      "evidence": ["firebase.json:15-16", "firebase.json:51-57 (rewrites)", "firebase.json:22-49 (no-cache headers on /f*)"]
+    },
+    {
+      "id": "node-fhtml", "name": "Public Feedback Page (web_static/f.html)", "category": "PUBLIC_WEB",
+      "type": "static-page", "runtime": "browser + Firebase JS compat SDK", "plane": "RUNTIME", "layer": "ENTRY_ACCESS",
+      "location": "web_static/f.html", "entrypoints": ["getCode()"],
+      "dependencies": ["node-firestore-rules", "node-railway-api", "node-local-storage"],
+      "dependents": ["node-firebase-hosting"],
+      "dataReads": ["links (by code)"], "dataWrites": ["feedbacks", "links (demo close)"],
+      "securityBoundary": "anonymous; Firestore rules enforce (direct path)", "external": false, "criticality": "high",
+      "notes": "DEFAULT persistence = Firestore direct. Railway REST is opt-in fallback via <meta name=ftm-public-api> / window.FTM_PUBLIC_API_BASE.",
+      "evidence": ["web_static/f.html:342-350 (resolvePublicApiBase)", "web_static/f.html:549-554 (Firestore query)", "web_static/f.html:629-644 (batch submit)", "web_static/f.html:509-527 (localStorage marker)"]
+    },
+    {
+      "id": "node-launch-gate", "name": "_AppLaunchGate (router)", "category": "ROUTING",
+      "type": "widget-router", "runtime": "Flutter", "plane": "RUNTIME", "layer": "ENTRY_ACCESS",
+      "location": "lib/main.dart", "entrypoints": ["build()"],
+      "dependencies": ["node-min-version-gate", "node-public-feedback-flow"], "dependents": ["node-flutter-ios", "node-flutter-android"],
+      "dataReads": ["Uri.base (deeplink)"], "dataWrites": [],
+      "securityBoundary": "n/a", "external": false, "criticality": "high",
+      "notes": "deeplink /f/<code> -> public FeedbackFormScreen (bypasses onboarding/auth/min-version gate); else -> owner app.",
+      "evidence": ["lib/main.dart:364", "lib/main.dart:395-409", "lib/main.dart:333-357 (_feedbackDeepLinkCode)"]
+    },
+    {
+      "id": "node-min-version-gate", "name": "_MinVersionGate (owner-only)", "category": "BUSINESS_RULE",
+      "type": "gate-widget", "runtime": "Flutter", "plane": "RUNTIME", "layer": "ENTRY_ACCESS",
+      "location": "lib/main.dart, lib/services/version_gate.dart", "entrypoints": ["build()"],
+      "dependencies": ["node-version-gate-svc", "node-auth-gate"], "dependents": ["node-launch-gate"],
+      "dataReads": ["appConfig/version"], "dataWrites": [],
+      "securityBoundary": "owner app only; NOT public feedback", "external": false, "criticality": "medium",
+      "notes": "FAIL-OPEN. Only gate-aware (Release A+) clients read this; pre-gate legacy clients are unaffected.",
+      "evidence": ["lib/main.dart:417-447", "lib/services/version_gate.dart:15-38"]
+    },
+    {
+      "id": "node-auth-gate", "name": "_AuthGate (Firebase auth state)", "category": "ROUTING",
+      "type": "gate-widget", "runtime": "Flutter", "plane": "RUNTIME", "layer": "ENTRY_ACCESS",
+      "location": "lib/main.dart", "entrypoints": ["build()"],
+      "dependencies": ["node-firebase-auth", "node-railway-jwt"], "dependents": ["node-min-version-gate"],
+      "dataReads": ["authStateChanges"], "dataWrites": [],
+      "securityBoundary": "owner identity", "external": false, "criticality": "high",
+      "evidence": ["lib/main.dart:497-546", "lib/main.dart:515 (ensureRailwayBackendSession)"]
+    },
+
+    {
+      "id": "node-firebase-auth", "name": "Firebase Auth (Google + Apple)", "category": "AUTH",
+      "type": "identity-provider", "runtime": "Firebase (Google)", "plane": "RUNTIME", "layer": "AUTH",
+      "location": "lib/services/auth_service.dart", "entrypoints": ["signInWithGoogle", "signInWithApple"],
+      "dependencies": [], "dependents": ["node-auth-gate", "node-flutter-ios", "node-flutter-android"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "owner identity (uid)", "external": false, "criticality": "high",
+      "notes": "Google + Apple only. No anonymous / email-password sign-in in lib/.",
+      "evidence": ["lib/services/auth_service.dart:55,68,88"]
+    },
+    {
+      "id": "node-railway-jwt", "name": "Railway JWT Bridge (dev-login)", "category": "AUTH",
+      "type": "token-bridge", "runtime": "Fastify (Railway)", "plane": "RUNTIME", "layer": "AUTH",
+      "location": "lib/services/railway_backend_sync.dart, server/src/routes/auth.ts", "entrypoints": ["/auth/dev/login"],
+      "dependencies": ["node-railway-api"], "dependents": ["node-auth-gate"],
+      "dataReads": ["user by email"], "dataWrites": ["user (upsert)"],
+      "securityBoundary": "X-Dev-Secret header; JWT", "external": false, "criticality": "low",
+      "notes": "Only active when USE_RAILWAY_API build flag set. Real Google/Apple OAuth token exchange is a documented TODO server-side.",
+      "evidence": ["lib/services/railway_backend_sync.dart:33-64", "server/src/routes/auth.ts:15-45", "server/src/routes/auth.ts:10-13 (OAuth TODO)"]
+    },
+
+    {
+      "id": "node-app-data-backend", "name": "AppDataBackend (data seam)", "category": "SERVICE",
+      "type": "interface", "runtime": "Flutter", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/services/app_data_backend.dart, lib/app_state.dart", "entrypoints": ["appData getter"],
+      "dependencies": ["node-firestore-service", "node-railway-api-service"], "dependents": ["node-report-service", "node-iap-service"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "n/a", "external": false, "criticality": "high",
+      "notes": "COMPILE-TIME XOR: appData = isRailwayBackendConfigured ? Railway : Firestore. No runtime failover; exactly one live per build (default Firestore).",
+      "evidence": ["lib/app_state.dart:22-23", "lib/config/backend_config.dart:28-29"]
+    },
+    {
+      "id": "node-firestore-service", "name": "FirestoreService", "category": "SERVICE",
+      "type": "data-backend", "runtime": "Flutter", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/services/firestore_service.dart", "entrypoints": ["createLink", "addFeedback", "getLinkByCode"],
+      "dependencies": ["node-firestore-rules"], "dependents": ["node-app-data-backend"],
+      "dataReads": ["users", "links", "feedbacks", "audienceScoreSnapshots"],
+      "dataWrites": ["users", "links", "feedbacks", "audienceScoreSnapshots"],
+      "securityBoundary": "Firestore rules (client SDK)", "external": false, "criticality": "high",
+      "notes": "Default backend. createLink writes createdAt=serverTimestamp; demo one-shot auto-close.",
+      "evidence": ["lib/services/firestore_service.dart:29", "lib/services/firestore_service.dart:151-203 (_computeLinkForCreate)", "lib/services/firestore_service.dart:267-309 (addFeedback demo close)"]
+    },
+    {
+      "id": "node-railway-api-service", "name": "RailwayApiService", "category": "SERVICE",
+      "type": "rest-client", "runtime": "Flutter", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/services/railway_api_service.dart", "entrypoints": ["createLink", "addFeedback"],
+      "dependencies": ["node-railway-api"], "dependents": ["node-app-data-backend"],
+      "dataReads": ["/me", "/links", "/public/links/by-code", "/me/feedback-pool", "/audience-snapshots"],
+      "dataWrites": ["/links", "/feedbacks", "/audience-snapshots"],
+      "securityBoundary": "JWT bearer (ApiSession)", "external": false, "criticality": "medium",
+      "notes": "Alternative backend (opt-in via USE_RAILWAY_API). Streams are 4-6s polling, not realtime.",
+      "evidence": ["lib/services/railway_api_service.dart:17-24,100-346"]
+    },
+    {
+      "id": "node-report-service", "name": "ReportService (analysis orchestrator)", "category": "SERVICE",
+      "type": "orchestrator", "runtime": "Flutter", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/services/report_service.dart", "entrypoints": ["generateCommunitySummary", "generateAudienceAnalysis"],
+      "dependencies": ["node-app-data-backend", "node-openai-client", "node-community-summary", "node-shared-prefs"],
+      "dependents": [], "dataReads": ["feedbacks"], "dataWrites": ["audienceScoreSnapshots", "summary caches"],
+      "securityBoundary": "n/a", "external": false, "criticality": "medium",
+      "notes": "Fetches feedback, computes heuristics, optionally calls AI proxy, caches results. Never breaks without AI (heuristic fallback).",
+      "evidence": ["lib/services/report_service.dart:421,532,961", "lib/services/report_service.dart:1086 (_heuristicCommunitySummary)"]
+    },
+    {
+      "id": "node-openai-client", "name": "OpenAiAudienceClient", "category": "AI",
+      "type": "proxy-client", "runtime": "Flutter", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/services/openai_audience_client.dart", "entrypoints": ["_chat"],
+      "dependencies": ["node-ai-proxy"], "dependents": ["node-report-service"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "no API key on client", "external": false, "criticality": "low",
+      "notes": "Calls server-side proxy AI_PROXY_URL (Railway /ai/chat). NEVER calls OpenAI directly. Disabled if AI_PROXY_URL empty -> heuristic fallback.",
+      "evidence": ["lib/services/openai_audience_client.dart:16,23,654", "lib/services/openai_audience_client.dart:20 (gpt-4o-mini)"]
+    },
+    {
+      "id": "node-iap-service", "name": "IapService (in_app_purchase)", "category": "IAP",
+      "type": "billing-client", "runtime": "Flutter", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/services/iap_service.dart", "entrypoints": ["startPurchase", "_onPurchaseUpdates", "verifyAndGrant"],
+      "dependencies": ["node-apple-store", "node-google-play", "node-cloud-functions"], "dependents": [],
+      "dataReads": ["user profile (uid only)"], "dataWrites": [],
+      "securityBoundary": "Server-authoritative: calls Cloud Function iapVerify; client writes NO credit (firestore.rules noPrivilegeEscalation would reject a client credit increase anyway).", "external": false, "criticality": "high",
+      "notes": "Server-side IAP verification RESTORED. _onPurchaseUpdates -> verifyAndGrant -> httpsCallable('iapVerify'); credit is granted only by the Admin SDK after receipt verification. Transient verify failure keeps the purchase queued for retry (idempotent); permanent rejection completes without credit. Covered by test/iap_service_test.dart + ci-functions-iap.",
+      "evidence": ["lib/services/iap_service.dart (verifyAndGrant / _defaultVerify)", "lib/config/iap_products.dart:27 (premium_link_single)", "test/iap_service_test.dart"]
+    },
+    {
+      "id": "node-version-gate-svc", "name": "VersionGate (service)", "category": "SERVICE",
+      "type": "config-reader", "runtime": "Flutter", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/services/version_gate.dart, lib/config/app_build.dart", "entrypoints": ["isUpdateRequired"],
+      "dependencies": ["node-firestore-rules"], "dependents": ["node-min-version-gate"],
+      "dataReads": ["appConfig/version"], "dataWrites": [],
+      "securityBoundary": "public read (appConfig)", "external": false, "criticality": "low",
+      "notes": "kAppBuild (const, synced with pubspec +20) vs appConfig/version.minSupportedBuild. FAIL-OPEN.",
+      "evidence": ["lib/services/version_gate.dart:8-38", "lib/config/app_build.dart:10"]
+    },
+    {
+      "id": "node-public-feedback-flow", "name": "FeedbackFormScreen (Flutter public/manual)", "category": "PUBLIC_WEB",
+      "type": "widget", "runtime": "Flutter", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/main.dart", "entrypoints": ["_submit()"],
+      "dependencies": ["node-app-data-backend", "node-submitted-marker"], "dependents": ["node-launch-gate"],
+      "dataReads": ["links (by code)"], "dataWrites": ["feedbacks"],
+      "securityBoundary": "anonymous; server lifecycle", "external": false, "criticality": "medium",
+      "notes": "In-app feedback path (deeplink or manual). Writes via appData.addFeedback (Firestore OR Railway per build).",
+      "evidence": ["lib/main.dart:4570,4712-4753"]
+    },
+
+    {
+      "id": "node-demo-lifecycle", "name": "Demo Link Lifecycle (rule)", "category": "BUSINESS_RULE",
+      "type": "logical", "runtime": "enforced in Firestore rules + REST + client", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "firestore.rules, server/src/routes/feedbacks.ts, lib/models/feedback_link.dart",
+      "entrypoints": [], "dependencies": ["node-firestore-rules"], "dependents": [],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "server-authoritative", "external": false, "criticality": "high",
+      "notes": "Free, 10 min (createdAt+10m), 1 feedback, atomic close on first submit.",
+      "evidence": ["firestore.rules:22-35,61-70", "server/src/routes/feedbacks.ts:45-53"]
+    },
+    {
+      "id": "node-premium-lifecycle", "name": "Premium Link Lifecycle (rule)", "category": "BUSINESS_RULE",
+      "type": "logical", "runtime": "enforced in Firestore rules + REST", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "firestore.rules, server/src/routes/links.ts",
+      "entrypoints": [], "dependencies": ["node-credits", "node-firestore-rules"], "dependents": [],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "server-authoritative; 1 credit burned", "external": false, "criticality": "high",
+      "notes": "1 credit -> 1 link -> 24h (createdAt+24h), multi-responder. Legacy isPremium bypass removed.",
+      "evidence": ["firestore.rules:83-98", "server/src/routes/links.ts:33-42"]
+    },
+    {
+      "id": "node-credits", "name": "paidLinkCredits (entitlement state)", "category": "BUSINESS_RULE",
+      "type": "logical-state", "runtime": "field on users doc / User row", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "users.paidLinkCredits (Firestore) / User.paidLinkCredits (Postgres)",
+      "entrypoints": [], "dependencies": ["node-cloud-functions"], "dependents": ["node-premium-lifecycle"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "server-granted only (Admin SDK); client may only decrement", "external": false, "criticality": "high",
+      "notes": "Logical state on the user record, NOT a separate service/db.",
+      "evidence": ["functions/src/index.ts:183-185", "firestore.rules:116-121 (noPrivilegeEscalation)"]
+    },
+    {
+      "id": "node-community-summary", "name": "Community Summary / Personal Impression (AI output)", "category": "BUSINESS_RULE",
+      "type": "logical", "runtime": "computed (AI or heuristic)", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/models/community_feedback_summary.dart, lib/services/report_service.dart",
+      "entrypoints": [], "dependencies": ["node-openai-client"], "dependents": [],
+      "dataReads": ["feedbacks"], "dataWrites": ["summary caches"],
+      "securityBoundary": "n/a", "external": false, "criticality": "medium",
+      "notes": "Summarizes/groups REAL feedbacks; does NOT invent feedback. Heuristic fallback when AI off.",
+      "evidence": ["lib/services/openai_audience_client.dart:575", "lib/services/report_service.dart:961,1086"]
+    },
+    {
+      "id": "node-submitted-marker", "name": "Submitted Marker (same-browser UX)", "category": "LOCAL_STATE",
+      "type": "local-state", "runtime": "SharedPreferences / localStorage", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib/services/submitted_marker.dart, web_static/f.html",
+      "entrypoints": [], "dependencies": ["node-shared-prefs", "node-local-storage"], "dependents": ["node-public-feedback-flow", "node-fhtml"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "NOT a security control (UX deterrent)", "external": false, "criticality": "low",
+      "notes": "Key feedback2me_submitted_<linkId>. Bypassable by clearing storage/incognito.",
+      "evidence": ["lib/services/submitted_marker.dart:5-12", "web_static/f.html:509-527"]
+    },
+    {
+      "id": "node-shared-prefs", "name": "SharedPreferences (device local state)", "category": "LOCAL_STATE",
+      "type": "key-value-store", "runtime": "device", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "lib (multiple)", "entrypoints": [],
+      "dependencies": [], "dependents": ["node-report-service", "node-version-gate-svc", "node-submitted-marker"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "device-local", "external": false, "criticality": "low",
+      "notes": "onboarding flag, railway session token, submitted marker, summary caches, locale.",
+      "evidence": ["lib/services/api_session.dart:8-9", "lib/services/community_summary_store.dart:14", "lib/widgets/app_onboarding.dart:10"]
+    },
+    {
+      "id": "node-local-storage", "name": "Browser localStorage (f.html marker)", "category": "LOCAL_STATE",
+      "type": "key-value-store", "runtime": "browser", "plane": "RUNTIME", "layer": "APPLICATION_BUSINESS",
+      "location": "web_static/f.html", "entrypoints": [],
+      "dependencies": [], "dependents": ["node-fhtml"], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "browser-local; UX only", "external": false, "criticality": "low",
+      "evidence": ["web_static/f.html:509-527"]
+    },
+
+    {
+      "id": "node-firestore-rules", "name": "Firestore Security Rules", "category": "SECURITY",
+      "type": "security-boundary", "runtime": "Firebase (Google)", "plane": "RUNTIME", "layer": "DATA_SECURITY_BACKEND",
+      "location": "firestore.rules", "entrypoints": ["allow read/write"],
+      "dependencies": ["node-firestore"], "dependents": ["node-firestore-service", "node-fhtml", "node-version-gate-svc"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "THE client<->Firestore boundary (evaluated on every client read/write)", "external": false, "criticality": "critical",
+      "notes": "Server-authoritative link lifecycle (createdAt+duration), atomic demo (getAfter), credit/demo entitlement on create, owner immutability, appConfig public-read. Admin SDK BYPASSES this.",
+      "evidence": ["firestore.rules:22-70 (lifecycle)", "firestore.rules:83-98 (entitlement)", "firestore.rules:104-121 (owner/escalation)", "firestore.rules:145-148 (appConfig)"]
+    },
+    {
+      "id": "node-firestore", "name": "Cloud Firestore", "category": "DATABASE",
+      "type": "document-db", "runtime": "Firebase (Google)", "plane": "RUNTIME", "layer": "DATA_SECURITY_BACKEND",
+      "location": "collections: users, links, feedbacks, appConfig, processedPurchases, users/{uid}/audienceScoreSnapshots",
+      "entrypoints": [], "dependencies": [], "dependents": ["node-firestore-rules", "node-cloud-functions"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "rules (client) OR Admin SDK (functions, bypass)", "external": false, "criticality": "critical",
+      "notes": "Default persistence domain. 4 composite indexes.",
+      "evidence": ["lib/services/firestore_service.dart:17-24", "firestore.indexes.json:4-35"]
+    },
+    {
+      "id": "node-cloud-functions", "name": "Cloud Function: iapVerify", "category": "IAP",
+      "type": "cloud-function", "runtime": "Firebase Functions (nodejs20, us-central1)", "plane": "RUNTIME", "layer": "DATA_SECURITY_BACKEND",
+      "location": "functions/src/index.ts", "entrypoints": ["iapVerify (onCall)"],
+      "dependencies": ["node-apple-store", "node-google-play", "node-firestore"], "dependents": ["node-credits", "node-iap-service"],
+      "dataReads": ["processedPurchases", "users"], "dataWrites": ["users.paidLinkCredits", "processedPurchases"],
+      "securityBoundary": "Admin SDK (bypasses rules); requires auth", "external": false, "criticality": "high",
+      "notes": "Verifies Apple/Google receipts, grants paidLinkCredits idempotently (processedPurchases dedupe). NOW called by the client (IapService -> httpsCallable('iapVerify')). Security-critical core (allow-list, server-determined amount, atomic idempotent grant) is factored into functions/src/iap-core.ts and tested by ci-functions-iap.",
+      "evidence": ["functions/src/index.ts:114-168", "functions/src/iap-core.ts:51-76 (grant transaction)", "functions/test/iap-core.test.mjs"]
+    },
+    {
+      "id": "node-railway-api", "name": "Railway API (Fastify + Prisma)", "category": "BACKEND",
+      "type": "rest-server", "runtime": "Node/Fastify on Railway", "plane": "RUNTIME", "layer": "DATA_SECURITY_BACKEND",
+      "location": "server/src/index.ts + routes/*", "entrypoints": ["/health", "/auth/dev/login", "/me", "/links", "/feedbacks", "/audience-snapshots", "/ai/chat"],
+      "dependencies": ["node-postgres", "node-ai-proxy"], "dependents": ["node-railway-api-service", "node-fhtml", "node-railway-jwt"],
+      "dataReads": ["Postgres (all)"], "dataWrites": ["Postgres (all)"],
+      "securityBoundary": "JWT (owner routes) + app-code checks; NOT governed by Firestore rules", "external": false, "criticality": "medium",
+      "notes": "Alternative backend (opt-in). Admin-level DB access; security enforced in app code (zod, ownership, transactions). CORS fully open.",
+      "evidence": ["server/src/index.ts:38-71", "server/src/routes/*.ts"]
+    },
+    {
+      "id": "node-ai-proxy", "name": "AI Proxy Route (/ai/chat)", "category": "AI",
+      "type": "route", "runtime": "Fastify (Railway)", "plane": "RUNTIME", "layer": "DATA_SECURITY_BACKEND",
+      "location": "server/src/routes/ai.ts", "entrypoints": ["POST /ai/chat"],
+      "dependencies": ["node-openai"], "dependents": ["node-openai-client", "node-railway-api"],
+      "dataReads": [], "dataWrites": [],
+      "securityBoundary": "public + IP rate limit 40/min; server-held OPENAI_API_KEY", "external": false, "criticality": "medium",
+      "notes": "Server-side OpenAI proxy. Whitelisted fields only. 503 if OPENAI_API_KEY unset.",
+      "evidence": ["server/src/routes/ai.ts:3,18-69"]
+    },
+    {
+      "id": "node-postgres", "name": "PostgreSQL (Prisma)", "category": "DATABASE",
+      "type": "relational-db", "runtime": "Railway Postgres", "plane": "RUNTIME", "layer": "DATA_SECURITY_BACKEND",
+      "location": "server/prisma/schema.prisma", "entrypoints": [],
+      "dependencies": [], "dependents": ["node-railway-api"], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "DATABASE_URL admin creds; app-code security only", "external": false, "criticality": "medium",
+      "notes": "Separate persistence domain (NOT Firestore). Models: User, OAuthAccount, Link, Feedback, AudienceScoreSnapshot, AudienceReportBody.",
+      "evidence": ["server/prisma/schema.prisma:7-112"]
+    },
+
+    {
+      "id": "node-openai", "name": "OpenAI API", "category": "EXTERNAL_SERVICE",
+      "type": "llm-api", "runtime": "OpenAI (external)", "plane": "RUNTIME", "layer": "EXTERNAL_SERVICES",
+      "location": "api.openai.com/v1/chat/completions", "entrypoints": [],
+      "dependencies": [], "dependents": ["node-ai-proxy"], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "server-held key only", "external": true, "criticality": "low",
+      "notes": "Model gpt-4o-mini. Called SERVER-SIDE only. Summarizes/groups real feedbacks; does not generate feedback.",
+      "evidence": ["server/src/routes/ai.ts:3,44"]
+    },
+    {
+      "id": "node-apple-store", "name": "Apple App Store (billing + receipts)", "category": "EXTERNAL_SERVICE",
+      "type": "app-store", "runtime": "Apple (external)", "plane": "RUNTIME", "layer": "EXTERNAL_SERVICES",
+      "location": "buy.itunes.apple.com/verifyReceipt", "entrypoints": [],
+      "dependencies": [], "dependents": ["node-iap-service", "node-cloud-functions"], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "receipt verification (server)", "external": true, "criticality": "medium",
+      "evidence": ["functions/src/index.ts:36,49-79", "lib/services/iap_service.dart:4"]
+    },
+    {
+      "id": "node-google-play", "name": "Google Play (billing + receipts)", "category": "EXTERNAL_SERVICE",
+      "type": "app-store", "runtime": "Google (external)", "plane": "RUNTIME", "layer": "EXTERNAL_SERVICES",
+      "location": "androidpublisher/v3 purchases.products", "entrypoints": [],
+      "dependencies": [], "dependents": ["node-iap-service", "node-cloud-functions"], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "receipt verification (server)", "external": true, "criticality": "medium",
+      "evidence": ["functions/src/index.ts:82-117"]
+    },
+
+    {
+      "id": "node-codemagic", "name": "Codemagic CI (iOS)", "category": "CI",
+      "type": "ci-pipeline", "runtime": "Codemagic", "plane": "RELEASE", "layer": "RELEASE_OPERATIONS",
+      "location": "codemagic.yaml", "entrypoints": ["ios-release", "ios-debug"],
+      "dependencies": ["node-appstore-connect"], "dependents": [], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "signing certs", "external": false, "criticality": "medium",
+      "notes": "flutter build ipa -> App Store Connect -> TestFlight (submit_to_testflight:true). Apple ID 6762295382.",
+      "evidence": ["codemagic.yaml:14,64-91"]
+    },
+    {
+      "id": "node-github-actions", "name": "GitHub Actions (server concurrency test)", "category": "CI",
+      "type": "ci-pipeline", "runtime": "GitHub Actions", "plane": "RELEASE", "layer": "RELEASE_OPERATIONS",
+      "location": ".github/workflows/server-concurrency-test.yml", "entrypoints": ["on push server/**"],
+      "dependencies": [], "dependents": [], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "ephemeral CI", "external": false, "criticality": "low",
+      "notes": "Disposable postgres:16 service; runs REST demo concurrency invariant test.",
+      "evidence": [".github/workflows/server-concurrency-test.yml:1-58"]
+    },
+    {
+      "id": "node-firebase-deploy", "name": "Firebase Deploy (hosting/functions/rules)", "category": "DEPLOYMENT",
+      "type": "deploy-target", "runtime": "Firebase CLI", "plane": "RELEASE", "layer": "RELEASE_OPERATIONS",
+      "location": "firebase.json", "entrypoints": ["deploy --only hosting|functions|firestore:rules"],
+      "dependencies": ["node-firebase-hosting", "node-cloud-functions", "node-firestore-rules"], "dependents": [],
+      "dataReads": [], "dataWrites": [], "securityBoundary": "Firebase project owner", "external": false, "criticality": "high",
+      "evidence": ["firebase.json:2-14"]
+    },
+    {
+      "id": "node-railway-deploy", "name": "Railway Deploy (API + web)", "category": "DEPLOYMENT",
+      "type": "deploy-target", "runtime": "Railway", "plane": "RELEASE", "layer": "RELEASE_OPERATIONS",
+      "location": "server/Dockerfile, Dockerfile", "entrypoints": [],
+      "dependencies": ["node-railway-api"], "dependents": [], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "Railway env vars", "external": false, "criticality": "medium",
+      "notes": "server/Dockerfile = Node API; root Dockerfile = Flutter web static via serve (separate deploy).",
+      "evidence": ["server/Dockerfile:1-21", "Dockerfile:1-27"]
+    },
+    {
+      "id": "node-appstore-connect", "name": "App Store Connect / TestFlight", "category": "STORE",
+      "type": "store-console", "runtime": "Apple (external)", "plane": "RELEASE", "layer": "RELEASE_OPERATIONS",
+      "location": "codemagic.yaml (integration feedback2me)", "entrypoints": [],
+      "dependencies": [], "dependents": ["node-flutter-ios"], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "Apple account", "external": true, "criticality": "medium",
+      "evidence": ["codemagic.yaml:37-38,88-91"]
+    },
+    {
+      "id": "node-play-console", "name": "Google Play Console", "category": "STORE",
+      "type": "store-console", "runtime": "Google (external)", "plane": "RELEASE", "layer": "RELEASE_OPERATIONS",
+      "location": "android/app/build.gradle.kts (app.feedbacktome)", "entrypoints": [],
+      "dependencies": [], "dependents": ["node-flutter-android"], "dataReads": [], "dataWrites": [],
+      "securityBoundary": "Google Play account", "external": true, "criticality": "low",
+      "notes": "applicationId app.feedbacktome. No automated Play publish workflow found in repo (manual).",
+      "evidence": ["android/app/build.gradle.kts:33"]
+    }
+  ]
+}

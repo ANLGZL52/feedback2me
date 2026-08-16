@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Feedback2Me — System Architecture</title>
+<style>
+  :root{
+    --bg:#f7f8fb; --panel:#ffffff; --ink:#0f172a; --ink2:#475569; --line:#cbd5e1;
+    --blue:#2563eb; --blueBg:#eff6ff; --amber:#d97706; --amberBg:#fffbeb;
+    --purple:#7c3aed; --purpleBg:#f5f3ff; --violet:#8b5cf6; --violetBg:#f5f3ff;
+    --red:#ea580c; --redBg:#fff7ed; --gray:#64748b; --grayBg:#f1f5f9;
+    --shield:#b45309; --warn:#dc2626;
+    --edge:#94a3b8; --edgeHi:#0f172a; --edgeFallback:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);background:var(--panel);
+    display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+  header h1{font-size:16px;margin:0;font-weight:800;letter-spacing:.2px}
+  header .sub{font-size:12px;color:var(--ink2)}
+  .filters{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+  .filters button{font:600 11px/1 inherit;padding:6px 10px;border-radius:999px;border:1px solid var(--line);
+    background:#fff;color:var(--ink2);cursor:pointer}
+  .filters button.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .wrap{display:flex;height:calc(100% - 52px)}
+  .stage{flex:1;overflow:auto;position:relative}
+  svg{display:block}
+  .layerband rect{fill:#fff}
+  .layerlabel{font:700 12px/1 inherit;fill:var(--ink2);letter-spacing:.4px;text-transform:uppercase}
+  .planelabel{font:800 11px/1 inherit;fill:var(--gray);letter-spacing:1px}
+  .node{cursor:pointer}
+  .node .box{stroke-width:1.5;rx:11}
+  .node text{font:600 11px/1.25 inherit;fill:var(--ink);pointer-events:none}
+  .node .sub{font:500 9.5px/1 inherit;fill:var(--ink2)}
+  .node.dim{opacity:.18}
+  .edge{fill:none;stroke:var(--edge);stroke-width:1.6}
+  .edge.fallback{stroke:var(--edgeFallback);stroke-dasharray:5 4}
+  .edge.warn{stroke:var(--warn);stroke-dasharray:2 3;stroke-width:2}
+  .edge.release{stroke:#cbd5e1;stroke-dasharray:1 4}
+  .edge.dim{opacity:.08}
+  .edge.hi{stroke:var(--edgeHi);stroke-width:2.4;opacity:1}
+  .elabel{font:600 9px/1 inherit;fill:var(--ink2);pointer-events:none;opacity:0;transition:opacity .12s;paint-order:stroke;stroke:#f7f8fb;stroke-width:3px}
+  .elabel.on{opacity:1}
+  .panel{width:340px;min-width:340px;border-left:1px solid var(--line);background:var(--panel);
+    overflow:auto;padding:16px 16px 40px}
+  .panel h2{font-size:14px;margin:0 0 2px}
+  .panel .tag{display:inline-block;font:700 10px/1 inherit;padding:4px 8px;border-radius:6px;margin:4px 6px 8px 0}
+  .panel .status{color:var(--gray);font-size:11px;margin-bottom:10px}
+  .panel section{margin:12px 0;border-top:1px solid var(--line);padding-top:10px}
+  .panel h3{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--ink2);margin:0 0 6px}
+  .panel p,.panel li{font-size:12px;color:var(--ink);line-height:1.5;margin:2px 0}
+  .panel code{background:var(--grayBg);padding:1px 5px;border-radius:4px;font-size:11px}
+  .panel ul{margin:0;padding-left:16px}
+  .panel .warnbox{background:var(--redBg);border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:10px;font-size:12px}
+  .legend{position:absolute;left:14px;bottom:14px;background:rgba(255,255,255,.94);border:1px solid var(--line);
+    border-radius:10px;padding:10px 12px;font-size:11px;color:var(--ink2);max-width:260px}
+  .legend b{color:var(--ink)}
+  .legend .row{display:flex;align-items:center;gap:7px;margin:3px 0}
+  .sw{width:14px;height:11px;border-radius:3px;display:inline-block;border:1px solid var(--line)}
+  .hint{color:var(--ink2);font-size:11px;margin-top:6px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Feedback2Me — System Architecture</h1>
+    <div class="sub">Left→right layered runtime + separate release plane · every node/edge is code-verified · click for detail</div>
+  </div>
+  <div class="filters" id="filters">
+    <button data-flow="all" class="active">All</button>
+    <button data-flow="owner">Owner</button>
+    <button data-flow="public">Public feedback</button>
+    <button data-flow="premium">Premium / IAP</button>
+    <button data-flow="ai">AI report</button>
+    <button data-flow="rest">REST fallback</button>
+    <button data-flow="release">Release</button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <div class="legend">
+      <div class="row"><span class="sw" style="background:var(--blueBg);border-color:var(--blue)"></span> Client</div>
+      <div class="row"><span class="sw" style="background:var(--amberBg);border-color:var(--amber)"></span> Firebase / Auth / Security</div>
+      <div class="row"><span class="sw" style="background:var(--purpleBg);border-color:var(--purple)"></span> Backend / Database</div>
+      <div class="row"><span class="sw" style="background:var(--violetBg);border-color:var(--violet)"></span> AI</div>
+      <div class="row"><span class="sw" style="background:var(--redBg);border-color:var(--red)"></span> External / Store</div>
+      <div class="row"><span class="sw" style="background:var(--grayBg);border-color:var(--gray)"></span> Release / CI</div>
+      <div class="row"><span class="sw" style="border-style:dashed"></span> Business rule / local state (logical)</div>
+      <div class="row"><b>◇ shield</b> = security boundary · <b>▭ cylinder</b> = datastore</div>
+      <div class="hint">Solid arrow = required · amber dashed = fallback · red dashed = ⚠ security gap</div>
+    </div>
+  </div>
+  <aside class="panel" id="panel">
+    <h2>Feedback2Me</h2>
+    <div class="status">Click any node or edge. Status = <b>UNKNOWN / NOT MONITORED</b> (observability wiring is future work; every node has a stable id for it).</div>
+    <p>Single-link anonymous feedback platform. Owner creates time-limited Demo/Premium links; anonymous responders leave feedback via a static public page; AI summarizes real feedback. Two mutually-exclusive backends (Firestore default, Railway REST opt-in).</p>
+    <section><h3>How to read</h3>
+      <ul><li>6 runtime layers flow left→right.</li><li>Release/CI is a separate plane (bottom) — build/deploy, not user traffic.</li><li>Firestore <b>Rules</b> sit between client and Firestore as a security boundary.</li><li>Admin SDK (Cloud Function) bypasses Rules — shown as a distinct edge.</li></ul>
+    </section>
+  </aside>
+</div>
+
+<script>
+// ---- MODEL (subset of component-inventory.json / dependency-graph.json) ----
+const COLS = [
+  {k:"CLIENTS",x:20},{k:"ENTRY / ACCESS",x:270},{k:"APPLICATION / BUSINESS",x:520},
+  {k:"DATA / SECURITY / BACKEND",x:800},{k:"EXTERNAL",x:1080}
+];
+const COLW=230, RH=74, TOP=54, NW=196, NH=50;
+// col, row grid. shape: box|cyl|shield|chip. cat drives color.
+const N = {
+  // clients
+  "flutter-ios":{l:"Flutter iOS",s:"com.anlgzl.feedback2meapp",c:0,r:0,cat:"CLIENT"},
+  "flutter-android":{l:"Flutter Android",s:"app.feedbacktome",c:0,r:1,cat:"CLIENT"},
+  "flutter-web":{l:"Flutter Web",s:"build source · NOT served",c:0,r:2,cat:"MUTED"},
+  "public-browser":{l:"Responder Browser",s:"anonymous",c:0,r:3.4,cat:"CLIENT"},
+  // entry
+  "firebase-hosting":{l:"Firebase Hosting",s:"serves web_static/",c:1,r:3.4,cat:"FIREBASE"},
+  "fhtml":{l:"f.html public page",s:"/f/<code>",c:1,r:4.5,cat:"FIREBASE",shape:"box"},
+  "launch-gate":{l:"_AppLaunchGate",s:"router",c:1,r:0,cat:"CLIENT"},
+  "min-version-gate":{l:"_MinVersionGate",s:"owner-only · fail-open",c:1,r:1,cat:"RULE"},
+  "auth-gate":{l:"_AuthGate",s:"auth state",c:1,r:2,cat:"CLIENT"},
+  // app/business
+  "app-data-backend":{l:"AppDataBackend",s:"compile-time XOR",c:2,r:0.5,cat:"CLIENT"},
+  "firestore-service":{l:"FirestoreService",s:"default backend",c:2,r:1.6,cat:"CLIENT"},
+  "railway-api-service":{l:"RailwayApiService",s:"opt-in backend",c:2,r:2.6,cat:"CLIENT"},
+  "public-feedback-flow":{l:"FeedbackFormScreen",s:"in-app feedback",c:2,r:4.5,cat:"CLIENT"},
+  "report-service":{l:"ReportService",s:"analysis orchestrator",c:2,r:5.6,cat:"CLIENT"},
+  "openai-client":{l:"OpenAiAudienceClient",s:"proxy client · no key",c:2,r:6.6,cat:"AI"},
+  "iap-service":{l:"IapService",s:"in_app_purchase · server-authoritative",c:2,r:7.8,cat:"CLIENT"},
+  "version-gate-svc":{l:"VersionGate",s:"appConfig read",c:2,r:8.8,cat:"RULE"},
+  // data/security/backend
+  "firebase-auth":{l:"Firebase Auth",s:"Google + Apple",c:3,r:0.4,cat:"FIREBASE"},
+  "firestore-rules":{l:"Firestore Rules",s:"security boundary",c:3,r:1.7,cat:"SHIELD",shape:"shield"},
+  "firestore":{l:"Cloud Firestore",s:"users·links·feedbacks·appConfig",c:3,r:3.0,cat:"DB",shape:"cyl"},
+  "cloud-functions":{l:"CF: iapVerify",s:"Admin SDK · bypass rules",c:3,r:7.9,cat:"FIREBASE"},
+  "railway-api":{l:"Railway API",s:"Fastify + Prisma",c:3,r:4.5,cat:"BACKEND"},
+  "ai-proxy":{l:"/ai/chat proxy",s:"server key",c:3,r:6.6,cat:"AI"},
+  "postgres":{l:"PostgreSQL",s:"Prisma · separate domain",c:3,r:5.6,cat:"DB",shape:"cyl"},
+  // external
+  "openai":{l:"OpenAI API",s:"gpt-4o-mini",c:4,r:6.6,cat:"RED"},
+  "apple-store":{l:"Apple App Store",s:"billing + receipts",c:4,r:7.9,cat:"RED"},
+  "google-play":{l:"Google Play",s:"billing + receipts",c:4,r:9.0,cat:"RED"}
+};
+// release plane (own band, bottom)
+const REL = {
+  "codemagic":{l:"Codemagic CI",s:"iOS build",x:40},
+  "appstore-connect":{l:"App Store Connect",s:"TestFlight",x:250},
+  "play-console":{l:"Google Play Console",s:"manual",x:470},
+  "github-actions":{l:"GitHub Actions",s:"server test",x:680},
+  "firebase-deploy":{l:"Firebase Deploy",s:"hosting/fn/rules",x:880},
+  "railway-deploy":{l:"Railway Deploy",s:"API + web",x:1090}
+};
+const E = [
+  ["public-browser","firebase-hosting","GET /f/<code>","req","public"],
+  ["firebase-hosting","fhtml","rewrite","req","public"],
+  ["fhtml","firestore-rules","read/write (default)","req","public"],
+  ["fhtml","railway-api","REST fallback","fallback","rest"],
+  ["flutter-ios","launch-gate","start","req","owner"],
+  ["flutter-android","launch-gate","start","req","owner"],
+  ["launch-gate","public-feedback-flow","deeplink (bypass auth)","fallback","public"],
+  ["launch-gate","min-version-gate","owner","req","owner"],
+  ["min-version-gate","version-gate-svc","isUpdateRequired","req","owner"],
+  ["version-gate-svc","firestore-rules","read appConfig","fallback","owner"],
+  ["min-version-gate","auth-gate","passed","req","owner"],
+  ["auth-gate","firebase-auth","auth Google/Apple","req","owner"],
+  ["auth-gate","app-data-backend","owner data ops","req","owner"],
+  ["app-data-backend","firestore-service","default (XOR)","req","owner"],
+  ["app-data-backend","railway-api-service","opt-in (XOR)","fallback","rest"],
+  ["firestore-service","firestore-rules","create+entitlement","req","owner"],
+  ["railway-api-service","railway-api","JWT REST","fallback","rest"],
+  ["firestore-rules","firestore","authorized r/w","req","owner"],
+  ["public-feedback-flow","app-data-backend","addFeedback","req","public"],
+  ["report-service","app-data-backend","fetch feedbacks","req","ai"],
+  ["report-service","openai-client","AI summary (opt)","fallback","ai"],
+  ["openai-client","ai-proxy","POST /ai/chat","fallback","ai"],
+  ["ai-proxy","openai","chat/completions","fallback","ai"],
+  ["railway-api","postgres","Prisma","fallback","rest"],
+  ["iap-service","apple-store","buyConsumable","req","premium"],
+  ["iap-service","google-play","buyConsumable","req","premium"],
+  ["iap-service","cloud-functions","iapVerify (callable)","req","premium"],
+  ["cloud-functions","apple-store","verifyReceipt","req","premium"],
+  ["cloud-functions","google-play","verify","req","premium"],
+  ["cloud-functions","firestore","grant credit (Admin, bypass)","req","premium"]
+];
+const REL_E = [
+  ["codemagic","appstore-connect","build+submit"],
+  ["appstore-connect","flutter-ios","distribute"],
+  ["play-console","flutter-android","distribute"],
+  ["github-actions","railway-api","concurrency test"],
+  ["firebase-deploy","firestore-rules","rules"],
+  ["firebase-deploy","firebase-hosting","hosting"],
+  ["firebase-deploy","cloud-functions","functions"],
+  ["railway-deploy","railway-api","docker"]
+];
+// condensed detail (panel)
+const D = {
+  "fhtml":{t:"Public web page",does:"Anonymous feedback capture. Reads link by code, gates by lifecycle, writes feedback (Firestore batch default; Railway REST opt-in). localStorage same-browser marker (UX).",files:["web_static/f.html:342-350,549-644"],dep:["firestore-rules","railway-api"],use:["firebase-hosting"],reads:["links"],writes:["feedbacks","links(demo close)"],sec:"Anonymous; Firestore rules enforce the write. NOT gated by min-version.",j:["public-feedback"],fail:"Expired/consumed link → gate blocks; concurrent demo → 1 wins."},
+  "firestore-rules":{t:"Security boundary",does:"Evaluated on EVERY client Firestore read/write. Server-authoritative link lifecycle (createdAt+duration), atomic demo (getAfter), credit/demo entitlement on create, owner immutability, appConfig public-read.",files:["firestore.rules:22-70,83-121,145-148"],dep:["firestore"],use:["firestore-service","fhtml","version-gate-svc"],reads:[],writes:[],sec:"Admin SDK (Cloud Functions) BYPASSES this boundary.",j:["all"],fail:"Denies out-of-window createdAt, missing entitlement, reactivation."},
+  "cloud-functions":{t:"Cloud Function (iapVerify)",does:"Verifies Apple/Google receipts, grants paidLinkCredits idempotently via Admin SDK. NOW called by the client (IapService → httpsCallable('iapVerify')). Security core (allow-list, server amount, atomic idempotent grant) factored into functions/src/iap-core.ts.",files:["functions/src/index.ts:114-168","functions/src/iap-core.ts:51-76","functions/test/iap-core.test.mjs"],dep:["apple-store","google-play","firestore"],use:["credits","iap-service"],reads:["processedPurchases","users"],writes:["users.paidLinkCredits","processedPurchases"],sec:"Admin SDK bypasses rules; requires auth.",j:["purchase-credit"],fail:"Idempotent — replay/concurrent verify returns alreadyProcessed (total +1)."},
+  "iap-service":{t:"IAP client (server-authoritative)",does:"in_app_purchase billing for premium_link_single. Server-authoritative: on purchase, verifyAndGrant → httpsCallable('iapVerify'); the client writes NO credit. Transient verify failure keeps the purchase queued for retry; permanent rejection completes without credit.",files:["lib/services/iap_service.dart","test/iap_service_test.dart"],dep:["apple-store","google-play","cloud-functions"],use:[],reads:["user profile (uid)"],writes:[],sec:"Credit is server-granted only; firestore.rules noPrivilegeEscalation rejects any client credit increase.",j:["purchase-credit"],fail:"Transient verify failure → purchase stays queued (idempotent retry). No credit without a verified receipt."},
+  "railway-api":{t:"Backend (opt-in)",does:"Fastify+Prisma REST API on Railway. Owner routes JWT-guarded; /public/links/by-code and /feedbacks and /ai/chat public. Admin-level Postgres access (NOT Firestore rules).",files:["server/src/index.ts:38-71","server/src/routes/*"],dep:["postgres","openai"],use:["railway-api-service","fhtml"],reads:["Postgres"],writes:["Postgres"],sec:"App-code security (zod, ownership, JWT). CORS fully open.",j:["public-feedback-rest","history"],fail:"Only live when USE_RAILWAY_API build flag set."},
+  "openai":{t:"External LLM",does:"gpt-4o-mini via chat/completions. Called SERVER-SIDE only (Railway /ai/chat). Summarizes/groups REAL feedbacks — does not generate feedback.",files:["server/src/routes/ai.ts:3,44"],dep:[],use:["ai-proxy"],reads:[],writes:[],sec:"Key server-side only; never on client.",j:["ai-summary"],fail:"No key → 503 → client heuristic fallback."},
+  "app-data-backend":{t:"Data seam (XOR)",does:"appData = isRailwayBackendConfigured ? Railway : Firestore. Compile-time exclusive; no runtime failover, no dual-write. Default Firestore.",files:["lib/app_state.dart:22-23","lib/config/backend_config.dart:28-29"],dep:["firestore-service","railway-api-service"],use:["report-service","public-feedback-flow"],reads:[],writes:[],sec:"n/a",j:["create-demo","create-premium"],fail:"One backend live per build."},
+  "min-version-gate":{t:"Owner min-version gate",does:"Reads appConfig/version.minSupportedBuild; if kAppBuild lower → force-update screen. FAIL-OPEN. Owner app only; public feedback bypasses it. Only gate-aware clients read it.",files:["lib/main.dart:417-447","lib/services/version_gate.dart:8-38"],dep:["version-gate-svc","auth-gate"],use:["launch-gate"],reads:["appConfig/version"],writes:[],sec:"Public read config; write locked.",j:["owner-start","legacy-cutover"],fail:"Read error → fail-open (app opens)."},
+  "firebase-auth":{t:"Identity",does:"Firebase Auth, Google + Apple only. No anonymous / email-password. Provides owner uid.",files:["lib/services/auth_service.dart:55,68,88"],dep:[],use:["auth-gate"],reads:[],writes:[],sec:"Owner identity boundary.",j:["owner-start"],fail:"Auth timeout → LandingScreen."},
+  "firestore":{t:"Datastore (default)",does:"Cloud Firestore document DB. Collections users, links, feedbacks, appConfig/version, processedPurchases, users/{uid}/audienceScoreSnapshots. 4 composite indexes.",files:["lib/services/firestore_service.dart:17-24","firestore.indexes.json"],dep:[],use:["firestore-rules","cloud-functions"],reads:[],writes:[],sec:"Rules (client) or Admin SDK (functions).",j:["all"],fail:"—"},
+  "postgres":{t:"Datastore (opt-in)",does:"PostgreSQL via Prisma — SEPARATE persistence domain (not Firestore). Models User/OAuthAccount/Link/Feedback/AudienceScoreSnapshot/AudienceReportBody.",files:["server/prisma/schema.prisma:7-112"],dep:[],use:["railway-api"],reads:[],writes:[],sec:"Admin creds; app-code security only.",j:["public-feedback-rest"],fail:"—"},
+  "flutter-web":{t:"Build source (not served)",does:"Flutter web build source exists in web/, but Firebase Hosting serves the hand-written web_static/ site instead. The Flutter web app is NOT the public web experience.",files:["web/index.html:15","firebase.json:16"],dep:[],use:[],reads:[],writes:[],sec:"n/a",j:[],fail:"—"}
+};
+const CATCOL = {
+  CLIENT:["var(--blueBg)","var(--blue)"], FIREBASE:["var(--amberBg)","var(--amber)"],
+  DB:["var(--purpleBg)","var(--purple)"], BACKEND:["var(--purpleBg)","var(--purple)"],
+  AI:["var(--violetBg)","var(--violet)"], RED:["var(--redBg)","var(--red)"],
+  SHIELD:["var(--amberBg)","var(--shield)"], RULE:["#fff","#94a3b8"],
+  MUTED:["#f8fafc","#cbd5e1"], REL:["var(--grayBg)","var(--gray)"]
+};
+function pos(n){ const col=COLS[n.c]; return {x:col.x, y:TOP + n.r*RH}; }
+const stage=document.getElementById("stage");
+const maxRow=Math.max(...Object.values(N).map(n=>n.r));
+const relY = TOP + (maxRow+2.2)*RH;
+const W=COLS[4].x+NW+40, H=relY+140;
+const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
+svg.setAttribute("width",W); svg.setAttribute("height",H); svg.setAttribute("viewBox",`0 0 ${W} ${H}`);
+svg.innerHTML=`<defs>
+  <marker id="ar--edge" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#94a3b8"/></marker>
+  <marker id="arhi" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#0f172a"/></marker>
+  <marker id="arfb" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#f59e0b"/></marker>
+  <marker id="arwarn" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#dc2626"/></marker>
+</defs>`;
+stage.insertBefore(svg, stage.firstChild);
+
+// column headers + release band
+COLS.forEach(c=>{ const t=el("text",{x:c.x, y:34, class:"layerlabel"}); t.textContent=c.k; svg.appendChild(t); });
+const band=el("rect",{x:10,y:relY-30,width:W-20,height:150,rx:12,fill:"#fff",stroke:"#e2e8f0"}); svg.appendChild(band);
+const pl=el("text",{x:26,y:relY-12,class:"planelabel"}); pl.textContent="RELEASE / OPERATIONS PLANE (build & deploy — not user traffic)"; svg.appendChild(pl);
+
+// anchors
+function anchorR(id){const n=N[id];const p=pos(n);return {x:p.x+NW,y:p.y+NH/2};}
+function anchorL(id){const n=N[id];const p=pos(n);return {x:p.x,y:p.y+NH/2};}
+function relPos(id){return {x:REL[id].x, y:relY+34};}
+
+// draw runtime edges (orthogonal elbow)
+const edgeEls=[];
+E.forEach((e,i)=>{
+  const [a,b,lab,kind,flow]=e;
+  const A=N[a].c<=N[b].c ? anchorR(a):anchorL(a);
+  const B=N[a].c< N[b].c ? anchorL(b):(N[a].c>N[b].c?anchorR(b):anchorL(b));
+  let d;
+  if(N[a].c<N[b].c){ const mx=(A.x+B.x)/2; d=`M${A.x},${A.y} H${mx} V${B.y} H${B.x}`; }
+  else if(N[a].c===N[b].c){ const off=A.x+NW/2+40; d=`M${anchorR(a).x},${A.y} H${off} V${B.y} H${anchorR(b).x}`; }
+  else { const mx=(anchorL(a).x+anchorR(b).x)/2; d=`M${anchorL(a).x},${A.y} H${mx} V${B.y} H${anchorR(b).x}`; }
+  const cls="edge "+(kind==="fallback"?"fallback":kind==="warn"?"warn":"");
+  const p=el("path",{d,class:cls,"data-i":i,"data-flow":flow,"marker-end":`url(#ar${kind==="fallback"?"fb":kind==="warn"?"warn":"--edge"})`});
+  p.dataset.from=a; p.dataset.to=b; p.dataset.label=lab; p.dataset.kind=kind;
+  p.addEventListener("click",ev=>{ev.stopPropagation();showEdge(a,b,lab,kind);});
+  svg.appendChild(p); edgeEls.push({el:p,from:a,to:b,flow});
+  // label near midpoint
+  const lx=(A.x+B.x)/2, ly=(A.y+B.y)/2-4;
+  const tl=el("text",{x:lx,y:ly,class:"elabel","text-anchor":"middle","data-flow":flow}); tl.textContent=lab; svg.appendChild(tl); edgeEls[edgeEls.length-1].lab=tl;
+});
+// release edges
+REL_E.forEach(e=>{
+  const [a,b,lab]=e; const A=relPos(a);
+  const B = N[b]?{x:pos(N[b]).x+NW/2,y:pos(N[b]).y+NH}:relPos(b);
+  const d=`M${A.x+70},${A.y} V${(A.y+B.y)/2} H${B.x} V${B.y}`;
+  const p=el("path",{d,class:"edge release","data-flow":"release","marker-end":"url(#ar--edge)"}); svg.appendChild(p);
+  edgeEls.push({el:p,from:a,to:b,flow:"release",rel:true});
+});
+
+// draw nodes
+const nodeEls={};
+Object.entries(N).forEach(([id,n])=>{
+  const p=pos(n); const [bg,st]=CATCOL[n.cat]||CATCOL.CLIENT;
+  const g=el("g",{class:"node","data-id":id,"data-flow":flowsFor(id)});
+  let shape;
+  if(n.shape==="cyl"){ shape=el("path",{d:cyl(p.x,p.y,NW,NH),fill:bg,stroke:st,"stroke-width":1.6}); }
+  else if(n.shape==="shield"){ shape=el("path",{d:shield(p.x,p.y,NW,NH),fill:bg,stroke:st,"stroke-width":1.8}); }
+  else { shape=el("rect",{x:p.x,y:p.y,width:NW,height:NH,rx:11,fill:bg,stroke:st,"stroke-width":1.5,
+    "stroke-dasharray":(n.cat==="RULE"||n.cat==="MUTED")?"4 3":""}); }
+  g.appendChild(shape);
+  const t1=el("text",{x:p.x+12,y:p.y+21}); t1.textContent=n.l; g.appendChild(t1);
+  const t2=el("text",{x:p.x+12,y:p.y+37,class:"sub"}); t2.textContent=n.s; g.appendChild(t2);
+  g.addEventListener("mouseenter",()=>highlight(id));
+  g.addEventListener("mouseleave",()=>clearHi());
+  g.addEventListener("click",ev=>{ev.stopPropagation();showNode(id);});
+  svg.appendChild(g); nodeEls[id]=g;
+});
+// release nodes
+Object.entries(REL).forEach(([id,n])=>{
+  const x=n.x, y=relY+10; const [bg,st]=CATCOL.REL;
+  const g=el("g",{class:"node","data-id":id,"data-flow":"release"});
+  g.appendChild(el("rect",{x,y,width:150,height:44,rx:9,fill:bg,stroke:st,"stroke-width":1.4}));
+  const t1=el("text",{x:x+11,y:y+19}); t1.textContent=n.l; g.appendChild(t1);
+  const t2=el("text",{x:x+11,y:y+34,class:"sub"}); t2.textContent=n.s; g.appendChild(t2);
+  g.addEventListener("click",ev=>{ev.stopPropagation();showRel(id,n);});
+  svg.appendChild(g); nodeEls[id]=g;
+});
+
+function el(t,a){const e=document.createElementNS("http://www.w3.org/2000/svg",t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+function cyl(x,y,w,h){const r=7;return `M${x},${y+r} a${w/2},${r} 0 0 0 ${w},0 v${h-2*r} a${w/2},${r} 0 0 1 -${w},0 Z M${x},${y+r} a${w/2},${r} 0 0 1 ${w},0`;}
+function shield(x,y,w,h){return `M${x},${y+6} Q${x},${y} ${x+8},${y} H${x+w-8} Q${x+w},${y} ${x+w},${y+6} V${y+h-12} Q${x+w/2},${y+h+4} ${x},${y+h-12} Z`;}
+function flowsFor(id){ const f=new Set(); E.forEach(e=>{if(e[0]===id||e[1]===id)f.add(e[4]);}); return [...f].join(" ")||"owner"; }
+
+function neighbors(id){const s=new Set([id]);E.forEach(e=>{if(e[0]===id)s.add(e[1]);if(e[1]===id)s.add(e[0]);});return s;}
+function highlight(id){
+  const nb=neighbors(id);
+  Object.entries(nodeEls).forEach(([k,g])=>g.classList.toggle("dim",N[k]&&!nb.has(k)));
+  edgeEls.forEach(o=>{ if(o.rel)return; const on=o.from===id||o.to===id;
+    o.el.classList.toggle("hi",on); o.el.classList.toggle("dim",!on); if(o.lab)o.lab.classList.toggle("on",on);});
+}
+function clearHi(){Object.values(nodeEls).forEach(g=>g.classList.remove("dim"));
+  edgeEls.forEach(o=>{o.el.classList.remove("hi");o.el.classList.remove("dim");if(o.lab)o.lab.classList.remove("on");});}
+
+// filters
+document.getElementById("filters").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b)return;
+  document.querySelectorAll("#filters button").forEach(x=>x.classList.remove("active")); b.classList.add("active");
+  const f=b.dataset.flow;
+  edgeEls.forEach(o=>{o.el.classList.toggle("dim",f!=="all"&&o.flow!==f); if(o.lab)o.lab.classList.toggle("on",f!=="all"&&o.flow===f);});
+  Object.entries(nodeEls).forEach(([k,g])=>{
+    const nf=(g.getAttribute("data-flow")||"");
+    const show=f==="all"||nf.split(" ").includes(f);
+    g.classList.toggle("dim",!show);
+  });
+});
+
+// panel
+const panel=document.getElementById("panel");
+function list(arr){return arr&&arr.length?"<ul>"+arr.map(x=>`<li>${x}</li>`).join("")+"</ul>":"<p style='color:var(--ink2)'>—</p>";}
+function showNode(id){
+  const n=N[id]; const d=D[id];
+  const [bg,st]=CATCOL[n.cat]||CATCOL.CLIENT;
+  let h=`<h2>${n.l}</h2><span class="tag" style="background:${bg};color:${st}">${d?d.t:n.cat}</span>`;
+  h+=`<div class="status">id <code>node-${id}</code> · status <b>UNKNOWN / NOT MONITORED</b></div>`;
+  if(id==="iap-service"||id==="fhtml"&&false){}
+  if(id==="iap-service") h+=`<div class="status">✓ Server-authoritative: purchases go through the <code>iapVerify</code> Cloud Function; the client writes NO credit. Verified by <code>test/iap_service_test.dart</code> + <code>ci-functions-iap</code>.</div>`;
+  if(d){
+    h+=`<section><h3>What it does</h3><p>${d.does}</p></section>`;
+    h+=`<section><h3>Source files</h3>${list(d.files.map(f=>`<code>${f}</code>`))}</section>`;
+    h+=`<section><h3>Depends on</h3>${list(d.dep.map(x=>N[x]?N[x].l:x))}</section>`;
+    h+=`<section><h3>Used by</h3>${list(d.use.map(x=>N[x]?N[x].l:x))}</section>`;
+    h+=`<section><h3>Data read</h3>${list(d.reads)}<h3 style="margin-top:8px">Data write</h3>${list(d.writes)}</section>`;
+    h+=`<section><h3>Security</h3><p>${d.sec}</p></section>`;
+    h+=`<section><h3>Journeys</h3>${list(d.j)}</section>`;
+    h+=`<section><h3>Failure impact</h3><p>${d.fail}</p></section>`;
+  } else {
+    h+=`<section><h3>Role</h3><p>${n.s}</p><p class="hint">Full detail in component-inventory.json (search <code>node-${id}</code>).</p></section>`;
+  }
+  panel.innerHTML=h; highlight(id);
+}
+function showRel(id,n){
+  panel.innerHTML=`<h2>${n.l}</h2><span class="tag" style="background:var(--grayBg);color:var(--gray)">RELEASE / CI</span>
+    <div class="status">id <code>node-${id}</code> · release plane · <b>NOT MONITORED</b></div>
+    <section><h3>Role</h3><p>${n.s}</p><p class="hint">Build/deploy plane — not user-facing runtime traffic. See component-inventory.json &amp; README §Release architecture.</p></section>`;
+}
+function showEdge(a,b,lab,kind){
+  const kn={req:"required",fallback:"fallback / opt-in",warn:"⚠ security gap"}[kind]||kind;
+  panel.innerHTML=`<h2>${N[a].l} → ${N[b].l}</h2><span class="tag" style="background:var(--grayBg);color:var(--ink2)">EDGE · ${kn}</span>
+    <section><h3>Action / data</h3><p>${lab}</p></section>
+    <section><h3>Evidence</h3><p class="hint">See dependency-graph.json — search the matching <code>from</code>/<code>to</code> pair for exact file:line.</p></section>
+    ${kind==="warn"?`<div class="warnbox">⚠ This edge is the IAP client-direct credit grant. See report §S.</div>`:""}`;
+  edgeEls.forEach(o=>{const on=(o.from===a&&o.to===b);o.el.classList.toggle("hi",on);o.el.classList.toggle("dim",!on);if(o.lab)o.lab.classList.toggle("on",on);});
+}
+svg.addEventListener("click",clearHi);
+</script>
+</body>
+</html>

@@ -1,0 +1,137 @@
+{
+  "description": "What to check for each component. type=blackbox-prod (read-only production-safe) | synthetic-staging (writes; NEVER on prod user data) | ci-invariant (build/test evidence) | unknown (no safe live check yet). implementation names an adapter in ops/monitor/checks/ or 'none'.",
+  "defaults": { "failureThreshold": 2, "recoveryThreshold": 2, "timeoutMs": 8000, "productionSafe": true, "readOnly": true },
+  "checks": [
+    {
+      "id": "chk-hosting", "componentId": "node-firebase-hosting", "journeys": ["j-public-feedback"],
+      "type": "blackbox-prod", "environment": "production", "interval": "5m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "critical", "failureThreshold": 2, "recoveryThreshold": 2,
+      "implementation": "http-get.mjs", "target": "https://feedbacktome-79655.web.app/", "expect": "2xx", "secretsRequired": []
+    },
+    {
+      "id": "chk-fhtml", "componentId": "node-fhtml", "journeys": ["j-public-feedback"],
+      "type": "blackbox-prod", "environment": "production", "interval": "5m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "critical", "failureThreshold": 2, "recoveryThreshold": 2,
+      "implementation": "http-get.mjs", "target": "https://feedbacktome-79655.web.app/f.html", "expect": "2xx",
+      "note": "Loads the page only; does NOT resolve a real link code.", "secretsRequired": []
+    },
+    {
+      "id": "chk-firestore-appconfig", "componentId": "node-firestore", "journeys": ["j-owner-start", "j-create-demo", "j-public-feedback"],
+      "type": "blackbox-prod", "environment": "production", "interval": "5m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "critical", "failureThreshold": 2, "recoveryThreshold": 2,
+      "implementation": "firestore-appconfig.mjs", "reachabilityOnly": true,
+      "target": "https://firestore.googleapis.com/v1/projects/feedbacktome-79655/databases/(default)/documents/appConfig/version",
+      "note": "READ-ONLY. reachabilityOnly: any HTTP response proves Firestore reachable (node-firestore). The appConfig public-read rule itself is checked by chk-firestore-rules-public. No user data touched.",
+      "secretsRequired": []
+    },
+    {
+      "id": "chk-version-config", "componentId": "node-version-gate-svc", "journeys": ["j-owner-start", "j-legacy-cutover"],
+      "type": "blackbox-prod", "environment": "production", "interval": "15m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "medium", "failureThreshold": 2, "recoveryThreshold": 2,
+      "implementation": "firestore-appconfig.mjs",
+      "target": "https://firestore.googleapis.com/v1/projects/feedbacktome-79655/databases/(default)/documents/appConfig/version",
+      "note": "Reads appConfig/version (minSupportedBuild). 403 => rule not deployed (DEGRADED, fail-open). 404 => doc not created yet.", "secretsRequired": []
+    },
+    {
+      "id": "chk-firestore-rules-public", "componentId": "node-firestore-rules", "journeys": ["j-public-feedback"],
+      "type": "blackbox-prod", "environment": "production", "interval": "15m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "high", "failureThreshold": 2, "recoveryThreshold": 2,
+      "implementation": "firestore-appconfig.mjs",
+      "target": "https://firestore.googleapis.com/v1/projects/feedbacktome-79655/databases/(default)/documents/appConfig/version",
+      "note": "Live black-box confirms appConfig public-read is ALLOWED (200/404 HEALTHY; 403 DEGRADED = rule not deployed). Deep rules behavior (entitlement/atomic demo/createdAt window) is a CI invariant, NOT live.", "secretsRequired": []
+    },
+    {
+      "id": "chk-railway-health", "componentId": "node-railway-api", "journeys": ["j-public-feedback-rest", "j-history"],
+      "type": "blackbox-prod", "environment": "production", "interval": "5m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "medium", "failureThreshold": 2, "recoveryThreshold": 2,
+      "implementation": "http-get.mjs", "target": "https://feedback2me-production.up.railway.app/health", "expect": "2xx",
+      "note": "GET /health only (read-only). Railway backend is opt-in; DOWN here does not fail Firestore-mode journeys.", "secretsRequired": []
+    },
+    {
+      "id": "chk-ai-proxy", "componentId": "node-ai-proxy", "journeys": ["j-ai-summary"],
+      "type": "blackbox-prod", "environment": "production", "interval": "15m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "low", "failureThreshold": 2, "recoveryThreshold": 2,
+      "implementation": "none",
+      "status": "unknown",
+      "note": "No safe live check: POST /ai/chat would spend OpenAI tokens (cost/write). Reachability inferred from chk-railway-health; deep AI = synthetic-staging only. Reports UNKNOWN live.", "secretsRequired": []
+    },
+    {
+      "id": "chk-openai", "componentId": "node-openai", "journeys": ["j-ai-summary"],
+      "type": "unknown", "environment": "production", "interval": "-", "productionSafe": true, "readOnly": true,
+      "implementation": "none", "status": "unknown",
+      "note": "External LLM; no safe direct check without spending tokens / holding the key. UNKNOWN.", "secretsRequired": []
+    },
+    {
+      "id": "chk-firebase-auth", "componentId": "node-firebase-auth", "journeys": ["j-owner-start", "j-create-demo", "j-create-premium"],
+      "type": "unknown", "environment": "production", "interval": "-", "productionSafe": true, "readOnly": true,
+      "implementation": "none", "status": "unknown",
+      "note": "No safe live check without attempting a real sign-in. Deep = synthetic-staging (owner login on a TEST account). UNKNOWN live. Owner-start JOURNEY stays synthetic-gated (syn-auth).", "secretsRequired": []
+    },
+    {
+      "id": "chk-firebase-auth-svc", "componentId": "node-firebase-auth", "journeys": [],
+      "type": "blackbox-prod", "environment": "production", "interval": "15m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "medium", "failureThreshold": 2, "recoveryThreshold": 2,
+      "implementation": "firebase-auth-config.mjs", "serviceHealthOnly": true,
+      "note": "SERVICE reachability only (identitytoolkit getProjectConfig, public web key). Proves Firebase Auth is reachable + configured; does NOT verify a real sign-in, so it is recorded as service-health and NEVER greens the owner-start journey (that needs syn-auth). Read-only, no account created.", "secretsRequired": []
+    },
+    {
+      "id": "chk-cloud-functions", "componentId": "node-cloud-functions", "journeys": ["j-purchase-credit"],
+      "type": "unknown", "environment": "production", "interval": "-", "productionSafe": true, "readOnly": true,
+      "implementation": "none", "status": "unknown",
+      "note": "iapVerify is onCall + requires auth + a receipt; cannot be invoked safely live. UNKNOWN. Server-verification code path is covered by ci-functions-iap; real store E2E is syn-iap-verify (not-configured).", "secretsRequired": []
+    },
+    {
+      "id": "chk-postgres", "componentId": "node-postgres", "journeys": ["j-public-feedback-rest", "j-history"],
+      "type": "unknown", "environment": "production", "interval": "-", "productionSafe": true, "readOnly": true,
+      "implementation": "none", "status": "unknown",
+      "note": "Reached only through Railway API; inferred from chk-railway-health. No direct safe check (no admin creds in ops). UNKNOWN.", "secretsRequired": []
+    },
+    {
+      "id": "chk-apple-store", "componentId": "node-apple-store", "journeys": ["j-purchase-credit"],
+      "type": "unknown", "implementation": "none", "status": "unknown", "environment": "production",
+      "note": "External store; no safe read-only check. UNKNOWN.", "secretsRequired": []
+    },
+    {
+      "id": "chk-google-play", "componentId": "node-google-play", "journeys": ["j-purchase-credit"],
+      "type": "unknown", "implementation": "none", "status": "unknown", "environment": "production",
+      "note": "External store; no safe read-only check. UNKNOWN.", "secretsRequired": []
+    },
+    {
+      "id": "chk-github-actions", "componentId": "node-github-actions", "journeys": [],
+      "type": "blackbox-prod", "environment": "ci", "interval": "manual", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 10000, "criticality": "low", "failureThreshold": 1, "recoveryThreshold": 1,
+      "implementation": "github-actions.mjs",
+      "note": "Reads last workflow-run conclusion via `gh` CLI (read-only). Release-plane evidence, not runtime traffic.", "secretsRequired": ["GH_TOKEN (or gh auth)"]
+    },
+    {
+      "id": "chk-codemagic", "componentId": "node-codemagic", "journeys": [],
+      "type": "unknown", "implementation": "none", "status": "unknown", "environment": "ci",
+      "note": "Codemagic API needs a token not held by ops. UNKNOWN.", "secretsRequired": ["CODEMAGIC_API_TOKEN"]
+    },
+
+    { "id": "syn-auth", "componentId": "node-firebase-auth", "journeys": ["j-owner-start"], "type": "synthetic-staging", "environment": "staging", "status": "not-configured", "implementation": "none",
+      "note": "Sign in a DEDICATED TEST account (Google/Apple) on staging; confirm uid + owner home. NEVER a production account.", "secretsRequired": ["staging test account"] },
+    { "id": "syn-create-demo", "componentId": "node-firestore", "journeys": ["j-create-demo"], "type": "synthetic-staging", "environment": "staging", "status": "not-configured", "implementation": "none",
+      "note": "Create a demo link on a STAGING Firestore project as the test user; verify 10m/entitlement.", "secretsRequired": ["staging Firestore project", "test account"] },
+    { "id": "syn-demo-feedback-close", "componentId": "node-demo-lifecycle", "journeys": ["j-public-feedback"], "type": "synthetic-staging", "environment": "staging", "status": "not-configured", "implementation": "none",
+      "note": "Submit first demo feedback on staging; verify atomic close (demoSubmissionUsed=true, isActive=false) + second submit denied.", "secretsRequired": ["staging Firestore project"] },
+    { "id": "syn-create-premium", "componentId": "node-premium-lifecycle", "journeys": ["j-create-premium"], "type": "synthetic-staging", "environment": "staging", "status": "not-configured", "implementation": "none",
+      "note": "With a granted STAGING credit, create a premium link; verify 24h + credit -1.", "secretsRequired": ["staging Firestore project", "staging credit grant"] },
+    { "id": "syn-premium-multi", "componentId": "node-premium-lifecycle", "journeys": ["j-create-premium"], "type": "synthetic-staging", "environment": "staging", "status": "not-configured", "implementation": "none",
+      "note": "Submit multiple different-responder feedbacks to a staging premium link; verify all accepted for 24h.", "secretsRequired": ["staging Firestore project"] },
+    { "id": "syn-ai-summary", "componentId": "node-ai-proxy", "journeys": ["j-ai-summary"], "type": "synthetic-staging", "environment": "staging", "status": "not-configured", "implementation": "none",
+      "note": "Call a STAGING /ai/chat with a tiny fixed prompt; verify choices[0].message.content parses. Costs minimal tokens — staging only.", "secretsRequired": ["staging Railway + OPENAI_API_KEY"] },
+    { "id": "syn-iap-verify", "componentId": "node-cloud-functions", "journeys": ["j-purchase-credit"], "type": "synthetic-staging", "environment": "staging", "status": "not-configured", "implementation": "none",
+      "note": "Sandbox purchase (Apple/Google) -> iapVerify -> credit grant, on staging. iapVerify path is now restored + code-verified (ci-functions-iap); this synthetic proves the real store round-trip + sandbox store env. NEVER a real purchase.", "secretsRequired": ["Apple/Google sandbox", "staging Functions"] },
+
+    { "id": "ci-flutter-analyze", "componentId": "node-flutter-ios", "type": "ci-invariant", "environment": "ci", "implementation": "ci-evidence", "note": "flutter analyze (0 error-level) — LAST VERIFIED.", "scope": ["lib", "test", "analysis_options.yaml", "pubspec.yaml", "pubspec.lock"], "secretsRequired": [] },
+    { "id": "ci-flutter-test", "componentId": "node-flutter-ios", "type": "ci-invariant", "environment": "ci", "implementation": "ci-evidence", "note": "flutter test — LAST VERIFIED, not live.", "scope": ["lib", "test", "pubspec.yaml", "pubspec.lock"], "secretsRequired": [] },
+    { "id": "ci-ops-tests", "componentId": "node-firestore", "type": "ci-invariant", "environment": "ci", "implementation": "ci-evidence", "note": "ops engine self-tests — LAST VERIFIED.", "scope": ["ops"], "secretsRequired": [] },
+    { "id": "ci-rules-emulator", "componentId": "node-firestore-rules", "type": "ci-invariant", "environment": "ci", "implementation": "ci-evidence", "note": "firestore emulator rules suite (needs Java) — LAST VERIFIED.", "scope": ["firestore.rules", "test/rules"], "secretsRequired": [] },
+    { "id": "ci-rest-concurrency", "componentId": "node-railway-api", "type": "ci-invariant", "environment": "ci", "implementation": "ci-evidence", "note": "GitHub Actions demo concurrency on disposable postgres — LAST VERIFIED.", "scope": ["server/src", "server/prisma", "server/test", "server/package.json", "server/package-lock.json", ".github/workflows/server-concurrency-test.yml"], "secretsRequired": [] },
+    { "id": "ci-server-build", "componentId": "node-railway-api", "type": "ci-invariant", "environment": "ci", "implementation": "ci-evidence", "note": "npm --prefix server run build — LAST VERIFIED.", "scope": ["server/src", "server/prisma", "server/package.json", "server/package-lock.json", "server/tsconfig.json"], "secretsRequired": [] },
+    { "id": "ci-web-build", "componentId": "node-flutter-web", "type": "ci-invariant", "environment": "ci", "implementation": "ci-evidence", "note": "flutter build web --release — LAST VERIFIED.", "scope": ["lib", "web", "pubspec.yaml", "pubspec.lock"], "secretsRequired": [] },
+    { "id": "ci-architecture-validation", "componentId": "node-firestore", "type": "ci-invariant", "environment": "ci", "implementation": "arch-drift.mjs", "note": "component-inventory/dependency-graph consistency + drift check.", "scope": ["docs/architecture"], "secretsRequired": [] },
+    { "id": "ci-functions-iap", "componentId": "node-cloud-functions", "type": "ci-invariant", "environment": "ci", "implementation": "ci-evidence", "note": "IAP security boundary: functions build (tsc) + iap-core suite (allow-list, server-determined amount, STORE-authoritative idempotency key, Apple/Google provider PARSING fixtures incl. product-binding/failure-states/transient-vs-permanent, REPLAY-ATTACK same-purchase-different-client-txId -> +1, concurrency, Firestore emulator) + Flutter client server-authoritative tests. Proves security architecture; NOT a real store E2E (see syn-iap-verify). LAST VERIFIED.", "scope": ["functions/src", "functions/test", "functions/package.json", "functions/tsconfig.json", "lib/services/iap_service.dart", "test/iap_service_test.dart"], "secretsRequired": [] }
+  ]
+}

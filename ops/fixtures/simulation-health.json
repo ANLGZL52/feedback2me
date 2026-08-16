@@ -1,0 +1,25 @@
+{
+  "description": "Simulation presets for the dashboard (Phase 28). Each applies component-status overrides on top of the live snapshot; the dashboard recomputes journeys/overall client-side using the same engine logic. Clearly labelled SIMULATION — never confused with production status.",
+  "scenarios": [
+    { "id": "healthy-all", "label": "All healthy (baseline)", "overrides": {
+      "node-firebase-hosting": "HEALTHY", "node-fhtml": "HEALTHY", "node-firestore": "HEALTHY",
+      "node-firestore-rules": "HEALTHY", "node-firebase-auth": "HEALTHY", "node-railway-api": "HEALTHY",
+      "node-postgres": "HEALTHY", "node-openai": "HEALTHY", "node-ai-proxy": "HEALTHY",
+      "node-cloud-functions": "HEALTHY", "node-version-gate-svc": "HEALTHY", "node-credits": "HEALTHY",
+      "node-apple-store": "HEALTHY", "node-google-play": "HEALTHY" } },
+    { "id": "firebase-auth-down", "label": "Firebase Auth DOWN", "overrides": { "node-firebase-auth": "DOWN" },
+      "expect": "owner-start / create-demo / create-premium DOWN; public-feedback unaffected" },
+    { "id": "firestore-down", "label": "Cloud Firestore DOWN", "overrides": { "node-firestore": "DOWN", "node-firestore-rules": "DOWN" },
+      "expect": "public-feedback DEGRADED if Railway up (fallback), else DOWN; owner create DOWN" },
+    { "id": "railway-down", "label": "Railway API DOWN", "overrides": { "node-railway-api": "DOWN", "node-postgres": "DOWN" },
+      "expect": "Firestore-mode journeys unaffected; REST-fallback journey DOWN" },
+    { "id": "openai-down", "label": "OpenAI / AI proxy DOWN", "overrides": { "node-openai": "DOWN", "node-ai-proxy": "DOWN" },
+      "expect": "ai-summary DEGRADED (heuristic fallback); overall unaffected" },
+    { "id": "hosting-down", "label": "Firebase Hosting DOWN", "overrides": { "node-firebase-hosting": "DOWN", "node-fhtml": "DOWN" },
+      "expect": "public-feedback DOWN (entire public funnel)" },
+    { "id": "postgres-down", "label": "PostgreSQL DOWN", "overrides": { "node-postgres": "DOWN" },
+      "expect": "public-feedback HEALTHY (Firestore default); rest journey DOWN (non-critical)" },
+    { "id": "cloud-function-down", "label": "Cloud Function iapVerify DOWN", "overrides": { "node-cloud-functions": "DOWN" },
+      "expect": "purchase-credit DOWN (already DEGRADED by static IAP gap)" }
+  ]
+}

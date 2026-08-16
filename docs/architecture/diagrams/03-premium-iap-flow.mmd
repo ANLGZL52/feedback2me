@@ -1,0 +1,13 @@
+%% Premium purchase / IAP + credit grant. Render: mmdc -i 03-premium-iap-flow.mmd -o 03-premium-iap-flow.svg
+flowchart TD
+  A[PremiumScreen buy premium_link_single] --> B[IapService.startPurchase buyConsumable]
+  B --> C[Apple App Store / Google Play billing]
+  C --> D[_onPurchaseUpdates purchased]
+  D --> E[verifyAndGrant -> httpsCallable iapVerify]
+  E --> F[iapVerify onCall requires auth functions/src/index.ts]
+  F --> G[verify Apple/Google receipt functions/src/index.ts:44-112]
+  G -->|receipt invalid / permission-denied| R[reject: complete purchase, NO credit]
+  G -->|receipt valid| H[Admin SDK grant paidLinkCredits idempotent processedPurchases iap-core.ts:51-76]
+  H --> W[paidLinkCredits available -> create premium link]
+  E -.->|transient/network failure| Q[purchase stays queued, NOT completed -> retry idempotent]
+  H -.->|client never writes credit| S[firestore.rules noPrivilegeEscalation rejects any client credit increase]

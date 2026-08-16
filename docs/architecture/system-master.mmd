@@ -1,0 +1,100 @@
+%% Feedback2Me — Master System Architecture (source-of-truth = repo).
+%% Render: mermaid-cli  ->  mmdc -i system-master.mmd -o system-master.svg
+%% Solid = required runtime edge; dotted = fallback/opt-in. (No open security-gap edge: IAP server verification restored.)
+flowchart LR
+  classDef client fill:#eff6ff,stroke:#2563eb,color:#0f172a;
+  classDef fb fill:#fffbeb,stroke:#d97706,color:#0f172a;
+  classDef db fill:#f5f3ff,stroke:#7c3aed,color:#0f172a;
+  classDef ai fill:#f5f3ff,stroke:#8b5cf6,color:#0f172a;
+  classDef ext fill:#fff7ed,stroke:#ea580c,color:#0f172a;
+  classDef rel fill:#f1f5f9,stroke:#64748b,color:#0f172a;
+  classDef rule fill:#ffffff,stroke:#94a3b8,color:#334155,stroke-dasharray:4 3;
+  classDef gap fill:#fff1f2,stroke:#dc2626,color:#991b1b;
+
+  subgraph L1[CLIENTS]
+    iOS[Flutter iOS]:::client
+    AND[Flutter Android]:::client
+    WEBB[Responder Browser]:::client
+    FW[Flutter Web build source - NOT served]:::rule
+  end
+  subgraph L2[ENTRY / ACCESS]
+    HOST[Firebase Hosting - serves web_static]:::fb
+    FH[f.html public page /f/code]:::fb
+    GATE[_AppLaunchGate router]:::client
+    MVG[_MinVersionGate owner-only, fail-open]:::rule
+    AG[_AuthGate]:::client
+  end
+  subgraph L3[APPLICATION / BUSINESS]
+    ADB[AppDataBackend - compile-time XOR]:::client
+    FS[FirestoreService default]:::client
+    RS[RailwayApiService opt-in]:::client
+    PFF[FeedbackFormScreen in-app]:::client
+    RPT[ReportService]:::client
+    OAC[OpenAiAudienceClient no key]:::ai
+    IAP[IapService server-authoritative]:::client
+    VG[VersionGate svc]:::rule
+  end
+  subgraph L4[DATA / SECURITY / BACKEND]
+    FA[Firebase Auth Google+Apple]:::fb
+    RULES{{Firestore Rules - security boundary}}:::fb
+    FSTORE[(Cloud Firestore)]:::db
+    CF[CF iapVerify - Admin SDK bypass]:::fb
+    RAPI[Railway API Fastify+Prisma]:::db
+    AIP[/ai/chat proxy server key/]:::ai
+    PG[(PostgreSQL)]:::db
+  end
+  subgraph L5[EXTERNAL]
+    OPENAI[OpenAI gpt-4o-mini]:::ext
+    APPLE[Apple App Store]:::ext
+    PLAY[Google Play]:::ext
+  end
+
+  %% clients -> entry
+  iOS --> GATE
+  AND --> GATE
+  WEBB -->|GET /f/code| HOST --> FH
+  %% owner routing
+  GATE -->|owner| MVG -->|isUpdateRequired| VG
+  GATE -.->|deeplink bypass auth| PFF
+  MVG --> AG
+  AG -->|auth| FA
+  AG --> ADB
+  VG -.->|read appConfig| RULES
+  %% data seam
+  ADB -->|default XOR| FS
+  ADB -.->|opt-in XOR| RS
+  FS -->|create+entitlement| RULES
+  RS -.->|JWT REST| RAPI
+  RULES -->|authorized r/w| FSTORE
+  PFF -->|addFeedback| ADB
+  %% public web persistence
+  FH -->|read/write default| RULES
+  FH -.->|REST fallback| RAPI
+  %% AI
+  RPT --> ADB
+  RPT -.->|AI opt| OAC -.->|POST /ai/chat| AIP -.-> OPENAI
+  RAPI -.-> PG
+  %% IAP
+  IAP -->|buyConsumable| APPLE
+  IAP -->|buyConsumable| PLAY
+  IAP -->|iapVerify callable receipt| CF
+  CF -->|verifyReceipt| APPLE
+  CF --> PLAY
+  CF -->|grant credit Admin bypass idempotent| FSTORE
+
+  %% ---- RELEASE / OPS PLANE (build & deploy, not user traffic) ----
+  subgraph REL[RELEASE / OPERATIONS PLANE]
+    CM[Codemagic CI]:::rel
+    ASC[App Store Connect / TestFlight]:::rel
+    GHA[GitHub Actions server test]:::rel
+    FBD[Firebase Deploy]:::rel
+    RWD[Railway Deploy]:::rel
+    PC[Google Play Console]:::rel
+  end
+  CM -.-> ASC -.-> iOS
+  PC -.-> AND
+  GHA -.-> RAPI
+  FBD -.-> RULES
+  FBD -.-> HOST
+  FBD -.-> CF
+  RWD -.-> RAPI

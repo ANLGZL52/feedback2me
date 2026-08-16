@@ -1,0 +1,61 @@
+name: Ops Health (read-only)
+
+# App-independent observability. Runs PRODUCTION-SAFE READ-ONLY checks + release
+# preflight. NEVER deploys, NEVER writes to production, NEVER runs synthetic
+# purchases or touches user data. Results are uploaded as artifacts (NOT committed
+# every run, to avoid repo bloat — Phase 19).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *' # every 30 min; adjust as needed
+  # NOTE: no push trigger — this is monitoring, not a build gate.
+
+permissions:
+  contents: read
+  actions: read
+  issues: write # for the spam-safe P0/DOWN alert (ops/monitor/alert.mjs)
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Run read-only health checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # FIREBASE_WEB_API_KEY optional; defaults to the public web key already in web_static/f.html
+        run: node ops/monitor/run.mjs
+      - name: Ops engine self-tests
+        run: node --test ops/monitor/engine.test.mjs
+      - name: Release preflight (non-blocking here; informational)
+        run: node ops/monitor/preflight.mjs || echo "preflight NOT READY (see output)"
+      - name: Alert on P0 / DOWN (spam-safe — only P0/DOWN, never steady-state P1s)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node ops/monitor/alert.mjs || true
+      - name: Upload health snapshot + events (artifact, not committed)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ops-status
+          path: |
+            ops-status/latest.json
+            ops-status/events/
+          retention-days: 14
+
+  # Optional: run this manually before cutting a release to get the gate verdict.
+  preflight-gate:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: monitor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/download-artifact@v4
+        with: { name: ops-status, path: ops-status }
+      - name: Release preflight (blocking — exit 1 if P0)
+        run: node ops/monitor/preflight.mjs

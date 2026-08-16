@@ -1,0 +1,15 @@
+%% Release / deploy pipeline (separate from runtime). Render: mmdc -i 06-release-pipeline.mmd -o 06-release-pipeline.svg
+flowchart LR
+  subgraph CI[CI]
+    CM[Codemagic codemagic.yaml] --> ASC[App Store Connect / TestFlight]
+    GHA[GitHub Actions server-concurrency-test.yml] -->|disposable postgres16 test| APIt[Railway API verified]
+  end
+  subgraph DEPLOY[Deploy targets]
+    FBD[Firebase Deploy firebase.json] --> HOST[Hosting web_static]
+    FBD --> RULES[firestore:rules]
+    FBD --> FN[functions iapVerify]
+    RWD[Railway Deploy server/Dockerfile] --> API[Fastify API]
+    RWD2[Railway Deploy root Dockerfile] --> WEBSERVE[Flutter web static via serve]
+  end
+  ASC --> IOS[iOS devices]
+  PLAY[Google Play Console manual] --> ANDROID[Android devices]

@@ -1,0 +1,360 @@
+{
+  "generatedBy": "architecture discovery (read-only) — every edge has repo evidence",
+  "project": "Feedback2Me (feedbacktome-79655)",
+  "note": "RUNTIME edges = user-facing data/control flow. RELEASE edges = build/deploy plane (kept separate).",
+  "edges": [
+    {
+      "id": "e-browser-hosting",
+      "from": "node-public-browser", "to": "node-firebase-hosting",
+      "label": "GET /f/<code>", "protocol": "HTTPS", "data": "link code in path",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["firebase.json:52-53 (rewrite /f, /f/**)", "firebase.json:22-49 (no-cache)"]
+    },
+    {
+      "id": "e-hosting-fhtml",
+      "from": "node-firebase-hosting", "to": "node-fhtml",
+      "label": "rewrite -> f.html", "protocol": "HTTPS", "data": "static page",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["firebase.json:16 (public web_static)", "firebase.json:52-53"]
+    },
+    {
+      "id": "e-fhtml-rules",
+      "from": "node-fhtml", "to": "node-firestore-rules",
+      "label": "read links / write feedbacks (default)", "protocol": "Firestore JS SDK", "data": "link lookup; feedback batch (+demo close)",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["web_static/f.html:549-554 (query)", "web_static/f.html:629-644 (batch)"]
+    },
+    {
+      "id": "e-fhtml-railway",
+      "from": "node-fhtml", "to": "node-railway-api",
+      "label": "REST fallback (opt-in meta tag)", "protocol": "HTTPS/REST", "data": "/public/links/by-code, POST /feedbacks",
+      "required": false, "fallback": true, "plane": "RUNTIME",
+      "evidence": ["web_static/f.html:342-350 (resolvePublicApiBase)", "web_static/f.html:538-547,615-627"]
+    },
+    {
+      "id": "e-fhtml-localstorage",
+      "from": "node-fhtml", "to": "node-local-storage",
+      "label": "same-browser marker (UX)", "protocol": "localStorage", "data": "feedback2me_submitted_<linkId>",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["web_static/f.html:509-527"]
+    },
+
+    {
+      "id": "e-ios-gate",
+      "from": "node-flutter-ios", "to": "node-launch-gate",
+      "label": "app start", "protocol": "in-process", "data": "route decision",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:64,589"]
+    },
+    {
+      "id": "e-android-gate",
+      "from": "node-flutter-android", "to": "node-launch-gate",
+      "label": "app start", "protocol": "in-process", "data": "route decision",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:64,589"]
+    },
+    {
+      "id": "e-gate-public",
+      "from": "node-launch-gate", "to": "node-public-feedback-flow",
+      "label": "deeplink /f/<code> (bypasses auth+gate)", "protocol": "in-process", "data": "linkCode",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:398-399,407-408"]
+    },
+    {
+      "id": "e-gate-minversion",
+      "from": "node-launch-gate", "to": "node-min-version-gate",
+      "label": "owner app (post-onboarding)", "protocol": "in-process", "data": "-",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:409"]
+    },
+    {
+      "id": "e-minversion-cfg",
+      "from": "node-min-version-gate", "to": "node-version-gate-svc",
+      "label": "isUpdateRequired()", "protocol": "in-process", "data": "-",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:432"]
+    },
+    {
+      "id": "e-cfg-rules",
+      "from": "node-version-gate-svc", "to": "node-firestore-rules",
+      "label": "read appConfig/version (public)", "protocol": "Firestore SDK", "data": "minSupportedBuild",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/version_gate.dart:26-33", "firestore.rules:145-148"]
+    },
+    {
+      "id": "e-minversion-auth",
+      "from": "node-min-version-gate", "to": "node-auth-gate",
+      "label": "gate passed -> owner", "protocol": "in-process", "data": "-",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:440-446"]
+    },
+    {
+      "id": "e-auth-firebaseauth",
+      "from": "node-auth-gate", "to": "node-firebase-auth",
+      "label": "authenticate (Google/Apple)", "protocol": "Firebase Auth SDK", "data": "uid",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:518", "lib/services/auth_service.dart:68,88"]
+    },
+    {
+      "id": "e-auth-railwayjwt",
+      "from": "node-auth-gate", "to": "node-railway-jwt",
+      "label": "ensureRailwayBackendSession (if USE_RAILWAY_API)", "protocol": "HTTPS", "data": "X-Dev-Secret + email -> JWT",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:515", "lib/services/railway_backend_sync.dart:33-64"]
+    },
+    {
+      "id": "e-railwayjwt-api",
+      "from": "node-railway-jwt", "to": "node-railway-api",
+      "label": "POST /auth/dev/login", "protocol": "HTTPS/REST", "data": "email -> accessToken",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["server/src/routes/auth.ts:15-45"]
+    },
+
+    {
+      "id": "e-owner-appdata",
+      "from": "node-auth-gate", "to": "node-app-data-backend",
+      "label": "owner data ops", "protocol": "in-process", "data": "create link, reports, history",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:1813-1887 (_createLink)", "lib/app_state.dart:22-23"]
+    },
+    {
+      "id": "e-appdata-firestoresvc",
+      "from": "node-app-data-backend", "to": "node-firestore-service",
+      "label": "default backend (XOR)", "protocol": "in-process", "data": "-",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/app_state.dart:22-23 (default Firestore)"]
+    },
+    {
+      "id": "e-appdata-railwaysvc",
+      "from": "node-app-data-backend", "to": "node-railway-api-service",
+      "label": "alt backend (USE_RAILWAY_API, XOR)", "protocol": "in-process", "data": "-",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/app_state.dart:22-23", "lib/config/backend_config.dart:28-29"]
+    },
+    {
+      "id": "e-firestoresvc-rules",
+      "from": "node-firestore-service", "to": "node-firestore-rules",
+      "label": "atomic create + entitlement / addFeedback", "protocol": "Firestore SDK", "data": "links, feedbacks, users, snapshots",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/firestore_service.dart:151-203,267-309"]
+    },
+    {
+      "id": "e-railwaysvc-api",
+      "from": "node-railway-api-service", "to": "node-railway-api",
+      "label": "JWT bearer REST", "protocol": "HTTPS/REST", "data": "links, feedbacks, snapshots",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/railway_api_service.dart:18-24,100-346"]
+    },
+    {
+      "id": "e-rules-firestore",
+      "from": "node-firestore-rules", "to": "node-firestore",
+      "label": "authorized read/write", "protocol": "internal", "data": "documents",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["firestore.rules:1-185 (all matches gate Firestore access)"]
+    },
+
+    {
+      "id": "e-publicflow-appdata",
+      "from": "node-public-feedback-flow", "to": "node-app-data-backend",
+      "label": "addFeedback (Firestore or Railway)", "protocol": "in-process", "data": "feedback",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:4739"]
+    },
+    {
+      "id": "e-publicflow-marker",
+      "from": "node-public-feedback-flow", "to": "node-submitted-marker",
+      "label": "write marker on success", "protocol": "SharedPreferences", "data": "linkId",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/main.dart:4642,4753"]
+    },
+
+    {
+      "id": "e-report-appdata",
+      "from": "node-report-service", "to": "node-app-data-backend",
+      "label": "fetch feedbacks / save snapshot", "protocol": "in-process", "data": "feedbacks, snapshots",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/report_service.dart:532,961"]
+    },
+    {
+      "id": "e-report-openai",
+      "from": "node-report-service", "to": "node-openai-client",
+      "label": "generate AI summary (optional)", "protocol": "in-process", "data": "feedback text -> summary",
+      "required": false, "fallback": true, "plane": "RUNTIME",
+      "evidence": ["lib/services/report_service.dart:961", "lib/services/report_service.dart:1086 (heuristic fallback)"]
+    },
+    {
+      "id": "e-openaiclient-aiproxy",
+      "from": "node-openai-client", "to": "node-ai-proxy",
+      "label": "POST AI_PROXY_URL /ai/chat", "protocol": "HTTPS", "data": "messages (no key)",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/openai_audience_client.dart:23-25,654"]
+    },
+    {
+      "id": "e-aiproxy-openai",
+      "from": "node-ai-proxy", "to": "node-openai",
+      "label": "chat/completions (server key)", "protocol": "HTTPS", "data": "prompt -> gpt-4o-mini",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["server/src/routes/ai.ts:3,44,53-60"]
+    },
+
+    {
+      "id": "e-railwayapi-postgres",
+      "from": "node-railway-api", "to": "node-postgres",
+      "label": "Prisma queries/transactions (admin creds)", "protocol": "Postgres wire", "data": "User/Link/Feedback/Snapshot",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["server/src/lib/prisma.ts:5-9", "server/prisma/schema.prisma:7-10"]
+    },
+
+    {
+      "id": "e-iap-apple",
+      "from": "node-iap-service", "to": "node-apple-store",
+      "label": "buyConsumable (App Store)", "protocol": "StoreKit", "data": "purchase premium_link_single",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/iap_service.dart:231", "lib/config/iap_products.dart:27"]
+    },
+    {
+      "id": "e-iap-play",
+      "from": "node-iap-service", "to": "node-google-play",
+      "label": "buyConsumable (Play Billing)", "protocol": "Play Billing", "data": "purchase premium_link_single",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/iap_service.dart:231"]
+    },
+    {
+      "id": "e-iap-verify",
+      "from": "node-iap-service", "to": "node-cloud-functions",
+      "label": "iapVerify (callable): receipt -> outcome", "protocol": "HTTPS callable (cloud_functions)", "data": "{platform, productId, verificationData, transactionId}",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "notes": "Server-authoritative: client NEVER writes credit. On transient failure the purchase stays queued (not completed) for retry; permanent rejection completes without credit.",
+      "evidence": ["lib/services/iap_service.dart (_onPurchaseUpdates -> verifyAndGrant -> httpsCallable('iapVerify'))", "test/iap_service_test.dart"]
+    },
+    {
+      "id": "e-cf-apple",
+      "from": "node-cloud-functions", "to": "node-apple-store",
+      "label": "verifyReceipt", "protocol": "HTTPS", "data": "receipt -> valid?",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["functions/src/index.ts:36,49-79"]
+    },
+    {
+      "id": "e-cf-google",
+      "from": "node-cloud-functions", "to": "node-google-play",
+      "label": "androidpublisher verify", "protocol": "HTTPS", "data": "token -> purchaseState",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["functions/src/index.ts:82-117"]
+    },
+    {
+      "id": "e-cf-credits",
+      "from": "node-cloud-functions", "to": "node-credits",
+      "label": "grant paidLinkCredits (Admin SDK, idempotent)", "protocol": "Admin SDK", "data": "paidLinkCredits += 1",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "notes": "Now wired to the client via e-iap-verify. Server-determined amount (allow-list), idempotent atomic grant keyed by store txId (processedPurchases). Covered by ci-functions-iap (emulator).",
+      "evidence": ["functions/src/index.ts:162-166", "functions/src/iap-core.ts:51-76", "functions/test/iap-core.test.mjs"]
+    },
+    {
+      "id": "e-cf-firestore",
+      "from": "node-cloud-functions", "to": "node-firestore",
+      "label": "Admin SDK write (BYPASSES rules)", "protocol": "Admin SDK", "data": "users, processedPurchases",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["functions/src/index.ts:174,185-193"]
+    },
+
+    {
+      "id": "r-codemagic-appstore",
+      "from": "node-codemagic", "to": "node-appstore-connect",
+      "label": "build ipa + submit TestFlight", "protocol": "Codemagic integration", "data": "signed IPA",
+      "required": true, "fallback": false, "plane": "RELEASE",
+      "evidence": ["codemagic.yaml:64-91"]
+    },
+    {
+      "id": "r-appstore-ios",
+      "from": "node-appstore-connect", "to": "node-flutter-ios",
+      "label": "distribute (TestFlight/App Store)", "protocol": "Apple", "data": "app binary",
+      "required": true, "fallback": false, "plane": "RELEASE",
+      "evidence": ["codemagic.yaml:88-91"]
+    },
+    {
+      "id": "r-play-android",
+      "from": "node-play-console", "to": "node-flutter-android",
+      "label": "distribute (manual)", "protocol": "Google Play", "data": "app binary",
+      "required": true, "fallback": false, "plane": "RELEASE",
+      "evidence": ["android/app/build.gradle.kts:33 (no CI publish found)"]
+    },
+    {
+      "id": "r-fbdeploy-hosting",
+      "from": "node-firebase-deploy", "to": "node-firebase-hosting",
+      "label": "deploy --only hosting (web_static)", "protocol": "Firebase CLI", "data": "static site",
+      "required": true, "fallback": false, "plane": "RELEASE",
+      "evidence": ["firebase.json:15-16"]
+    },
+    {
+      "id": "r-fbdeploy-functions",
+      "from": "node-firebase-deploy", "to": "node-cloud-functions",
+      "label": "deploy --only functions", "protocol": "Firebase CLI", "data": "iapVerify",
+      "required": true, "fallback": false, "plane": "RELEASE",
+      "evidence": ["firebase.json:10-14"]
+    },
+    {
+      "id": "r-fbdeploy-rules",
+      "from": "node-firebase-deploy", "to": "node-firestore-rules",
+      "label": "deploy --only firestore:rules", "protocol": "Firebase CLI", "data": "rules+indexes",
+      "required": true, "fallback": false, "plane": "RELEASE",
+      "evidence": ["firebase.json:2-5"]
+    },
+    {
+      "id": "r-railwaydeploy-api",
+      "from": "node-railway-deploy", "to": "node-railway-api",
+      "label": "deploy (Docker)", "protocol": "Railway", "data": "Fastify server",
+      "required": false, "fallback": false, "plane": "RELEASE",
+      "evidence": ["server/Dockerfile:1-21"]
+    },
+    {
+      "id": "r-gha-servertest",
+      "from": "node-github-actions", "to": "node-railway-api",
+      "label": "verify (concurrency test, disposable pg)", "protocol": "CI", "data": "demo single-comment invariant",
+      "required": false, "fallback": false, "plane": "RELEASE",
+      "evidence": [".github/workflows/server-concurrency-test.yml:1-58"]
+    },
+
+    {
+      "id": "e-demo-rules", "from": "node-demo-lifecycle", "to": "node-firestore-rules",
+      "label": "enforced by (server-authoritative)", "protocol": "logical", "data": "10m + 1 feedback + atomic close",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["firestore.rules:22-35,61-70", "server/src/routes/feedbacks.ts:45-53"]
+    },
+    {
+      "id": "e-premium-rules", "from": "node-premium-lifecycle", "to": "node-firestore-rules",
+      "label": "enforced by (server-authoritative)", "protocol": "logical", "data": "24h + credit burn",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["firestore.rules:83-98"]
+    },
+    {
+      "id": "e-premium-credits", "from": "node-premium-lifecycle", "to": "node-credits",
+      "label": "consumes 1 credit", "protocol": "logical", "data": "paidLinkCredits -1",
+      "required": true, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["server/src/routes/links.ts:39-42", "lib/services/firestore_service.dart:178-184"]
+    },
+    {
+      "id": "e-community-source", "from": "node-community-summary", "to": "node-openai-client",
+      "label": "produced by (AI or heuristic)", "protocol": "logical", "data": "grouped real feedback",
+      "required": false, "fallback": true, "plane": "RUNTIME",
+      "evidence": ["lib/services/openai_audience_client.dart:575", "lib/services/report_service.dart:961,1086"]
+    },
+    {
+      "id": "e-marker-prefs", "from": "node-submitted-marker", "to": "node-shared-prefs",
+      "label": "stored in", "protocol": "SharedPreferences", "data": "feedback2me_submitted_<linkId>",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/submitted_marker.dart:12"]
+    },
+    {
+      "id": "e-report-prefs", "from": "node-report-service", "to": "node-shared-prefs",
+      "label": "summary cache (expired links)", "protocol": "SharedPreferences", "data": "community/simple summary",
+      "required": false, "fallback": false, "plane": "RUNTIME",
+      "evidence": ["lib/services/community_summary_store.dart:14", "lib/services/simple_summary_store.dart:14"]
+    },
+    {
+      "id": "r-railwaydeploy-web", "from": "node-railway-deploy", "to": "node-flutter-web",
+      "label": "serve Flutter web static (root Dockerfile)", "protocol": "Railway", "data": "web build",
+      "required": false, "fallback": false, "plane": "RELEASE",
+      "evidence": ["Dockerfile:1-27 (separate deploy: Flutter web via serve)"]
+    }
+  ]
+}

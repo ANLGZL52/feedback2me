@@ -1,0 +1,15 @@
+%% Backend/data domains (Firestore default vs Railway opt-in, XOR). Render: mmdc -i 05-backend-data-flow.mmd -o 05-backend-data-flow.svg
+flowchart LR
+  subgraph FIREBASE[Firestore domain - DEFAULT]
+    FS[FirestoreService firestore_service.dart:29] --> R{{Firestore Rules boundary}}
+    R --> DB[(Cloud Firestore users/links/feedbacks/appConfig)]
+    CF[CF iapVerify Admin SDK] -->|BYPASS rules| DB
+  end
+  subgraph RAILWAY[Railway domain - OPT-IN USE_RAILWAY_API]
+    RS[RailwayApiService railway_api_service.dart:17] -->|JWT REST| API[Fastify server/src/index.ts]
+    API -->|Prisma admin creds| PG[(PostgreSQL server/prisma/schema.prisma)]
+    API --> OAI[OpenAI /ai/chat ai.ts:53]
+  end
+  ADB[AppDataBackend app_state.dart:22 compile-time XOR] --> FS
+  ADB -.-> RS
+  note[No dual-write / no runtime failover - exactly one backend live per build]
