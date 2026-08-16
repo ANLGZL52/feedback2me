@@ -23,17 +23,22 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - name: Run read-only health checks
+        id: checks
         env:
           GH_TOKEN: ${{ github.token }}
           # FIREBASE_WEB_API_KEY optional; defaults to the public web key already in web_static/f.html
         run: node ops/monitor/run.mjs
       - name: Ops engine self-tests
+        id: engine_tests
         run: node --test ops/monitor/engine.test.mjs
       - name: Ops alert-calibration tests (runtime-only alerting)
+        id: alert_tests
         run: node --test ops/monitor/alert.test.mjs
       - name: Ops preflight semantics tests (observability vs release readiness)
+        id: preflight_tests
         run: node --test ops/monitor/preflight.test.mjs
       - name: Release readiness (informational — NOT READY does NOT fail this workflow)
+        id: readiness
         # Observability health != product release readiness. exit 0=READY, 1=NOT READY
         # (a valid verdict — informational here), 2=execution error (a REAL failure).
         run: |
@@ -42,32 +47,26 @@ jobs:
           code=$?
           set -e
           if [ "$code" -eq 0 ]; then
-            echo "readiness=READY" >> "$GITHUB_ENV"
+            echo "readiness=READY" >> "$GITHUB_OUTPUT"
           elif [ "$code" -eq 1 ]; then
-            echo "readiness=NOT READY" >> "$GITHUB_ENV"
+            echo "readiness=NOT READY" >> "$GITHUB_OUTPUT"
             echo "::notice::Release readiness = NOT READY (informational; does not fail the observability workflow)."
           else
+            echo "readiness=UNKNOWN" >> "$GITHUB_OUTPUT"
             echo "::error::Release preflight execution error (exit $code) — this IS an observability failure."
             exit "$code"
           fi
-      - name: Alert on live DOWN (spam-safe — DOWN-only, never release/readiness blockers)
+      - name: Alert on live DOWN (best-effort; DOWN-only, never release/readiness blockers)
+        id: alert
         if: always()
+        # continue-on-error: alert DELIVERY failure is best-effort (non-blocking) but
+        # its true outcome is preserved in steps.alert.outcome for honest reporting.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node ops/monitor/alert.mjs || true
-      - name: Ops run summary (observability vs release readiness — no PII)
-        if: always()
-        run: |
-          {
-            echo "## Feedback2Me Ops — run summary"
-            echo ""
-            echo "- **Observability run:** SUCCESS (monitor + engine tests + alert tests + alert + artifact executed)"
-            echo "- **Release readiness:** ${readiness:-UNKNOWN}"
-            if [ -f ops-status/latest.json ]; then
-              node -e "const s=require('./ops-status/latest.json');const down=Object.values(s.components||{}).filter(c=>c.status==='DOWN').length;const oi=(s.incidents||[]).filter(i=>i.status==='OPEN').length;const bl=(s.blockers||[]).filter(b=>b.releaseBlocking);const p0=bl.filter(b=>b.severity==='P0').length,p1=bl.filter(b=>b.severity==='P1').length;console.log('- **Overall:** '+s.overall+'  ·  **Live DOWN:** '+down+'  ·  **Open incidents:** '+oi);console.log('- **Release blockers:** P0='+p0+' P1='+p1+'  (P0 in this lightweight runner are CI-evidence gaps, not runtime outages)');console.log('- **Artifact:** ops-status');"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: node ops/monitor/alert.mjs
       - name: Upload health snapshot + events (artifact, not committed)
+        id: artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -76,3 +75,31 @@ jobs:
             ops-status/latest.json
             ops-status/events/
           retention-days: 14
+      # FINAL step — derives its verdict from the REAL outcomes of the steps above
+      # (never hardcoded). Runs after the artifact upload so it can report it truthfully.
+      - name: Ops run summary (observability execution vs release readiness — no PII)
+        if: always()
+        env:
+          OBS_OK: ${{ steps.checks.outcome == 'success' && steps.engine_tests.outcome == 'success' && steps.alert_tests.outcome == 'success' && steps.preflight_tests.outcome == 'success' && steps.readiness.outcome == 'success' && steps.artifact.outcome == 'success' }}
+          READINESS: ${{ steps.readiness.outputs.readiness }}
+          ART_OUTCOME: ${{ steps.artifact.outcome }}
+          ALERT_OUTCOME: ${{ steps.alert.outcome }}
+        run: |
+          if [ "$OBS_OK" = "true" ]; then OBS="SUCCESS"; else OBS="FAILURE"; fi
+          # Alert delivery is best-effort; report its true outcome honestly.
+          alertDelivery="$ALERT_OUTCOME"
+          {
+            echo "## Feedback2Me Ops — run summary"
+            echo ""
+            echo "- **Observability execution:** $OBS  _(monitor=${{ steps.checks.outcome }}, engine-tests=${{ steps.engine_tests.outcome }}, alert-tests=${{ steps.alert_tests.outcome }}, preflight-tests=${{ steps.preflight_tests.outcome }}, readiness=${{ steps.readiness.outcome }}, artifact=$ART_OUTCOME)_"
+            echo "- **Release readiness:** ${READINESS:-UNKNOWN}  _(does not affect observability execution)_"
+            echo "- **Artifact upload:** $ART_OUTCOME"
+            if [ -f ops-status/latest.json ]; then
+              node -e "const s=require('./ops-status/latest.json');const down=Object.values(s.components||{}).filter(c=>c.status==='DOWN').length;const oi=(s.incidents||[]).filter(i=>i.status==='OPEN').length;const bl=(s.blockers||[]).filter(b=>b.releaseBlocking);const p0=bl.filter(b=>b.severity==='P0').length,p1=bl.filter(b=>b.severity==='P1').length;const ad=process.env.ALERT_OUTCOME==='failure'?'BEST-EFFORT FAILURE':(down===0&&oi===0?'NO ALERT REQUIRED':'ALERT DELIVERED/UPDATED');console.log('- **Live DOWN:** '+down+'  ·  **Open incidents:** '+oi+'  ·  **Overall:** '+s.overall);console.log('- **Alert delivery:** '+ad);console.log('- **Release blockers:** P0='+p0+' P1='+p1+'  (P0 in this lightweight runner are CI-evidence gaps, not runtime outages)');"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Observability execution: $OBS"
+          if [ "$OBS" != "SUCCESS" ]; then
+            echo "::error::Observability execution FAILURE — see step outcomes above."
+            exit 1
+          fi
