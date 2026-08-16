@@ -82,9 +82,10 @@
     },
     {
       "id": "chk-postgres", "componentId": "node-postgres", "journeys": ["j-public-feedback-rest", "j-history"],
-      "type": "unknown", "environment": "production", "interval": "-", "productionSafe": true, "readOnly": true,
-      "implementation": "none", "status": "unknown",
-      "note": "Reached only through Railway API; inferred from chk-railway-health. No direct safe check (no admin creds in ops). UNKNOWN.", "secretsRequired": []
+      "type": "blackbox-prod", "environment": "production", "interval": "15m", "productionSafe": true, "readOnly": true,
+      "timeoutMs": 8000, "criticality": "medium", "failureThreshold": 2, "recoveryThreshold": 2, "degradedLatencyMs": 2000,
+      "implementation": "postgres-direct.mjs",
+      "note": "Direct READ-ONLY probe: SELECT 1 via a DEDICATED observability credential OPS_POSTGRES_DATABASE_URL (NOT the app DATABASE_URL). No writes. Secret ABSENT -> UNKNOWN/NO_CREDENTIAL (missing observability config is NOT a Postgres outage). Credential + connect/query fail -> DOWN. Never emits the URI/user/password.", "secretsRequired": ["OPS_POSTGRES_DATABASE_URL (dedicated read-only observability credential)"]
     },
     {
       "id": "chk-apple-store", "componentId": "node-apple-store", "journeys": ["j-purchase-credit"],
