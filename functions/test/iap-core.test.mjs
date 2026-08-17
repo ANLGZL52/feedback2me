@@ -16,7 +16,8 @@ const HAS_EMU = !!process.env.FIRESTORE_EMULATOR_HOST;
 
 describe('iap-core pure logic (allow-list, idempotency key = store-authoritative only)', () => {
   test('creditForProduct: allow-list only — unknown product grants nothing', () => {
-    assert.equal(creditForProduct('premium_link_single'), 1);
+    assert.equal(creditForProduct('premium_link_single_v2'), 1); // new purchase product
+    assert.equal(creditForProduct('premium_link_single'), 1);    // legacy recovery product
     assert.equal(creditForProduct('bogus'), null);
     assert.equal(creditForProduct(''), null);
   });

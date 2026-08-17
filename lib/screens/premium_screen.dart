@@ -63,7 +63,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
       await iapService.loadProducts();
       final storeAvailable = await iapService.isStoreAvailable;
       if (!mounted) return;
-      final credit = iapService.productById(IapProducts.premiumLinkSingle);
+      final credit = iapService.productById(IapProducts.premiumLinkSingleV2);
       setState(() {
         _loading = false;
         if (!storeAvailable) {
@@ -96,7 +96,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
     try {
       await iapService.loadProducts();
       if (!mounted) return;
-      final fresh = iapService.productById(IapProducts.premiumLinkSingle);
+      final fresh = iapService.productById(IapProducts.premiumLinkSingleV2);
       if (fresh == null) {
         setState(() {
           _purchasing = false;
@@ -166,7 +166,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final uid = authService.uid;
-    final credit = iapService.productById(IapProducts.premiumLinkSingle);
+    final credit = iapService.productById(IapProducts.premiumLinkSingleV2);
 
     return Scaffold(
       appBar: AppBar(
@@ -255,7 +255,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
                         )
                       else
                         _MissingProductRow(
-                          label: IapProducts.premiumLinkSingle,
+                          label: IapProducts.premiumLinkSingleV2,
                           theme: theme,
                         ),
                       const SizedBox(height: 12),

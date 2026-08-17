@@ -116,7 +116,7 @@ class IapService {
     }
     try {
       final response = await InAppPurchase.instance.queryProductDetails(
-        IapProducts.all,
+        IapProducts.purchasable, // yeni istemci yalnızca v2 sorgular/satın alır
       );
       notFoundProductIds = response.notFoundIDs.toSet();
       if (response.error != null) {
@@ -199,7 +199,11 @@ class IapService {
 
       if (fresh) {
         try {
-          if (purchase.productID == IapProducts.premiumLinkSingle) {
+          // v2 (yeni satın alma) VEYA eski premium_link_single (güncelleme sonrası
+          // kurtarma). Her ikisi de SUNUCUDA (iapVerify) doğrulanır; istemci kredi
+          // yazmaz. Yeni satın alma yalnızca v2 için BAŞLATILIR (startPurchase),
+          // ama teslimat kanalı bekleyen eski işlemleri de kurtarır.
+          if (IapProducts.isKnownCreditProduct(purchase.productID)) {
             final outcome = await verifyAndGrant(
               purchase.productID,
               purchase.verificationData.serverVerificationData,

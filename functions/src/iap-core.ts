@@ -7,8 +7,16 @@
 import { createHash } from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 
-/** Product -> credit. ONLY known products grant credit (allow-list). */
+/**
+ * Product -> credit. ONLY allow-listed products grant credit.
+ * `premium_link_single_v2` = the NEW client's purchase product.
+ * `premium_link_single`    = LEGACY, kept for RECOVERY of already-completed store
+ *   transactions from old clients (after the product is removed from sale, no NEW
+ *   legacy purchase is possible; store-authoritative idempotency ensures each real
+ *   transaction grants +1 exactly once, so accepting it for recovery is safe).
+ */
 export const CREDIT_BY_PRODUCT: Record<string, number> = {
+  premium_link_single_v2: 1,
   premium_link_single: 1,
 };
 
