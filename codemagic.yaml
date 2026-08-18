@@ -19,11 +19,15 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      # Yüklenen .p12 + .mobileprovision’ı build VM’e kopyalar; keychain add-certificates tek başına yetmez.
-      # Code signing identities’teki profil/sertifika bu bundle id ile eşleşmeli (App Store).
+      # Otomatik seçim (distribution_type) YANLIŞ sertifikayı (revoke 1B17) yüklüyordu.
+      # Bunun yerine, Codemagic Code signing identities'e yüklenen GEÇERLİ sertifikayı
+      # ADIYLA açıkça referansla → yalnızca o (fb2me_2026son = 3B685214..., exp
+      # 2027-08-18) keychain'e yüklenir. NOT: referans kullanınca distribution_type +
+      # bundle_identifier KULLANILAMAZ. Provisioning profilini script içinde App Store
+      # Connect'ten (list-profiles) çekiyoruz.
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.anlgzl.feedback2meapp
+        certificates:
+          - fb2me_2026son
       vars:
         BUNDLE_ID: com.anlgzl.feedback2meapp
         # Xcode 26+ altool: bundle id → App Store uygulama ID eşlemesi bazen başarısız olur.
