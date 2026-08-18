@@ -48,26 +48,30 @@ workflows:
           test -f ios/Podfile || { echo "ERROR: ios/Podfile eksik — repoya commit edin."; exit 1; }
           cd ios
           pod install
-      # Kod imzalama — App Store Connect entegrasyonu (feedback2me) üzerinden.
-      # Önceki derleme, Apple hesabından KALDIRILMIŞ (revoke) bir dağıtım
-      # sertifikasıyla imzalamaya çalıştığı için IPA export'ta düştü. O sertifika
-      # artık Apple API'sinde YOK; bu bundle için GEÇERLİ (ACTIVE) tek App Store
-      # profili, özel anahtarı bu Codemagic takımında bulunan geçerli bir dağıtım
-      # sertifikasına bağlı olarak App Store Connect'te oluşturuldu.
-      # fetch-signing-files ACTIVE profilleri indirir (INVALID olanları atlar),
-      # böylece stale sertifika/profil seçilemez. --create gerekiyorsa tazeler.
-      # Sıra: keychain → imza dosyalarını çek → sertifikaları ekle → use-profiles
-      #       ($HOME/export_options.plist üretir) → flutter ipa
-      - name: Kod imzalama (ASC entegrasyonu — geçerli sertifika + profil)
+      # Kod imzalama — GEÇERLİ profili sabitle.
+      # Codemagic'in otomatik "Set up code signing identities" adımı, hesaba
+      # YÜKLÜ dağıtım .p12 kimliklerini (GEÇERLİ sertifikaların özel anahtarları
+      # DAHİL) keychain'e yükler; ANCAK feedback2me için REVOKE edilmiş bir
+      # sertifikaya bağlı YÜKLÜ profili de indirir ve build o yüzden IPA export'ta
+      # düşer. Çözüm: profil klasörünü temizleyip App Store Connect'ten yalnızca
+      # GEÇERLİ (ACTIVE) App Store profillerini indir. feedback2me bundle'ı için
+      # ACTIVE profil, özel anahtarı zaten keychain'de bulunan geçerli bir dağıtım
+      # sertifikasına bağlıdır → imza başarılı olur. use-profiles ayrıca
+      # $HOME/export_options.plist üretir (IPA adımı bunu kullanır).
+      - name: Kod imzalama (revoke profili çıkar → geçerli ACTIVE profil)
         script: |
           set -e
-          keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+          PROF_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROF_DIR"
+          rm -f "$PROF_DIR"/*.mobileprovision 2>/dev/null || true
+          app-store-connect list-profiles \
             --type IOS_APP_STORE \
-            --create
-          keychain add-certificates
+            --state ACTIVE \
+            --profiles-dir "$PROF_DIR" \
+            --save
           xcode-project use-profiles \
             --project ios/Runner.xcodeproj \
+            --profiles "$PROF_DIR/*.mobileprovision" \
             --archive-method app-store \
             --code-signing-setup-verbose-logging
       - name: IPA derle
