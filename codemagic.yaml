@@ -48,46 +48,29 @@ workflows:
           test -f ios/Podfile || { echo "ERROR: ios/Podfile eksik — repoya commit edin."; exit 1; }
           cd ios
           pod install
-      # Kod imzalama — GEÇERLİ profili sabitle.
-      # Codemagic'in otomatik "Set up code signing identities" adımı, hesaba
-      # YÜKLÜ dağıtım .p12 kimliklerini (GEÇERLİ sertifikaların özel anahtarları
-      # DAHİL) keychain'e yükler; ANCAK feedback2me için REVOKE edilmiş bir
-      # sertifikaya bağlı YÜKLÜ profili de indirir ve build o yüzden IPA export'ta
-      # düşer. Çözüm: profil klasörünü temizleyip App Store Connect'ten yalnızca
-      # GEÇERLİ (ACTIVE) App Store profillerini indir. feedback2me bundle'ı için
-      # ACTIVE profil, özel anahtarı zaten keychain'de bulunan geçerli bir dağıtım
-      # sertifikasına bağlıdır → imza başarılı olur. use-profiles ayrıca
-      # $HOME/export_options.plist üretir (IPA adımı bunu kullanır).
-      - name: Kod imzalama (revoke profili çıkar → geçerli ACTIVE profil)
+      # Kod imzalama — Codemagic'in ÜRETTİĞİ yeni geçerli sertifikaya sabitlenmiş.
+      # Codemagic UI'da (Code signing identities) TAZE bir Apple Distribution
+      # sertifikası + özel anahtarı üretildi (serial 3B685214..., exp 2027-08-18);
+      # özel anahtar Codemagic Code signing identities'te saklı olduğundan
+      # "Set up code signing identities" adımı onu build keychain'ine yükler.
+      # Bu certe bağlı ACTIVE App Store profilini (ada göre) indirip uyguluyoruz;
+      # eski/revoke profiller devre dışı kalır. use-profiles $HOME/export_options.plist
+      # üretir (IPA adımı kullanır).
+      - name: Kod imzalama (yeni Codemagic sertifikası + Build21 profili)
         script: |
-          set +e
-          echo "===DIAG=== codesign identities (private key present):"
-          security find-identity -v -p codesigning
-          echo "===DIAG=== Apple Distribution certs in keychain (serial + expiry):"
-          security find-certificate -a -p > /tmp/all_certs.pem 2>/dev/null
-          awk '/-----BEGIN CERTIFICATE-----/{n++} n>0{print > ("/tmp/cert" n ".pem")}' /tmp/all_certs.pem
-          for f in /tmp/cert*.pem; do
-            subj=$(openssl x509 -in "$f" -noout -subject 2>/dev/null)
-            case "$subj" in
-              *"Apple Distribution"*)
-                echo "--- $f"
-                openssl x509 -in "$f" -noout -serial -enddate 2>/dev/null
-                ;;
-            esac
-          done
-          echo "===DIAG END==="
           set -e
           PROF_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROF_DIR"
           rm -f "$PROF_DIR"/*.mobileprovision 2>/dev/null || true
+          # Yalnızca yeni certe bağlı profili indir (ada göre) → deterministik.
           app-store-connect list-profiles \
             --type IOS_APP_STORE \
             --state ACTIVE \
+            --name "Feedback2Me AppStore Build21" \
             --profiles-dir "$PROF_DIR" \
             --save
-          # use-profiles varsayılan olarak $HOME/Library/MobileDevice/Provisioning
-          # Profiles klasörünü tarar (yukarıda yalnızca ACTIVE profilleri oraya
-          # indirdik); bundle eşleşmesiyle feedback2me için geçerli profili seçer.
+          echo "=== keychain imza kimlikleri ==="
+          security find-identity -v -p codesigning || true
           xcode-project use-profiles \
             --project ios/Runner.xcodeproj \
             --archive-method app-store \
