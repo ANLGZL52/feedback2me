@@ -60,6 +60,22 @@ workflows:
       # $HOME/export_options.plist üretir (IPA adımı bunu kullanır).
       - name: Kod imzalama (revoke profili çıkar → geçerli ACTIVE profil)
         script: |
+          set +e
+          echo "===DIAG=== codesign identities (private key present):"
+          security find-identity -v -p codesigning
+          echo "===DIAG=== Apple Distribution certs in keychain (serial + expiry):"
+          security find-certificate -a -p > /tmp/all_certs.pem 2>/dev/null
+          awk '/-----BEGIN CERTIFICATE-----/{n++} n>0{print > ("/tmp/cert" n ".pem")}' /tmp/all_certs.pem
+          for f in /tmp/cert*.pem; do
+            subj=$(openssl x509 -in "$f" -noout -subject 2>/dev/null)
+            case "$subj" in
+              *"Apple Distribution"*)
+                echo "--- $f"
+                openssl x509 -in "$f" -noout -serial -enddate 2>/dev/null
+                ;;
+            esac
+          done
+          echo "===DIAG END==="
           set -e
           PROF_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROF_DIR"
