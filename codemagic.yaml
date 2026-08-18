@@ -69,9 +69,11 @@ workflows:
             --state ACTIVE \
             --profiles-dir "$PROF_DIR" \
             --save
+          # use-profiles varsayılan olarak $HOME/Library/MobileDevice/Provisioning
+          # Profiles klasörünü tarar (yukarıda yalnızca ACTIVE profilleri oraya
+          # indirdik); bundle eşleşmesiyle feedback2me için geçerli profili seçer.
           xcode-project use-profiles \
             --project ios/Runner.xcodeproj \
-            --profiles "$PROF_DIR/*.mobileprovision" \
             --archive-method app-store \
             --code-signing-setup-verbose-logging
       - name: IPA derle
