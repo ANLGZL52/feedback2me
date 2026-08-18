@@ -26,6 +26,8 @@ workflows:
       # bundle_identifier KULLANILAMAZ. Provisioning profilini script içinde App Store
       # Connect'ten (list-profiles) çekiyoruz.
       ios_signing:
+        provisioning_profiles:
+          - fb2me_build21
         certificates:
           - fb2me_2026son
       vars:
@@ -60,19 +62,13 @@ workflows:
       # Bu certe bağlı ACTIVE App Store profilini (ada göre) indirip uyguluyoruz;
       # eski/revoke profiller devre dışı kalır. use-profiles $HOME/export_options.plist
       # üretir (IPA adımı kullanır).
-      - name: Kod imzalama (yeni Codemagic sertifikası + Build21 profili)
+      - name: Kod imzalama (referanslı sertifika + profil)
         script: |
           set -e
-          PROF_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
-          mkdir -p "$PROF_DIR"
-          rm -f "$PROF_DIR"/*.mobileprovision 2>/dev/null || true
-          # Yalnızca yeni certe bağlı profili indir (ada göre) → deterministik.
-          app-store-connect list-profiles \
-            --type IOS_APP_STORE \
-            --state ACTIVE \
-            --name "Feedback2Me AppStore Build21" \
-            --profiles-dir "$PROF_DIR" \
-            --save
+          # ios_signing referansları sayesinde "Set up code signing identities"
+          # adımı fb2me_2026son sertifikasını (özel anahtarıyla) keychain'e ve
+          # fb2me_build21 profilini profil klasörüne indirdi. Burada projeye
+          # uygulayıp $HOME/export_options.plist üretiyoruz.
           echo "=== keychain imza kimlikleri ==="
           security find-identity -v -p codesigning || true
           xcode-project use-profiles \
