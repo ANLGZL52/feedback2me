@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+ import '../design_system/design_system.dart';
 import '../models/audience_score.dart';
 import '../models/creator_intelligence_report.dart';
 import '../services/report_service.dart';
 import 'audience_score_widgets.dart';
 
-const Color _kGold = Color(0xFFD4AF37);
+const Color _kGold = AppColors.primary;
 
 /// Creator Intelligence — kartlı, aksiyon odaklı rapor gövdesi.
 class CreatorIntelligenceReportView extends StatelessWidget {
@@ -144,7 +145,7 @@ class _CoverPillarCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               L10n.get(context, 'perceptionScoresSubtitle'),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
             const SizedBox(height: 14),
             Row(
@@ -167,7 +168,7 @@ class _CoverPillarCard extends StatelessWidget {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: _kGold.withValues(alpha: 0.35)),
-                color: const Color(0xFF1A1816),
+                color: AppColors.surface,
               ),
               child: Text(
                 cover.oneLiner,
@@ -187,7 +188,7 @@ class _CoverPillarCard extends StatelessWidget {
                   for (final e in cover.subScores.entries)
                     Chip(
                       label: Text('${e.key}: ${e.value}', style: const TextStyle(fontSize: 11)),
-                      backgroundColor: Colors.white.withValues(alpha: 0.06),
+                      backgroundColor: AppColors.surfaceSecondary,
                       side: BorderSide(color: _kGold.withValues(alpha: 0.25)),
                     ),
                 ],
@@ -215,17 +216,17 @@ class _PillarGauge extends StatelessWidget {
             '$value',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w800,
-                  color: Colors.white,
+                  color: AppColors.textPrimary,
                 ),
           ),
-          Text('/100', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white38)),
+          Text('/100', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 6),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: value / 100,
               minHeight: 6,
-              backgroundColor: Colors.white12,
+              backgroundColor: AppColors.border,
               color: _kGold.withValues(alpha: 0.85),
             ),
           ),
@@ -234,7 +235,7 @@ class _PillarGauge extends StatelessWidget {
             label,
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: Colors.white70,
+                  color: AppColors.textSecondary,
                   height: 1.2,
                 ),
           ),
@@ -302,8 +303,8 @@ class _DiagnosesCard extends StatelessWidget {
                 margin: EdgeInsets.only(bottom: i < diagnoses.length - 1 ? 10 : 0),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  color: const Color(0xFF22201C),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                  color: AppColors.surfaceSecondary,
+                  border: Border.all(color: AppColors.surfaceSecondary),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -316,7 +317,7 @@ class _DiagnosesCard extends StatelessWidget {
                     Text(
                       diagnoses[i].detail,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.white70,
+                            color: AppColors.textSecondary,
                             height: 1.42,
                           ),
                     ),
@@ -349,14 +350,14 @@ class _HeatMapCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               'Duyguyu iş kararına çevirir.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
             const SizedBox(height: 14),
-            _heatRow(context, 'Destekleyici kitle', heat.supportivePct, const Color(0xFF4ADE80), heat.supportiveHint),
+            _heatRow(context, 'Destekleyici kitle', heat.supportivePct, AppColors.success, heat.supportiveHint),
             const SizedBox(height: 10),
-            _heatRow(context, 'Kararsız izleyici', heat.undecidedPct, const Color(0xFFFBBF24), heat.undecidedHint),
+            _heatRow(context, 'Kararsız izleyici', heat.undecidedPct, AppColors.warning, heat.undecidedHint),
             const SizedBox(height: 10),
-            _heatRow(context, 'Riskli / eleştirel', heat.riskPct, const Color(0xFFF87171), heat.riskHint),
+            _heatRow(context, 'Riskli / eleştirel', heat.riskPct, AppColors.danger, heat.riskHint),
           ],
         ),
       ),
@@ -379,12 +380,12 @@ class _HeatMapCard extends StatelessWidget {
           child: LinearProgressIndicator(
             value: pct / 100,
             minHeight: 8,
-            backgroundColor: Colors.white10,
+            backgroundColor: AppColors.border,
             color: color.withValues(alpha: 0.75),
           ),
         ),
         const SizedBox(height: 4),
-        Text(hint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54, height: 1.35)),
+        Text(hint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary, height: 1.35)),
       ],
     );
   }
@@ -406,9 +407,9 @@ class _RiskOpportunityCard extends StatelessWidget {
           children: [
             Text('Fırsat & risk', style: sectionStyle),
             const SizedBox(height: 12),
-            _miniBox(context, Icons.trending_up_rounded, 'Bu dönemin fırsatı', block.opportunity, const Color(0xFF4ADE80)),
+            _miniBox(context, Icons.trending_up_rounded, 'Bu dönemin fırsatı', block.opportunity, AppColors.success),
             const SizedBox(height: 10),
-            _miniBox(context, Icons.warning_amber_rounded, 'Bu dönemin riski', block.risk, const Color(0xFFFBBF24)),
+            _miniBox(context, Icons.warning_amber_rounded, 'Bu dönemin riski', block.risk, AppColors.warning),
           ],
         ),
       ),
@@ -470,13 +471,13 @@ class _ThemeTableCard extends StatelessWidget {
             Text(
               'Toplam benzersiz yorum: $unique · Toplam tema işareti: $themeSignalTotal\n'
               'Not: Bir yorum birden fazla temada sayılabilir.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54, height: 1.35),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary, height: 1.35),
             ),
             const SizedBox(height: 10),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: DataTable(
-                headingRowColor: WidgetStateProperty.all(const Color(0xFF2A2724)),
+                headingRowColor: WidgetStateProperty.all(AppColors.surfaceSecondary),
                 columns: const [
                   DataColumn(label: Text('Tema', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12))),
                   DataColumn(label: Text('Sinyal', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12))),
@@ -522,7 +523,7 @@ class _SegmentsCard extends StatelessWidget {
             for (final s in segments) ...[
               Text(s.segmentName, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
               const SizedBox(height: 4),
-              Text(s.description, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white70, height: 1.35)),
+              Text(s.description, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary, height: 1.35)),
               const SizedBox(height: 4),
               Container(
                 width: double.infinity,
@@ -583,7 +584,7 @@ class _RecipeCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(l.label, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
-                        Text(l.detail, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white60, height: 1.35)),
+                        Text(l.detail, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary, height: 1.35)),
                       ],
                     ),
                   ),
@@ -679,7 +680,7 @@ class _ReplyTemplatesCard extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
+                      color: AppColors.surfaceSecondary,
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: SelectableText(t.text, style: const TextStyle(height: 1.4, fontSize: 13)),
@@ -711,7 +712,7 @@ class _ReMeasureCard extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Bir sonraki analizde şunlara bak: tekrar çalıştırılabilir gelişim aracı.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
             const SizedBox(height: 10),
             for (final it in items)
@@ -727,7 +728,7 @@ class _ReMeasureCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(it.label, style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
-                          Text(it.hint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white54, height: 1.3)),
+                          Text(it.hint, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.textSecondary, height: 1.3)),
                         ],
                       ),
                     ),
@@ -761,10 +762,10 @@ class _NarrativeBodyCard extends StatelessWidget {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: emphasize ? _kGold.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.06),
+          color: emphasize ? _kGold.withValues(alpha: 0.5) : AppColors.surfaceSecondary,
         ),
       ),
-      color: emphasize ? const Color(0xFF1C1A17) : null,
+      color: emphasize ? AppColors.surface : null,
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

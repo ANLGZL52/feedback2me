@@ -188,6 +188,7 @@ class RailwayApiService implements AppDataBackend {
     String? responderName,
     String? relation,
     int? mood,
+    String? reaction,
     required String textRaw,
     CreatorSurveyPayload? creatorSurvey,
   }) async {
@@ -195,6 +196,7 @@ class RailwayApiService implements AppDataBackend {
       'linkId': linkId,
       'textRaw': textRaw,
       if (mood != null) 'mood': mood,
+      if (reaction != null && reaction.isNotEmpty) 'reaction': reaction,
       if (relation != null) 'relation': relation,
       if (responderName != null) 'responderName': responderName,
       if (creatorSurvey != null && !creatorSurvey.isEffectivelyEmpty)

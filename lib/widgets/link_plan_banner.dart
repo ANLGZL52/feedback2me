@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+ import '../design_system/design_system.dart';
 import '../models/feedback_link.dart';
 import 'link_validity_countdown.dart';
 
@@ -20,16 +21,16 @@ class LinkPlanBanner extends StatelessWidget {
     final plan = link.displayPlan;
     final (Color fg, Color border) = switch (plan) {
       FeedbackLinkPlan.demo => (
-          const Color(0xFFFDBA74),
-          const Color(0xFFEA580C),
+          AppColors.warning,
+          AppColors.warning,
         ),
       FeedbackLinkPlan.premium => (
-          const Color(0xFFFDE68A),
-          const Color(0xFFD4AF37),
+          AppColors.warning,
+          AppColors.primary,
         ),
       FeedbackLinkPlan.legacy => (
-          Colors.white70,
-          Colors.white24,
+          AppColors.textSecondary,
+          AppColors.border,
         ),
     };
 

@@ -2,249 +2,151 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- Railway / REST: kök URL’siz, sonda / yok. Örnek: content="https://xxx.up.railway.app" -->
-  <meta name="ftm-public-api" content="">
-  <title>Feedback Gönder — FeedbackToMe</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#F7F8FC">
+  <title>Feedback — Feedback2Me</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #141210;
-      color: #fff;
-      min-height: 100vh;
-      padding: 24px;
+    :root{
+      --bg:#F7F8FC; --surface:#FFFFFF; --surface2:#F1F3FA;
+      --primary:#3557F6; --violet:#7357F6; --onPrimary:#FFFFFF;
+      --text:#111735; --text2:#68708C; --border:#E7E9F2;
+      --success:#37C98B; --warning:#F8B83E; --danger:#EF5C63;
+      --primarySoft:rgba(53,87,246,0.10); --violetSoft:rgba(115,87,246,0.10);
+      --successSoft:rgba(55,201,139,0.12); --dangerSoft:rgba(239,92,99,0.12);
+      --radius:18px; --radiusSm:12px; --pill:999px;
     }
-    .container { max-width: 520px; margin: 0 auto; }
-    .promo {
-      background: linear-gradient(145deg, rgba(212,175,55,0.12), rgba(28,25,23,0.95));
-      border: 1px solid rgba(212,175,55,0.35);
-      border-radius: 16px;
-      padding: 18px 16px;
-      margin-bottom: 22px;
+    *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+    body{
+      margin:0; background:var(--bg); color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+      line-height:1.5; -webkit-font-smoothing:antialiased;
     }
-    .promo h2 {
-      font-size: 1rem;
-      color: #E8C547;
-      margin-bottom: 8px;
-      font-weight: 700;
+    .wrap{ max-width:560px; margin:0 auto; padding:20px 20px 40px; }
+    .brandbar{ display:flex; align-items:center; gap:10px; padding:6px 0 18px; }
+    .logo{ width:34px;height:34px;border-radius:10px; display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(90deg,var(--primary),var(--violet)); color:#fff; font-size:18px; }
+    .brandname{ font-weight:800; font-size:1.05rem; letter-spacing:.2px; }
+    .anon{ margin-left:auto; font-size:.72rem; font-weight:700; color:var(--text2);
+      background:var(--surface2); border-radius:var(--pill); padding:5px 10px; }
+    h1{ font-size:1.5rem; font-weight:800; line-height:1.25; margin:6px 0 8px; letter-spacing:-.3px; }
+    .lead{ color:var(--text2); font-size:.98rem; margin:0 0 20px; }
+    .card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+      padding:18px; box-shadow:0 6px 20px rgba(17,23,53,0.05); }
+    .sect{ margin-bottom:18px; }
+    .label{ display:block; font-weight:700; font-size:.98rem; margin:0 0 8px; }
+    .opt{ color:var(--text2); font-weight:500; font-size:.82rem; }
+    input[type=text], textarea{
+      width:100%; background:var(--surface); color:var(--text);
+      border:1px solid var(--border); border-radius:var(--radiusSm);
+      padding:13px 14px; font-size:1rem; font-family:inherit; outline:none;
     }
-    .promo p {
-      font-size: 0.88rem;
-      color: rgba(255,255,255,0.78);
-      line-height: 1.45;
-      margin-bottom: 14px;
-    }
-    .promo-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-    .promo-actions a {
-      display: inline-block;
-      padding: 10px 16px;
-      border-radius: 12px;
-      font-size: 0.88rem;
-      font-weight: 600;
-      text-decoration: none;
-      text-align: center;
-    }
-    .promo-actions a.primary {
-      background: #D4AF37;
-      color: #0c0a08;
-    }
-    .promo-actions a.primary:hover { background: #E8C547; }
-    .promo-actions a.secondary {
-      background: rgba(255,255,255,0.08);
-      color: #E8C547;
-      border: 1px solid rgba(212,175,55,0.4);
-    }
-    .promo-actions a.secondary:hover { background: rgba(255,255,255,0.12); }
-    h1 { font-size: 1.5rem; color: #D4AF37; margin-bottom: 8px; }
-    .sub { color: rgba(255,255,255,0.7); font-size: 0.95rem; margin-bottom: 24px; }
-    label.block { display: block; margin-bottom: 6px; font-size: 0.9rem; }
-    input[type=text], textarea, select {
-      width: 100%; padding: 12px; margin-bottom: 16px;
-      background: #1C1917; border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 12px; color: #fff; font-size: 1rem;
-    }
-    textarea { min-height: 120px; resize: vertical; }
-    .mood { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-    .mood label { display: flex; align-items: center; margin: 0; }
-    .mood input { width: auto; margin: 0 6px 0 0; }
-    button[type=submit] {
-      background: #D4AF37; color: #000; border: none; padding: 14px 24px;
-      border-radius: 12px; font-size: 1rem; font-weight: 600; cursor: pointer;
-      width: 100%;
-    }
-    button[type=submit]:hover { background: #E8C547; }
-    button[type=submit]:disabled { opacity: 0.6; cursor: not-allowed; }
-    .msg { padding: 16px; border-radius: 12px; margin-bottom: 16px; }
-    .msg.ok { background: rgba(76,175,80,0.2); border: 1px solid #4CAF50; }
-    .msg.err { background: rgba(244,67,54,0.2); border: 1px solid #f44336; }
-    .msg.load { background: rgba(255,255,255,0.05); }
-    .survey {
-      background: rgba(255,255,255,0.04);
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 12px;
-      margin-bottom: 20px;
-      overflow: hidden;
-    }
-    .survey summary {
-      padding: 14px 14px;
-      cursor: pointer;
-      font-weight: 600;
-      color: #D4AF37;
-      list-style: none;
-    }
-    .survey summary::-webkit-details-marker { display: none; }
-    .survey summary::after {
-      content: '▸';
-      float: right;
-      opacity: 0.6;
-      transition: transform 0.2s;
-    }
-    .survey[open] summary::after { transform: rotate(90deg); }
-    .survey .hint {
-      padding: 0 14px 12px;
-      font-size: 0.82rem;
-      color: rgba(255,255,255,0.55);
-      line-height: 1.35;
-    }
-    .survey-inner { padding: 0 14px 16px; }
-    .survey-inner h3 {
-      font-size: 0.82rem;
-      color: rgba(255,255,255,0.72);
-      margin: 14px 0 8px;
-      font-weight: 600;
-    }
-    .survey-inner h3:first-child { margin-top: 0; }
-    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
-    .chips label {
-      display: inline-flex;
-      align-items: center;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.1);
-      font-size: 0.82rem;
-      cursor: pointer;
-    }
-    .chips label:has(input:checked) {
-      border-color: rgba(212,175,55,0.55);
-      background: rgba(212,175,55,0.12);
-      color: #E8C547;
-    }
-    .chips input { margin-right: 6px; accent-color: #D4AF37; }
-    .likert { margin-bottom: 12px; }
-    .likert .q { font-size: 0.8rem; color: rgba(255,255,255,0.65); margin-bottom: 6px; }
-    .likert .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    .likert .row label {
-      position: relative;
-      min-width: 2.25rem;
-      text-align: center;
-      padding: 8px 10px;
-      border-radius: 8px;
-      background: rgba(255,255,255,0.06);
-      border: 1px solid rgba(255,255,255,0.08);
-      font-size: 0.8rem;
-      cursor: pointer;
-    }
-    .likert .row label:has(input:checked) {
-      border-color: #D4AF37;
-      background: rgba(212,175,55,0.15);
-      color: #E8C547;
-      font-weight: 700;
-    }
-    .likert .row input {
-      position: absolute;
-      left: 0; top: 0;
-      width: 100%; height: 100%;
-      margin: 0;
-      opacity: 0;
-      cursor: pointer;
-    }
-    .likert .clear {
-      font-size: 0.75rem;
-      color: #E8C547;
-      background: none;
-      border: none;
-      cursor: pointer;
-      text-decoration: underline;
-      padding: 4px 0;
-      width: auto;
-    }
-    .scale-note { font-size: 0.72rem; color: rgba(255,255,255,0.38); margin-bottom: 10px; }
-    .footer-cta {
-      margin-top: 28px;
-      padding-top: 20px;
-      border-top: 1px solid rgba(255,255,255,0.12);
-      text-align: center;
-    }
-    .footer-cta p.lead { font-size: 0.95rem; color: rgba(255,255,255,0.85); margin-bottom: 10px; font-weight: 600; }
-    .footer-cta p { font-size: 0.85rem; color: rgba(255,255,255,0.55); margin-bottom: 12px; line-height: 1.45; }
-    .footer-row { font-size: 0.9rem; line-height: 1.7; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 12px; }
-    .footer-row a { color: #E8C547; text-decoration: none; font-weight: 600; }
-    .footer-row a:hover { text-decoration: underline; }
-    .link-countdown {
-      font-variant-numeric: tabular-nums;
-      font-family: ui-monospace, 'Cascadia Code', 'Consolas', monospace;
-      font-size: 0.95rem;
-      font-weight: 700;
-      color: #E8C547;
-      margin-bottom: 16px;
-      padding: 10px 14px;
-      background: rgba(212,175,55,0.1);
-      border: 1px solid rgba(212,175,55,0.28);
-      border-radius: 10px;
-    }
-    .link-countdown.expired {
-      color: #fca5a5;
-      border-color: rgba(248,113,113,0.45);
-      background: rgba(248,113,113,0.08);
-    }
+    input[type=text]:focus, textarea:focus{ border-color:var(--primary); box-shadow:0 0 0 3px var(--primarySoft); }
+    textarea{ min-height:120px; resize:vertical; }
+    .hintline{ color:var(--text2); font-size:.8rem; margin:6px 2px 0; }
+    .reactions{ display:flex; flex-wrap:wrap; gap:8px; }
+    .rx{ display:flex; align-items:center; gap:7px; cursor:pointer; user-select:none;
+      background:var(--surface); border:1px solid var(--border); border-radius:14px;
+      padding:11px 13px; font-size:.92rem; font-weight:600; min-height:48px;
+      transition:border-color .12s, background .12s; }
+    .rx .emo{ font-size:1.35rem; line-height:1; }
+    .rx.sel{ background:var(--primarySoft); border-color:var(--primary); color:var(--primary); }
+    .rx .chk{ display:none; color:var(--primary); }
+    .rx.sel .chk{ display:inline; }
+    .rx:focus-visible{ outline:2px solid var(--primary); outline-offset:2px; }
+    .btn{ width:100%; border:none; cursor:pointer; height:54px; border-radius:14px;
+      background:linear-gradient(90deg,var(--primary),var(--violet)); color:#fff;
+      font-size:1rem; font-weight:800; letter-spacing:.2px;
+      box-shadow:0 6px 16px rgba(53,87,246,0.28); }
+    .btn:disabled{ opacity:.6; box-shadow:none; cursor:default; }
+    .trust{ text-align:center; color:var(--text2); font-size:.8rem; margin-top:12px; }
+    .msg{ border-radius:var(--radiusSm); padding:12px 14px; font-size:.92rem; margin:0 0 16px; display:none; }
+    .msg.load{ background:var(--surface2); color:var(--text2); }
+    .msg.err{ background:var(--dangerSoft); color:var(--danger); border:1px solid rgba(239,92,99,.3); }
+    .msg.ok{ background:var(--successSoft); color:#1f8f63; }
+    #linkCountdown{ display:none; text-align:center; color:var(--text2); font-size:.85rem; font-weight:600; margin:0 0 14px; }
+    #linkCountdown.expired{ color:var(--danger); }
+    details.survey{ margin-top:6px; background:var(--surface); border:1px solid var(--border); border-radius:var(--radiusSm); }
+    details.survey>summary{ cursor:pointer; padding:14px; font-weight:700; list-style:none; color:var(--text); }
+    details.survey>summary::-webkit-details-marker{ display:none; }
+    details.survey>summary::after{ content:'⌄'; float:right; color:var(--text2); font-size:1.1rem; }
+    details.survey[open]>summary::after{ content:'⌃'; }
+    .survey-inner{ padding:0 14px 14px; }
+    .survey .hint{ color:var(--text2); font-size:.82rem; margin:0 0 10px; }
+    .survey h3{ font-size:.92rem; margin:14px 0 8px; }
+    .chips{ display:flex; flex-wrap:wrap; gap:8px; }
+    .chips label{ display:inline-flex; align-items:center; gap:6px; background:var(--surface2);
+      border:1px solid var(--border); border-radius:var(--pill); padding:7px 12px; font-size:.85rem; cursor:pointer; }
+    .chips input{ accent-color:var(--primary); }
+    .likert{ margin:12px 0; }
+    .likert .q{ font-size:.88rem; margin-bottom:6px; }
+    .likert .row{ display:flex; gap:6px; }
+    .likert .row label{ display:inline-flex; align-items:center; gap:4px; background:var(--surface2);
+      border:1px solid var(--border); border-radius:10px; padding:6px 10px; font-size:.85rem; cursor:pointer; }
+    .likert .clear{ background:none; border:none; color:var(--text2); font-size:.78rem; cursor:pointer; margin-top:6px; padding:2px 0; }
+    .scale-note{ color:var(--text2); font-size:.8rem; margin:0 0 8px; }
+    #success, #already{ display:none; text-align:center; }
+    .okicon{ width:88px;height:88px;border-radius:50%; margin:8px auto 16px; display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(90deg,var(--primary),var(--violet)); color:#fff; font-size:44px;
+      box-shadow:0 8px 22px rgba(53,87,246,0.3); }
+    #already .okicon{ background:linear-gradient(90deg,var(--success),var(--primary)); }
+    #success h2, #already h2{ font-size:1.5rem; font-weight:800; margin:0 0 6px; }
+    #success .body, #already .body{ color:var(--text2); margin:0 0 22px; }
+    .acq{ text-align:left; background:var(--primarySoft); border-radius:var(--radius); padding:18px; }
+    .acq h3{ margin:0 0 6px; font-size:1.05rem; }
+    .acq p{ margin:0 0 14px; color:var(--text2); font-size:.92rem; }
+    .acq a{ display:block; text-align:center; text-decoration:none; height:50px; line-height:50px;
+      border-radius:14px; background:linear-gradient(90deg,var(--primary),var(--violet)); color:#fff; font-weight:800; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <aside class="promo" aria-label="FeedbackToMe tanıtım">
-      <h2>Sen de feedback toplamak ister misin?</h2>
-      <p>
-        Uygulamayı aç, <strong>Premium</strong> ile sınırları kaldır ve kendi güvenli linkinle yorum topla.
-        Takipçi analizi ve AI raporları FeedbackToMe içinde.
-      </p>
-      <div class="promo-actions">
-        <a class="primary" id="promoApp" href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Uygulamayı indir / aç</a>
-        <a class="secondary" id="promoPremium" href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Premium ol · Sen de feedback al</a>
-      </div>
-    </aside>
+  <div class="wrap">
+    <div class="brandbar">
+      <div class="logo">💬</div>
+      <div class="brandname">Feedback2Me</div>
+      <div class="anon" data-i18n="anon">🔒 Anonim</div>
+    </div>
 
-    <h1>FeedbackToMe</h1>
-    <p class="sub" id="subtitle">Düşüncelerini paylaş</p>
-    <div id="msg"></div>
-    <form id="form" style="display:none">
-      <label class="block">Adın (isteğe bağlı)</label>
-      <input type="text" id="name" placeholder="Boş bırakabilirsin">
-      <label class="block">Kişiyle ilişkin</label>
-      <input type="text" id="relation" placeholder="Arkadaş, iş arkadaşı, müşteri...">
-      <label class="block">Genel hissin</label>
-      <div class="mood">
-        <label><input type="radio" name="mood" value="-1"> Olumsuz</label>
-        <label><input type="radio" name="mood" value="0" checked> Nötr</label>
-        <label><input type="radio" name="mood" value="1"> Olumlu</label>
-      </div>
-      <label class="block">Düşüncelerini yaz *</label>
-      <textarea id="feedback" placeholder="En az 10 karakter yaz..." required minlength="10"></textarea>
+    <h1 id="hero" data-i18n="heroDefault">Dürüst bir feedback bırak 👀</h1>
+    <p class="lead" id="subtitle" data-i18n="subDefault">Dürüst ol. Kısa ol. Kendin ol. İsmini yazmak zorunda değilsin.</p>
 
-      <details class="survey" id="surveyDetails">
-        <summary>İçerik üreticisi bağlamı (isteğe bağlı)</summary>
-        <p class="hint">Bu alanlar yapay zeka özetinde bağlam sağlar; doldurmak zorunlu değil. Uygulamadaki form ile aynı yapıdadır.</p>
+    <div id="msg" class="msg"></div>
+    <div id="linkCountdown"></div>
+
+    <form id="form" class="card" style="display:none">
+      <div class="sect">
+        <span class="label" data-i18n="reactionTitle">İlk hissin ne? 👀</span>
+        <div class="reactions" id="reactions"></div>
+      </div>
+
+      <div class="sect">
+        <span class="label" data-i18n="commentLabel">Ne düşünüyorsun? *</span>
+        <textarea id="feedback" required minlength="10" data-i18n-ph="commentPh"></textarea>
+        <p class="hintline" data-i18n="minChars">En az 10 karakter</p>
+      </div>
+
+      <div class="sect">
+        <span class="label"><span data-i18n="nameLabel">İsmin</span> <span class="opt" data-i18n="optional">· isteğe bağlı</span></span>
+        <input type="text" id="name" data-i18n-ph="namePh">
+      </div>
+
+      <div class="sect">
+        <span class="label"><span data-i18n="relLabel">İlişkin</span> <span class="opt" data-i18n="optional">· isteğe bağlı</span></span>
+        <input type="text" id="relation" data-i18n-ph="relPh">
+      </div>
+
+      <details class="survey sect" id="surveyDetails">
+        <summary data-i18n="surveySummary">Biraz daha bağlam ekle (isteğe bağlı)</summary>
         <div class="survey-inner">
-          <h3>İçeriklerini ne zamandır takip ediyorsun?</h3>
+          <p class="hint" data-i18n="surveyHint">İstersen feedback'ini biraz daha detaylandır. Doldurmak zorunlu değil.</p>
+          <h3 data-i18n="svqFam">Ne zamandır tanıyorsun?</h3>
           <div class="chips">
-            <label><input type="radio" name="fam" value="first_time"> İlk kez görüyorum</label>
-            <label><input type="radio" name="fam" value="short"> Birkaç haftadır</label>
-            <label><input type="radio" name="fam" value="medium"> Birkaç aydır</label>
-            <label><input type="radio" name="fam" value="long"> Uzun süredir takipçiyim</label>
+            <label><input type="radio" name="fam" value="first_time"> <span data-i18n="famFirst">İlk kez görüyorum</span></label>
+            <label><input type="radio" name="fam" value="short"> <span data-i18n="famShort">Birkaç haftadır</span></label>
+            <label><input type="radio" name="fam" value="medium"> <span data-i18n="famMedium">Birkaç aydır</span></label>
+            <label><input type="radio" name="fam" value="long"> <span data-i18n="famLong">Uzun süredir</span></label>
           </div>
 
-          <h3>Hangi kanallarda takip ediyorsun? (çoklu)</h3>
+          <h3 data-i18n="svqPlat">Nerede takip ediyorsun? (çoklu)</h3>
           <div class="chips">
             <label><input type="checkbox" name="plat" value="instagram"> Instagram</label>
             <label><input type="checkbox" name="plat" value="tiktok"> TikTok</label>
@@ -252,70 +154,82 @@
             <label><input type="checkbox" name="plat" value="twitch"> Twitch</label>
             <label><input type="checkbox" name="plat" value="x"> X (Twitter)</label>
             <label><input type="checkbox" name="plat" value="linkedin"> LinkedIn</label>
-            <label><input type="checkbox" name="plat" value="other"> Diğer / web</label>
+            <label><input type="checkbox" name="plat" value="other"> <span data-i18n="platOther">Diğer / web</span></label>
           </div>
 
-          <h3>İçeriklerini ne sıklıkla tüketiyorsun?</h3>
+          <h3 data-i18n="svqFreq">Ne sıklıkla görüyorsun?</h3>
           <div class="chips">
-            <label><input type="radio" name="freq" value="rare"> Nadiren</label>
-            <label><input type="radio" name="freq" value="monthly"> Ayda birkaç kez</label>
-            <label><input type="radio" name="freq" value="weekly"> Haftada birkaç kez</label>
-            <label><input type="radio" name="freq" value="daily"> Neredeyse her gün</label>
+            <label><input type="radio" name="freq" value="rare"> <span data-i18n="freqRare">Nadiren</span></label>
+            <label><input type="radio" name="freq" value="monthly"> <span data-i18n="freqMonthly">Ayda birkaç kez</span></label>
+            <label><input type="radio" name="freq" value="weekly"> <span data-i18n="freqWeekly">Haftada birkaç kez</span></label>
+            <label><input type="radio" name="freq" value="daily"> <span data-i18n="freqDaily">Neredeyse her gün</span></label>
           </div>
 
-          <h3>Hangi tür içeriklerde daha güçlü olabilir? (çoklu)</h3>
-          <p class="hint" style="padding:0 0 8px">İzleyici gözüyle — üreticinin hangi türde parlayabileceğini işaretle.</p>
+          <h3 data-i18n="svqFocus">Hangi tür içeriklerde daha güçlü olabilir? (çoklu)</h3>
           <div class="chips">
-            <label><input type="checkbox" name="focus" value="education"> Eğitim / nasıl yapılır</label>
-            <label><input type="checkbox" name="focus" value="entertainment"> Eğlence</label>
-            <label><input type="checkbox" name="focus" value="lifestyle"> Yaşam tarzı / vlog</label>
-            <label><input type="checkbox" name="focus" value="tech"> Teknoloji / ürün</label>
-            <label><input type="checkbox" name="focus" value="business"> İş / kariyer</label>
-            <label><input type="checkbox" name="focus" value="gaming"> Oyun</label>
-            <label><input type="checkbox" name="focus" value="creative"> Yaratıcı / sanat</label>
-            <label><input type="checkbox" name="focus" value="arts"> Müzik / performans</label>
+            <label><input type="checkbox" name="focus" value="education"> <span data-i18n="focusEducation">Eğitim / nasıl yapılır</span></label>
+            <label><input type="checkbox" name="focus" value="entertainment"> <span data-i18n="focusEntertainment">Eğlence</span></label>
+            <label><input type="checkbox" name="focus" value="lifestyle"> <span data-i18n="focusLifestyle">Yaşam tarzı / vlog</span></label>
+            <label><input type="checkbox" name="focus" value="tech"> <span data-i18n="focusTech">Teknoloji / ürün</span></label>
+            <label><input type="checkbox" name="focus" value="business"> <span data-i18n="focusBusiness">İş / kariyer</span></label>
+            <label><input type="checkbox" name="focus" value="gaming"> <span data-i18n="focusGaming">Oyun</span></label>
+            <label><input type="checkbox" name="focus" value="creative"> <span data-i18n="focusCreative">Yaratıcı / sanat</span></label>
+            <label><input type="checkbox" name="focus" value="arts"> <span data-i18n="focusArts">Müzik / performans</span></label>
           </div>
 
-          <h3 style="color:#D4AF37">Puanla 1–5 (isteğe bağlı)</h3>
-          <p class="scale-note">1 düşük · 5 yüksek · Emin değilsen boş bırak</p>
-
+          <h3 data-i18n="svqScore">Puanla 1–5 (isteğe bağlı)</h3>
+          <p class="scale-note" data-i18n="scaleNote">1 düşük · 5 yüksek · Emin değilsen boş bırak</p>
           <div class="likert" data-field="scoreProduction">
-            <div class="q">Üretim kalitesi (ses, görüntü, kurgu)</div>
+            <div class="q" data-i18n="scoreProduction">Üretim kalitesi (ses, görüntü, kurgu)</div>
             <div class="row" data-likert="scoreProduction"></div>
-            <button type="button" class="clear" data-clear="scoreProduction">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreProduction" data-i18n="clear">Temizle</button>
           </div>
           <div class="likert" data-field="scoreClarity">
-            <div class="q">Mesaj netliği</div>
+            <div class="q" data-i18n="scoreClarity">Mesaj netliği</div>
             <div class="row" data-likert="scoreClarity"></div>
-            <button type="button" class="clear" data-clear="scoreClarity">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreClarity" data-i18n="clear">Temizle</button>
           </div>
           <div class="likert" data-field="scoreTrust">
-            <div class="q">Güven / samimiyet</div>
+            <div class="q" data-i18n="scoreTrust">Güven / samimiyet</div>
             <div class="row" data-likert="scoreTrust"></div>
-            <button type="button" class="clear" data-clear="scoreTrust">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreTrust" data-i18n="clear">Temizle</button>
           </div>
           <div class="likert" data-field="scoreEngagement">
-            <div class="q">Eğlence / ilgi çekicilik</div>
+            <div class="q" data-i18n="scoreEngagement">Eğlence / ilgi çekicilik</div>
             <div class="row" data-likert="scoreEngagement"></div>
-            <button type="button" class="clear" data-clear="scoreEngagement">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreEngagement" data-i18n="clear">Temizle</button>
           </div>
           <div class="likert" data-field="scoreConsistency">
-            <div class="q">Tutarlılık / yayın düzeni</div>
+            <div class="q" data-i18n="scoreConsistency">Tutarlılık / düzen</div>
             <div class="row" data-likert="scoreConsistency"></div>
-            <button type="button" class="clear" data-clear="scoreConsistency">Temizle</button>
+            <button type="button" class="clear" data-clear="scoreConsistency" data-i18n="clear">Temizle</button>
           </div>
         </div>
       </details>
 
-      <button type="submit" id="btn">Gönder</button>
+      <button type="submit" id="btn" class="btn" data-i18n="submit">Feedback'i gönder</button>
+      <p class="trust" data-i18n="trust">İsmin isteğe bağlı · Yorumun doğrudan bu linkin sahibine gider</p>
     </form>
-    <div class="footer-cta" id="footerCta">
-      <p class="lead">Kendi linkin, AI analizin ve premium özellikler</p>
-      <p>FeedbackToMe ile güvenli paylaşım linki oluştur; yorumları tek yerde topla ve gelişim raporlarını incele.</p>
-      <div class="footer-row">
-        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Uygulamayı aç</a>
-        <span style="color:rgba(255,255,255,0.35)">·</span>
-        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer">Premium ol — sen de feedback al</a>
+
+    <div id="success">
+      <div class="okicon">✓</div>
+      <h2 data-i18n="successTitle">Feedback'in gönderildi 🎉</h2>
+      <p class="body" data-i18n="successBody">Teşekkürler. Yorumun başarıyla iletildi.</p>
+      <div class="acq">
+        <h3 data-i18n="acqTitle">Peki insanlar senin hakkında ne düşünüyor? 👀</h3>
+        <p data-i18n="acqBody">Kendi feedback linkini oluştur ve anonim yorumlar toplamaya başla.</p>
+        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer" data-i18n="acqCta">Kendi linkimi oluştur</a>
+      </div>
+    </div>
+
+    <div id="already">
+      <div class="okicon">🙌</div>
+      <h2 data-i18n="alreadyTitle">Bu linke zaten feedback bıraktın 🙌</h2>
+      <p class="body" data-i18n="alreadyBody">Teşekkürler. Bu tarayıcıdan aynı linke tekrar feedback gönderemezsin.</p>
+      <div class="acq">
+        <h3 data-i18n="acqTitle">Peki insanlar senin hakkında ne düşünüyor? 👀</h3>
+        <p data-i18n="acqBody">Kendi feedback linkini oluştur ve anonim yorumlar toplamaya başla.</p>
+        <a href="https://feedbacktome-79655.web.app/" target="_blank" rel="noopener noreferrer" data-i18n="acqCta">Kendi linkimi oluştur</a>
       </div>
     </div>
   </div>
@@ -323,6 +237,97 @@
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
   <script>
+    // === i18n (TR + EN) — sadece user-facing metin; payload/enum değerleri çevrilmez ===
+    var I18N = {
+      tr: {
+        docTitle: 'Feedback bırak — Feedback2Me',
+        anon: '🔒 Anonim',
+        heroDefault: 'Dürüst bir feedback bırak 👀',
+        subDefault: 'Dürüst ol. Kısa ol. Kendin ol. İsmini yazmak zorunda değilsin.',
+        reactionTitle: 'İlk hissin ne? 👀',
+        commentLabel: 'Ne düşünüyorsun? *',
+        commentPh: 'İlk izlenimin, sevdiğin bir şey ya da geliştirebileceği bir taraf…',
+        minChars: 'En az 10 karakter',
+        nameLabel: 'İsmin', relLabel: 'İlişkin', optional: '· isteğe bağlı',
+        namePh: 'Anonim kalmak için boş bırak', relPh: 'Arkadaş, iş arkadaşı, tanıdık…',
+        surveySummary: 'Biraz daha bağlam ekle (isteğe bağlı)',
+        surveyHint: 'İstersen feedback\'ini biraz daha detaylandır. Doldurmak zorunlu değil.',
+        svqFam: 'Ne zamandır tanıyorsun?', famFirst: 'İlk kez görüyorum', famShort: 'Birkaç haftadır', famMedium: 'Birkaç aydır', famLong: 'Uzun süredir',
+        svqPlat: 'Nerede takip ediyorsun? (çoklu)', platOther: 'Diğer / web',
+        svqFreq: 'Ne sıklıkla görüyorsun?', freqRare: 'Nadiren', freqMonthly: 'Ayda birkaç kez', freqWeekly: 'Haftada birkaç kez', freqDaily: 'Neredeyse her gün',
+        svqFocus: 'Hangi tür içeriklerde daha güçlü olabilir? (çoklu)',
+        focusEducation: 'Eğitim / nasıl yapılır', focusEntertainment: 'Eğlence', focusLifestyle: 'Yaşam tarzı / vlog', focusTech: 'Teknoloji / ürün',
+        focusBusiness: 'İş / kariyer', focusGaming: 'Oyun', focusCreative: 'Yaratıcı / sanat', focusArts: 'Müzik / performans',
+        svqScore: 'Puanla 1–5 (isteğe bağlı)', scaleNote: '1 düşük · 5 yüksek · Emin değilsen boş bırak',
+        scoreProduction: 'Üretim kalitesi (ses, görüntü, kurgu)', scoreClarity: 'Mesaj netliği', scoreTrust: 'Güven / samimiyet',
+        scoreEngagement: 'Eğlence / ilgi çekicilik', scoreConsistency: 'Tutarlılık / düzen', clear: 'Temizle',
+        submit: 'Feedback\'i gönder', trust: 'İsmin isteğe bağlı · Yorumun doğrudan bu linkin sahibine gider',
+        successTitle: 'Feedback\'in gönderildi 🎉', successBody: 'Teşekkürler. Yorumun başarıyla iletildi.',
+        acqTitle: 'Peki insanlar senin hakkında ne düşünüyor? 👀', acqBody: 'Kendi feedback linkini oluştur ve anonim yorumlar toplamaya başla.', acqCta: 'Kendi linkimi oluştur',
+        alreadyTitle: 'Bu linke zaten feedback bıraktın 🙌', alreadyBody: 'Teşekkürler. Bu tarayıcıdan aynı linke tekrar feedback gönderemezsin.',
+        rx_fire: 'Çok iyi', rx_love: 'Beğendim', rx_wow: 'Bayıldım', rx_eyes: 'Dikkat çekici', rx_hmm: 'Emin değilim', rx_fun: 'Eğlenceli', rx_meh: 'Bir şey eksik',
+        mChecking: 'Link kontrol ediliyor…', mNotFoundHero: 'Bu linki bulamadık', mNotFoundSub: 'Link yanlış yazılmış veya artık mevcut olmayabilir.',
+        mNotFound: 'Bu link bulunamadı.', mNoCode: 'Linkte kod bulunamadı.', mClosedSub: 'Bu link artık yeni feedback kabul etmiyor.',
+        mDemoUsed: 'Bu demo link zaten bir kez kullanıldı.', mExpired: 'Bu linkin süresi dolmuş.', mInvalid: 'Bu link artık geçerli değil.',
+        mConnErr: 'Bağlantı hatası: ', mMin10: 'En az 10 karakter yaz.', mClosedRefresh: 'Bu link artık kabul etmiyor. Sayfayı yenile.',
+        mSending: 'Gönderiliyor…', mSendFail: 'Gönderilemedi: ',
+        cLeft: 'Kalan süre: ', cExpired: 'Süre doldu. Bu link artık feedback kabul etmiyor.'
+      },
+      en: {
+        docTitle: 'Leave feedback — Feedback2Me',
+        anon: '🔒 Anonymous',
+        heroDefault: 'Leave an honest feedback 👀',
+        subDefault: "Be honest. Be brief. Be yourself. You don't have to enter your name.",
+        reactionTitle: "What's your first impression? 👀",
+        commentLabel: 'What do you think? *',
+        commentPh: 'A first impression, something you like, or something they could improve…',
+        minChars: 'At least 10 characters',
+        nameLabel: 'Your name', relLabel: 'Your relationship', optional: '· optional',
+        namePh: 'Leave empty to stay anonymous', relPh: 'Friend, coworker, acquaintance…',
+        surveySummary: 'Add a little more context (optional)',
+        surveyHint: 'Optionally add more detail to your feedback. Not required.',
+        svqFam: 'How long have you known them?', famFirst: 'First time seeing them', famShort: 'A few weeks', famMedium: 'A few months', famLong: 'A long time',
+        svqPlat: 'Where do you follow them? (multiple)', platOther: 'Other / web',
+        svqFreq: 'How often do you see them?', freqRare: 'Rarely', freqMonthly: 'A few times a month', freqWeekly: 'A few times a week', freqDaily: 'Almost every day',
+        svqFocus: 'Where could they be stronger? (multiple)',
+        focusEducation: 'Education / how-to', focusEntertainment: 'Entertainment', focusLifestyle: 'Lifestyle / vlog', focusTech: 'Tech / product',
+        focusBusiness: 'Business / career', focusGaming: 'Gaming', focusCreative: 'Creative / art', focusArts: 'Music / performance',
+        svqScore: 'Rate 1–5 (optional)', scaleNote: '1 low · 5 high · Leave empty if unsure',
+        scoreProduction: 'Production quality (audio, video, editing)', scoreClarity: 'Message clarity', scoreTrust: 'Trust / sincerity',
+        scoreEngagement: 'Fun / engagement', scoreConsistency: 'Consistency / cadence', clear: 'Clear',
+        submit: 'Send feedback', trust: 'Name optional · Your comment goes directly to the link owner',
+        successTitle: 'Your feedback has been sent 🎉', successBody: 'Thank you. Your comment was delivered successfully.',
+        acqTitle: 'So, what do people think about you? 👀', acqBody: 'Create your own feedback link and start collecting anonymous comments.', acqCta: 'Create my own link',
+        alreadyTitle: "You've already left feedback for this link 🙌", alreadyBody: "Thanks! You can't submit another response to the same link from this browser.",
+        rx_fire: 'Fire', rx_love: 'Love it', rx_wow: 'Obsessed', rx_eyes: 'Eye-catching', rx_hmm: 'Not sure', rx_fun: 'Fun', rx_meh: 'Missing something',
+        mChecking: 'Checking link…', mNotFoundHero: "We couldn't find this link", mNotFoundSub: 'The link may be mistyped or no longer exist.',
+        mNotFound: 'This link was not found.', mNoCode: 'No code found in the link.', mClosedSub: 'This link is no longer accepting feedback.',
+        mDemoUsed: 'This demo link has already been used once.', mExpired: 'This link has expired.', mInvalid: 'This link is no longer valid.',
+        mConnErr: 'Connection error: ', mMin10: 'Write at least 10 characters.', mClosedRefresh: 'This link no longer accepts feedback. Refresh the page.',
+        mSending: 'Sending…', mSendFail: "Couldn't send: ",
+        cLeft: 'Time left: ', cExpired: "Time's up. This link no longer accepts feedback."
+      }
+    };
+    function detectLang() {
+      var q = new URLSearchParams(location.search).get('lang');
+      if (q === 'tr' || q === 'en') return q;
+      var nav = (navigator.language || 'en').toLowerCase();
+      return nav.indexOf('tr') === 0 ? 'tr' : 'en';
+    }
+    var LANG = detectLang();
+    var T = I18N[LANG];
+    document.documentElement.lang = LANG;
+    document.title = T.docTitle;
+    (function applyI18n() {
+      document.querySelectorAll('[data-i18n]').forEach(function (el) {
+        var k = el.getAttribute('data-i18n'); if (T[k] != null) el.textContent = T[k];
+      });
+      document.querySelectorAll('[data-i18n-ph]').forEach(function (el) {
+        var k = el.getAttribute('data-i18n-ph'); if (T[k] != null) el.setAttribute('placeholder', T[k]);
+      });
+    })();
+
+    // === Firebase (değişmedi) ===
     const cfg = {
       apiKey: "AIzaSyCRflC9vEs78jUte24z4mzGU2AXtaVKV_M",
       authDomain: "feedbacktome-79655.firebaseapp.com",
@@ -336,10 +341,7 @@
 
     function resolvePublicApiBase() {
       var meta = document.querySelector('meta[name="ftm-public-api"]');
-      if (meta) {
-        var mc = (meta.getAttribute('content') || '').trim();
-        if (mc) return mc.replace(/\/+$/, '');
-      }
+      if (meta) { var mc = (meta.getAttribute('content') || '').trim(); if (mc) return mc.replace(/\/+$/, ''); }
       if (typeof window.FTM_PUBLIC_API_BASE === 'string' && window.FTM_PUBLIC_API_BASE.trim()) {
         return window.FTM_PUBLIC_API_BASE.trim().replace(/\/+$/, '');
       }
@@ -348,13 +350,49 @@
     var FTM_PUBLIC_API_BASE = resolvePublicApiBase();
     window._useRestApi = false;
 
+    // === Reactions — uygulamadaki kDefaultReactions ile aynı; mood sentiment'ten türer ===
+    var REACTIONS = [
+      { key:'fire', emoji:'🔥', sentiment:1 },
+      { key:'love', emoji:'❤️', sentiment:1 },
+      { key:'wow',  emoji:'😍', sentiment:1 },
+      { key:'eyes', emoji:'👀', sentiment:0 },
+      { key:'hmm',  emoji:'🤔', sentiment:0 },
+      { key:'fun',  emoji:'😂', sentiment:1 },
+      { key:'meh',  emoji:'🧐', sentiment:-1 }
+    ];
+    window._reaction = null;
+    window._mood = 0;
+    (function buildReactions() {
+      var box = document.getElementById('reactions');
+      REACTIONS.forEach(function (r) {
+        var label = T['rx_' + r.key] || r.key;
+        var el = document.createElement('div');
+        el.className = 'rx';
+        el.setAttribute('role', 'button');
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('aria-pressed', 'false');
+        el.setAttribute('aria-label', label);
+        el.dataset.key = r.key;
+        el.innerHTML = '<span class="emo">' + r.emoji + '</span><span>' + label + '</span><span class="chk">✓</span>';
+        function toggle() {
+          var already = el.classList.contains('sel');
+          document.querySelectorAll('.rx').forEach(function (n) { n.classList.remove('sel'); n.setAttribute('aria-pressed', 'false'); });
+          if (already) { window._reaction = null; window._mood = 0; return; }
+          el.classList.add('sel'); el.setAttribute('aria-pressed', 'true');
+          window._reaction = r.key; window._mood = r.sentiment;
+        }
+        el.addEventListener('click', toggle);
+        el.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+        box.appendChild(el);
+      });
+    })();
+
     (function buildLikertRows() {
       document.querySelectorAll('[data-likert]').forEach(function (row) {
         const name = row.getAttribute('data-likert');
         for (var n = 1; n <= 5; n++) {
-          var id = name + '_' + n;
           var lab = document.createElement('label');
-          lab.innerHTML = '<input type="radio" name="' + name + '" value="' + n + '" id="' + id + '">' + n;
+          lab.innerHTML = '<input type="radio" name="' + name + '" value="' + n + '">' + n;
           row.appendChild(lab);
         }
       });
@@ -372,19 +410,13 @@
       var freq = document.querySelector('input[name="freq"]:checked');
       var plats = Array.from(document.querySelectorAll('input[name="plat"]:checked')).map(function (i) { return i.value; }).sort();
       var focus = Array.from(document.querySelectorAll('input[name="focus"]:checked')).map(function (i) { return i.value; }).sort();
-
-      function score(name) {
-        var el = document.querySelector('input[name="' + name + '"]:checked');
-        return el ? parseInt(el.value, 10) : null;
-      }
-
+      function score(name) { var el = document.querySelector('input[name="' + name + '"]:checked'); return el ? parseInt(el.value, 10) : null; }
       var m = {};
       if (fam) m.familiarity = fam.value;
       if (plats.length) m.platforms = plats;
       if (freq) m.watchFrequency = freq.value;
       if (focus.length) m.contentFocus = focus;
-      var sp = score('scoreProduction'), sc = score('scoreClarity'), st = score('scoreTrust'),
-          se = score('scoreEngagement'), scs = score('scoreConsistency');
+      var sp = score('scoreProduction'), sc = score('scoreClarity'), st = score('scoreTrust'), se = score('scoreEngagement'), scs = score('scoreConsistency');
       if (sp != null) m.scoreProduction = sp;
       if (sc != null) m.scoreClarity = sc;
       if (st != null) m.scoreTrust = st;
@@ -395,62 +427,40 @@
 
     function getCode() {
       var raw = '';
-      var p = location.pathname;
-      var m = p.match(/\/f\/([a-zA-Z0-9]+)/);
+      var m = location.pathname.match(/\/f\/([a-zA-Z0-9]+)/);
       if (m) raw = m[1];
-      else {
-        var q = new URLSearchParams(location.search);
-        raw = q.get('code') || q.get('c') || '';
-      }
+      else { var q = new URLSearchParams(location.search); raw = q.get('code') || q.get('c') || ''; }
       return (raw || '').trim().toLowerCase();
     }
 
     function escapeHtml(s) {
-      return String(s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
     function show(id, html, cls) {
       var el = document.getElementById(id);
       if (!el) return;
-      el.innerHTML = html;
-      el.className = cls ? 'msg ' + cls : '';
-      el.style.display = html ? 'block' : 'none';
+      el.innerHTML = html; el.className = cls ? 'msg ' + cls : 'msg'; el.style.display = html ? 'block' : 'none';
     }
 
     function validUntilMs(v) {
       if (!v) return null;
       if (typeof v.toMillis === 'function') return v.toMillis();
-      if (v.seconds != null) {
-        return v.seconds * 1000 + Math.floor((v.nanoseconds || 0) / 1e6);
-      }
-      if (typeof v === 'string') {
-        var t = Date.parse(v);
-        return isNaN(t) ? null : t;
-      }
+      if (v.seconds != null) return v.seconds * 1000 + Math.floor((v.nanoseconds || 0) / 1e6);
+      if (typeof v === 'string') { var t = Date.parse(v); return isNaN(t) ? null : t; }
       return null;
     }
 
     function formatCountdownLeft(msLeft) {
       if (msLeft <= 0) return null;
       var totalSec = Math.floor(msLeft / 1000);
-      var h = Math.floor(totalSec / 3600);
-      var m = Math.floor((totalSec % 3600) / 60);
-      var s = totalSec % 60;
+      var h = Math.floor(totalSec / 3600), m = Math.floor((totalSec % 3600) / 60), s = totalSec % 60;
       var pad = function (n) { return n < 10 ? '0' + n : String(n); };
       if (h > 0) return pad(h) + ':' + pad(m) + ':' + pad(s);
       return pad(m) + ':' + pad(s);
     }
 
-    function stopLinkCountdown() {
-      if (window._linkCountdownTimer) {
-        clearInterval(window._linkCountdownTimer);
-        window._linkCountdownTimer = null;
-      }
-    }
+    function stopLinkCountdown() { if (window._linkCountdownTimer) { clearInterval(window._linkCountdownTimer); window._linkCountdownTimer = null; } }
 
     function startLinkCountdown(validUntilEpochMs) {
       stopLinkCountdown();
@@ -461,15 +471,13 @@
         var left = validUntilEpochMs - Date.now();
         var txt = formatCountdownLeft(left);
         if (txt == null) {
-          el.textContent = 'Süre doldu. Bu link artık geri bildirim kabul etmiyor.';
-          el.classList.add('expired');
+          el.textContent = T.cExpired; el.classList.add('expired');
           stopLinkCountdown();
           document.getElementById('form').style.display = 'none';
-          show('msg', 'Bu linkin süresi dolmuş. Link sahibi yeni bir link veya premium link oluşturabilir.', 'err');
+          show('msg', T.mExpired, 'err');
           return;
         }
-        el.textContent = 'Kalan süre: ' + txt;
-        el.classList.remove('expired');
+        el.textContent = T.cLeft + txt; el.classList.remove('expired');
       }
       tick();
       window._linkCountdownTimer = setInterval(tick, 1000);
@@ -478,178 +486,154 @@
     function hideLinkCountdown() {
       stopLinkCountdown();
       var el = document.getElementById('linkCountdown');
-      if (el) {
-        el.style.display = 'none';
-        el.textContent = '';
-        el.classList.remove('expired');
-      }
+      if (el) { el.style.display = 'none'; el.textContent = ''; el.classList.remove('expired'); }
     }
 
-    /** Demo / premium süre ve tek kullanım kuralları (Firestore kuralları ile uyumlu). */
+    /** Demo / premium süre ve tek kullanım kuralları (Firestore kuralları ile uyumlu — DEĞİŞMEDİ). */
     function publicLinkStatus(data) {
       if (!data) return { ok: false, reason: 'missing' };
       var now = Date.now();
       var vu = validUntilMs(data.validUntil);
       if (vu != null && now >= vu) return { ok: false, reason: 'expired' };
-      if (data.linkTier === 'demo' && data.demoSubmissionUsed) {
-        return { ok: false, reason: 'demo_used' };
-      }
-      if (data.isActive === false) {
-        return { ok: false, reason: 'inactive' };
-      }
+      if (data.linkTier === 'demo' && data.demoSubmissionUsed) return { ok: false, reason: 'demo_used' };
+      if (data.isActive === false) return { ok: false, reason: 'inactive' };
       return { ok: true };
+    }
+
+    // === Same-browser anti-repeat (UX CAYDIRICI — GÜVENLİK DEĞİL) ===
+    // Marker YALNIZ başarılı submit sonrası yazılır. localStorage temizleme,
+    // gizli sekme, başka tarayıcı/cihaz ile AŞILABİLİR; bu yüzden "bir kişi
+    // yalnız bir kez" gibi mutlak iddia YOK. Demo güvenliği bu marker'a BAĞLI
+    // DEĞİL — kaynak-doğruluk Firestore/sunucu lifecycle'ıdır. Fingerprint/IP/
+    // login YOK. Anahtar tercihen immutable linkId (yoksa code).
+    function submittedMarkerKey(id) { return 'feedback2me_submitted_' + id; }
+    function hasSubmittedMarker(id) {
+      if (!id) return false;
+      try { return localStorage.getItem(submittedMarkerKey(id)) === '1'; }
+      catch (e) { return false; } // private mode / storage kapalı → sunucu lifecycle devam eder
+    }
+    function writeSubmittedMarker(id) {
+      if (!id) return;
+      try { localStorage.setItem(submittedMarkerKey(id), '1'); }
+      catch (e) { /* yazılamıyorsa sessizce yut; akış bozulmaz */ }
+    }
+    function showAlreadySubmitted() {
+      hideLinkCountdown();
+      show('msg', '');
+      var f = document.getElementById('form'); if (f) f.style.display = 'none';
+      var h = document.getElementById('hero'); if (h) h.style.display = 'none';
+      var s = document.getElementById('subtitle'); if (s) s.style.display = 'none';
+      document.getElementById('already').style.display = 'block';
     }
 
     var code = getCode();
     if (!code) {
       hideLinkCountdown();
-      document.getElementById('subtitle').textContent = 'Geçersiz link. Doğru feedback linkini kullan.';
-      show('msg', 'Linkte kod bulunamadı. Örnek: feedbacktome-79655.web.app/f/abc12345', 'err');
+      document.getElementById('hero').textContent = T.mNotFoundHero;
+      document.getElementById('subtitle').textContent = T.mNotFoundSub;
+      show('msg', T.mNoCode, 'err');
     } else {
-      show('msg', 'Link kontrol ediliyor...', 'load');
-      // Firestore: kurallarla uyumlu sorgu (yalnızca code → permission-denied). REST: Railway `GET /public/links/by-code/:code`.
+      show('msg', T.mChecking, 'load');
       function fetchLinkDocForGuest() {
         if (FTM_PUBLIC_API_BASE) {
-          return fetch(FTM_PUBLIC_API_BASE + '/public/links/by-code/' + encodeURIComponent(code), {
-            headers: { Accept: 'application/json' }
-          }).then(function (res) {
-            return res.json().catch(function () { return {}; }).then(function (j) {
-              if (res.status === 404) {
-                if (j && j.error === 'demo_used') return { _rest: true, _state: 'demo_used' };
-                return null;
-              }
-              if (!res.ok) throw new Error('Sunucu yanıtı: ' + res.status);
-              if (!j || !j.link) return null;
-              return { _rest: true, link: j.link };
+          return fetch(FTM_PUBLIC_API_BASE + '/public/links/by-code/' + encodeURIComponent(code), { headers: { Accept: 'application/json' } })
+            .then(function (res) {
+              return res.json().catch(function () { return {}; }).then(function (j) {
+                if (res.status === 404) { if (j && j.error === 'demo_used') return { _rest: true, _state: 'demo_used' }; return null; }
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                if (!j || !j.link) return null;
+                return { _rest: true, link: j.link };
+              });
             });
-          });
         }
-        return db.collection('links')
-          .where('code', '==', code)
-          .where('isActive', '==', true)
-          .limit(1)
-          .get()
+        return db.collection('links').where('code', '==', code).where('isActive', '==', true).limit(1).get()
           .then(function (snap) {
             if (!snap.empty) return snap.docs[0];
-            return db.collection('links')
-              .where('code', '==', code)
-              .where('linkTier', '==', 'demo')
-              .where('demoSubmissionUsed', '==', true)
-              .limit(1)
-              .get()
-              .then(function (snap2) {
-                return snap2.empty ? null : snap2.docs[0];
-              });
+            return db.collection('links').where('code', '==', code).where('linkTier', '==', 'demo').where('demoSubmissionUsed', '==', true).limit(1).get()
+              .then(function (snap2) { return snap2.empty ? null : snap2.docs[0]; });
           });
       }
       fetchLinkDocForGuest()
         .then(function (linkDoc) {
           if (!linkDoc) {
             hideLinkCountdown();
-            show('msg', 'Bu link bulunamadı.', 'err');
+            document.getElementById('hero').textContent = T.mNotFoundHero;
+            document.getElementById('subtitle').textContent = T.mNotFoundSub;
+            show('msg', T.mNotFound, 'err');
             return;
           }
           if (linkDoc._state === 'demo_used') {
             hideLinkCountdown();
-            show('msg', 'Bu demo link zaten bir kez kullanıldı. Yeni analiz için link sahibinin premium link oluşturması gerekir.', 'err');
+            document.getElementById('subtitle').textContent = T.mClosedSub;
+            show('msg', T.mDemoUsed, 'err');
             return;
           }
           var data;
-          if (linkDoc._rest === true && linkDoc.link) {
-            window._useRestApi = true;
-            data = linkDoc.link;
-            window._linkId = data.id;
-            window._linkRef = null;
-          } else {
-            window._useRestApi = false;
-            data = linkDoc.data();
-            window._linkId = linkDoc.id;
-            window._linkRef = linkDoc.ref;
-          }
+          if (linkDoc._rest === true && linkDoc.link) { window._useRestApi = true; data = linkDoc.link; window._linkId = data.id; window._linkRef = null; }
+          else { window._useRestApi = false; data = linkDoc.data(); window._linkId = linkDoc.id; window._linkRef = linkDoc.ref; }
           var st = publicLinkStatus(data);
           if (!st.ok) {
-            if (st.reason === 'expired') {
-              show('msg', 'Bu linkin süresi dolmuş. Link sahibi yeni bir link veya premium link oluşturabilir.', 'err');
-            } else if (st.reason === 'demo_used') {
-              show('msg', 'Bu demo link zaten bir kez kullanıldı. Yeni analiz için link sahibinin premium link oluşturması gerekir.', 'err');
-            } else {
-              show('msg', 'Bu link artık geçerli değil.', 'err');
-            }
             hideLinkCountdown();
+            document.getElementById('subtitle').textContent = T.mClosedSub;
+            if (st.reason === 'expired') show('msg', T.mExpired, 'err');
+            else if (st.reason === 'demo_used') show('msg', T.mDemoUsed, 'err');
+            else show('msg', T.mInvalid, 'err');
             return;
           }
           window._linkData = data;
+          // Bu tarayıcı bu linke zaten başarıyla feedback bıraktıysa formu gizle.
+          if (hasSubmittedMarker(window._linkId)) { showAlreadySubmitted(); return; }
           show('msg', '');
           document.getElementById('form').style.display = 'block';
           var vuMs = validUntilMs(data.validUntil);
           var tier = data.linkTier;
-          if (vuMs != null && (tier === 'demo' || tier === 'premium')) {
-            startLinkCountdown(vuMs);
-          } else {
-            hideLinkCountdown();
-          }
+          if (vuMs != null && (tier === 'demo' || tier === 'premium')) startLinkCountdown(vuMs);
+          else hideLinkCountdown();
         })
         .catch(function (e) {
           hideLinkCountdown();
-          var msg = e && e.message ? String(e.message) : 'Bilinmeyen hata';
-          var hint = '';
-          if (!FTM_PUBLIC_API_BASE && /permission|insufficient/i.test(msg)) {
-            hint = ' — Son çözüm: projede firebase deploy --only firestore:rules,hosting,firestore:indexes. Railway API kullanıyorsanız sayfada meta ftm-public-api (API kök URL) tanımlayın.';
-          }
-          show('msg', 'Bağlantı hatası: ' + escapeHtml(msg) + escapeHtml(hint), 'err');
+          var msg = e && e.message ? String(e.message) : '?';
+          show('msg', T.mConnErr + escapeHtml(msg), 'err');
         });
     }
 
     document.getElementById('form').addEventListener('submit', async function (e) {
       e.preventDefault();
       var text = document.getElementById('feedback').value.trim();
-      if (text.length < 10) {
-        show('msg', 'En az 10 karakter yaz.', 'err');
-        return;
-      }
+      if (text.length < 10) { show('msg', T.mMin10, 'err'); return; }
       if (!window._linkId) return;
       if (!window._useRestApi && !window._linkRef) return;
       var st = publicLinkStatus(window._linkData);
-      if (!st.ok) {
-        show('msg', 'Bu link artık kabul etmiyor. Sayfayı yenileyin.', 'err');
-        return;
-      }
+      if (!st.ok) { show('msg', T.mClosedRefresh, 'err'); return; }
       var btn = document.getElementById('btn');
       btn.disabled = true;
-      show('msg', 'Gönderiliyor...', 'load');
+      show('msg', T.mSending, 'load');
       try {
-        var mood = parseInt(document.querySelector('input[name="mood"]:checked').value, 10);
+        var mood = (window._mood != null) ? window._mood : 0;
+        var reaction = window._reaction || null;
         var survey = collectCreatorSurvey();
         if (window._useRestApi && FTM_PUBLIC_API_BASE) {
           var body = {
             linkId: window._linkId,
             responderName: document.getElementById('name').value.trim() || null,
             relation: document.getElementById('relation').value.trim() || null,
-            mood: mood,
-            textRaw: text
+            mood: mood, textRaw: text
           };
+          if (reaction) body.reaction = reaction;
           if (survey) body.creatorSurvey = survey;
           var res = await fetch(FTM_PUBLIC_API_BASE + '/feedbacks', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify(body)
+            method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body)
           });
-          if (!res.ok) {
-            var errBody = await res.text();
-            if (res.status === 410) {
-              throw new Error('Bu linkin süresi dolmuş.');
-            }
-            throw new Error(errBody || ('HTTP ' + res.status));
-          }
+          if (!res.ok) { var errBody = await res.text(); if (res.status === 410) throw new Error(T.mExpired); throw new Error(errBody || ('HTTP ' + res.status)); }
         } else {
           var payload = {
             linkId: window._linkId,
             responderName: document.getElementById('name').value.trim() || null,
             relation: document.getElementById('relation').value.trim() || null,
-            mood: mood,
-            textRaw: text,
+            mood: mood, textRaw: text,
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
           };
+          if (reaction) payload.reaction = reaction;
           if (survey) payload.creatorSurvey = survey;
           var batch = db.batch();
           var fr = db.collection('feedbacks').doc();
@@ -659,11 +643,16 @@
           }
           await batch.commit();
         }
+        // Marker YALNIZ buraya (server SUCCESS sonrası) ulaşınca yazılır.
+        writeSubmittedMarker(window._linkId);
         hideLinkCountdown();
+        show('msg', '');
         document.getElementById('form').style.display = 'none';
-        show('msg', 'Teşekkürler! Feedback\'in gönderildi. Link sahibine iletilecek.', 'ok');
+        document.getElementById('hero').style.display = 'none';
+        document.getElementById('subtitle').style.display = 'none';
+        document.getElementById('success').style.display = 'block';
       } catch (err) {
-        show('msg', 'Gönderilemedi: ' + (err && err.message ? err.message : err), 'err');
+        show('msg', T.mSendFail + escapeHtml(err && err.message ? err.message : String(err)), 'err');
         btn.disabled = false;
       }
     });

@@ -43,6 +43,26 @@ workflows:
     integrations:
       app_store_connect: feedback2me
     scripts:
+      # Kaynak provenance — hangi commit'in derlendiğini kanıtla (yanlış-dal
+      # sorununu bir daha yaşamamak için). CM_COMMIT != HEAD ise build'i düşür.
+      - name: Provenance (branch/commit/versiyon + kritik V2 dosya hashleri)
+        script: |
+          set -e
+          echo "CM_BRANCH=$CM_BRANCH"
+          echo "CM_COMMIT=$CM_COMMIT"
+          HEAD=$(git rev-parse HEAD)
+          echo "GIT_HEAD=$HEAD"
+          git log -1 --oneline
+          echo "PUBSPEC_VERSION=$(grep -E '^version:' pubspec.yaml)"
+          echo "-- critical V2 UI file hashes --"
+          for f in lib/main.dart lib/design_system/design_system.dart \
+                   lib/widgets/splash/feedback_splash_view.dart \
+                   lib/widgets/app_onboarding.dart lib/screens/premium_screen.dart; do
+            shasum -a 256 "$f" 2>/dev/null || sha256sum "$f"
+          done
+          if [ -n "$CM_COMMIT" ] && [ "$CM_COMMIT" != "$HEAD" ]; then
+            echo "ERROR: CM_COMMIT ($CM_COMMIT) != git HEAD ($HEAD) — provenance mismatch."; exit 1
+          fi
       - name: Flutter bağımlılıkları
         script: |
           set -e

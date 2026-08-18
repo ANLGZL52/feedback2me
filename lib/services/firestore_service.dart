@@ -244,6 +244,7 @@ class FirestoreService implements AppDataBackend {
     String? responderName,
     String? relation,
     int? mood,
+    String? reaction,
     required String textRaw,
     CreatorSurveyPayload? creatorSurvey,
   }) async {
@@ -264,6 +265,7 @@ class FirestoreService implements AppDataBackend {
       responderName: responderName?.trim().isEmpty == true ? null : responderName,
       relation: relation?.trim().isEmpty == true ? null : relation,
       mood: mood,
+      reaction: reaction?.trim().isEmpty == true ? null : reaction,
       textRaw: textRaw.trim(),
       createdAt: DateTime.now(),
       creatorSurvey:
