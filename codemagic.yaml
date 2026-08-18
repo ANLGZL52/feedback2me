@@ -48,15 +48,24 @@ workflows:
           test -f ios/Podfile || { echo "ERROR: ios/Podfile eksik — repoya commit edin."; exit 1; }
           cd ios
           pod install
-      # Sıra: keychain → sertifikaları ekle → use-profiles (Manuel imza + export_options.plist) → flutter ipa
-      - name: Keychain ve sertifikalar
+      # Kod imzalama — App Store Connect entegrasyonu (feedback2me) üzerinden.
+      # Önceki derleme, Apple hesabından KALDIRILMIŞ (revoke) bir dağıtım
+      # sertifikasıyla imzalamaya çalıştığı için IPA export'ta düştü. O sertifika
+      # artık Apple API'sinde YOK; bu bundle için GEÇERLİ (ACTIVE) tek App Store
+      # profili, özel anahtarı bu Codemagic takımında bulunan geçerli bir dağıtım
+      # sertifikasına bağlı olarak App Store Connect'te oluşturuldu.
+      # fetch-signing-files ACTIVE profilleri indirir (INVALID olanları atlar),
+      # böylece stale sertifika/profil seçilemez. --create gerekiyorsa tazeler.
+      # Sıra: keychain → imza dosyalarını çek → sertifikaları ekle → use-profiles
+      #       ($HOME/export_options.plist üretir) → flutter ipa
+      - name: Kod imzalama (ASC entegrasyonu — geçerli sertifika + profil)
         script: |
           set -e
           keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
           keychain add-certificates
-      - name: Xcode proje profilleri (App Store)
-        script: |
-          set -e
           xcode-project use-profiles \
             --project ios/Runner.xcodeproj \
             --archive-method app-store \
