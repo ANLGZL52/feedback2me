@@ -40,6 +40,9 @@ import {
   parseAppleReceipt,
   parseGooglePurchase,
   routePlatform,
+  buildIapObsEvent,
+  txCorrelationHash,
+  safePlatform,
   type VerifyResult,
 } from './iap-core.js';
 
@@ -194,6 +197,14 @@ export const iapVerify = onCall(
     enforceAppCheck: false, // client not App Check-ready yet; Firebase Auth still required
   },
   async (request: CallableRequest) => {
+    // PII-safe observability: a per-operation random id (NEVER the uid) joins this
+    // request's events; latency is measured from here. Every emitted event is built
+    // by buildIapObsEvent from an explicit allow-list — no receipt / verificationData
+    // / transactionId / uid / secret ever reaches a log line.
+    const clientRequestId = randomUUID();
+    const startedAt = Date.now();
+    const elapsed = () => Date.now() - startedAt;
+
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Giriş gerekli.');
 
@@ -206,48 +217,114 @@ export const iapVerify = onCall(
     const platform = String(data.platform ?? '');
     const productId = String(data.productId ?? '');
     const verificationData = String(data.verificationData ?? '');
-    if (!verificationData || !productId) throw new HttpsError('invalid-argument', 'Eksik doğrulama verisi.');
-    const credit = creditForProduct(productId);
-    if (credit == null) throw new HttpsError('invalid-argument', 'Bilinmeyen ürün.');
+    const platformSafe = safePlatform(platform);
+    const providerOf = (p: string): 'apple' | 'android' | null =>
+      p === 'ios' || p === 'apple' ? 'apple' : p === 'android' || p === 'google' ? 'android' : null;
 
-    // iOS milestone: Google Play verification is NOT configured -> Android FAILS
-    // CLOSED here (before grantCredit), so it grants 0 credits and writes no
-    // processedPurchases. Re-enable with the Android milestone (androidEnabled=true
-    // + PLAY_SERVICE_ACCOUNT_JSON secret + verifyGoogle wired below).
-    const ANDROID_VERIFY_ENABLED = false;
-    let result: VerifyResult;
-    const route = routePlatform(platform, ANDROID_VERIFY_ENABLED);
-    if (route === 'apple') {
-      result = await verifyApple(verificationData, productId, APPLE_SHARED_SECRET.value());
-    } else if (route === 'android_disabled') {
-      throw new HttpsError('failed-precondition', 'Android doğrulama yapılandırılmadı.', {
-        errorCode: 'ANDROID_VERIFICATION_NOT_CONFIGURED',
+    try {
+      if (!verificationData || !productId) {
+        emit({ level: 'warn', event: buildIapObsEvent('iap.verify.invalid_product', {
+          clientRequestId, platform: platformSafe, provider: providerOf(platform), productId: productId || null,
+          resultClass: 'invalid', errorCode: 'missing_verification_data', creditDelta: 0, latencyMs: elapsed(),
+        }) });
+        throw new HttpsError('invalid-argument', 'Eksik doğrulama verisi.');
+      }
+      const credit = creditForProduct(productId);
+      if (credit == null) {
+        emit({ level: 'warn', event: buildIapObsEvent('iap.verify.invalid_product', {
+          clientRequestId, platform: platformSafe, provider: providerOf(platform), productId,
+          resultClass: 'invalid', errorCode: 'unknown_product', creditDelta: 0, latencyMs: elapsed(),
+        }) });
+        throw new HttpsError('invalid-argument', 'Bilinmeyen ürün.');
+      }
+
+      emit({ level: 'info', event: buildIapObsEvent('iap.verify.started', {
+        clientRequestId, platform: platformSafe, provider: providerOf(platform), productId,
+      }) });
+
+      // iOS milestone: Google Play verification is NOT configured -> Android FAILS
+      // CLOSED here (before grantCredit), so it grants 0 credits and writes no
+      // processedPurchases. Re-enable with the Android milestone (androidEnabled=true
+      // + PLAY_SERVICE_ACCOUNT_JSON secret + verifyGoogle wired below).
+      const ANDROID_VERIFY_ENABLED = false;
+      let result: VerifyResult;
+      const route = routePlatform(platform, ANDROID_VERIFY_ENABLED);
+      if (route === 'apple') {
+        result = await verifyApple(verificationData, productId, APPLE_SHARED_SECRET.value());
+      } else if (route === 'android_disabled') {
+        emit({ level: 'warn', event: buildIapObsEvent('iap.verify.android_disabled', {
+          clientRequestId, platform: platformSafe, provider: 'android', productId,
+          resultClass: 'disabled', errorCode: 'ANDROID_VERIFICATION_NOT_CONFIGURED', creditDelta: 0, latencyMs: elapsed(),
+        }) });
+        throw new HttpsError('failed-precondition', 'Android doğrulama yapılandırılmadı.', {
+          errorCode: 'ANDROID_VERIFICATION_NOT_CONFIGURED',
+        });
+      } else {
+        // 'invalid' (and, until the Android milestone, unreachable 'android').
+        emit({ level: 'warn', event: buildIapObsEvent('iap.verify.invalid_product', {
+          clientRequestId, platform: platformSafe, productId,
+          resultClass: 'invalid', errorCode: 'invalid_platform', creditDelta: 0, latencyMs: elapsed(),
+        }) });
+        throw new HttpsError('invalid-argument', 'Geçersiz platform.');
+      }
+
+      if (!result.ok) {
+        // Transient (network/store outage/config) -> 'unavailable': client keeps the
+        // purchase queued and retries (no loss). Permanent reject -> 'permission-denied':
+        // client consumes it, no credit.
+        if (result.transient) {
+          emit({ level: 'warn', event: buildIapObsEvent('iap.verify.apple.transient_failure', {
+            clientRequestId, platform: platformSafe, provider: 'apple', productId,
+            resultClass: 'transient', errorCode: result.reason ?? null, creditDelta: 0, latencyMs: elapsed(),
+          }) });
+          throw new HttpsError('unavailable', `Doğrulama geçici olarak başarısız (retry): ${result.reason}`);
+        }
+        emit({ level: 'warn', event: buildIapObsEvent('iap.verify.apple.rejected', {
+          clientRequestId, platform: platformSafe, provider: 'apple', productId,
+          resultClass: 'rejected', errorCode: result.reason ?? null, creditDelta: 0, latencyMs: elapsed(),
+        }) });
+        throw new HttpsError('permission-denied', `Makbuz doğrulanamadı: ${result.reason}`);
+      }
+
+      emit({ level: 'info', event: buildIapObsEvent('iap.verify.apple.success', {
+        clientRequestId, platform: platformSafe, provider: 'apple', productId, resultClass: 'ok', latencyMs: elapsed(),
+      }) });
+
+      // Idempotent, atomic grant. Key derives ONLY from store-authoritative identity
+      // (result.transactionId or a hash of the verified material) — the client
+      // transactionId is correlation metadata only, never part of the key.
+      const key = idempotencyKey(platform, result.transactionId, verificationData);
+      const txCorrelation = txCorrelationHash(key); // safe one-way hash for correlation
+      const outcome = await grantCredit(getFirestore(), {
+        uid,
+        key,
+        platform,
+        productId,
+        credit,
+        clientTransactionId: data.transactionId ?? null,
       });
-    } else {
-      // 'invalid' (and, until the Android milestone, unreachable 'android').
-      throw new HttpsError('invalid-argument', 'Geçersiz platform.');
+      // Emit AFTER the Firestore transaction commits, reflecting the ACTUAL delta.
+      if (outcome.granted) {
+        emit({ level: 'info', event: buildIapObsEvent('iap.credit.granted', {
+          clientRequestId, platform: platformSafe, provider: 'apple', productId,
+          resultClass: 'ok', creditDelta: credit, replay: false, txCorrelation, latencyMs: elapsed(),
+        }) });
+      } else {
+        emit({ level: 'info', event: buildIapObsEvent('iap.credit.replay', {
+          clientRequestId, platform: platformSafe, provider: 'apple', productId,
+          resultClass: 'ok', creditDelta: 0, replay: true, txCorrelation, latencyMs: elapsed(),
+        }) });
+      }
+      return { ok: true, ...outcome };
+    } catch (e) {
+      // Intentional rejects (already emitted + mapped) pass through unchanged.
+      if (e instanceof HttpsError) throw e;
+      // Unexpected: emit a safe error event (no internals) and map to 'internal'.
+      emit({ level: 'error', event: buildIapObsEvent('iap.verify.error', {
+        clientRequestId, platform: platformSafe, productId: productId || null,
+        resultClass: 'error', errorCode: 'IAP_UNEXPECTED', creditDelta: 0, latencyMs: elapsed(),
+      }) });
+      throw new HttpsError('internal', 'Beklenmeyen hata.', { errorCode: 'IAP_UNEXPECTED' });
     }
-
-    if (!result.ok) {
-      // Transient (network/store outage/config) -> 'unavailable': client keeps the
-      // purchase queued and retries (no loss). Permanent reject -> 'permission-denied':
-      // client consumes it, no credit.
-      if (result.transient) throw new HttpsError('unavailable', `Doğrulama geçici olarak başarısız (retry): ${result.reason}`);
-      throw new HttpsError('permission-denied', `Makbuz doğrulanamadı: ${result.reason}`);
-    }
-
-    // Idempotent, atomic grant. Key derives ONLY from store-authoritative identity
-    // (result.transactionId or a hash of the verified material) — the client
-    // transactionId is correlation metadata only, never part of the key.
-    const key = idempotencyKey(platform, result.transactionId, verificationData);
-    const outcome = await grantCredit(getFirestore(), {
-      uid,
-      key,
-      platform,
-      productId,
-      credit,
-      clientTransactionId: data.transactionId ?? null,
-    });
-    return { ok: true, ...outcome };
   },
 );

@@ -193,3 +193,90 @@ export async function grantCredit(
     return { granted: true, alreadyProcessed: false, credits: next };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Observability — PII-safe structured IAP events. Allow-listed keys ONLY.
+// Mirrors ai-core.ts buildObsEvent (same source/service/eventType/severity/
+// message shape so the ops collector normalizes both the same way). NEVER emit
+// receipt / verificationData / purchaseToken / raw transactionId / uid / email /
+// secret. `productId` and the sanitized `platform` are app-level categories
+// (identical across all users) — not user PII — and are safe to emit.
+// ---------------------------------------------------------------------------
+export type IapObsEventType =
+  | 'iap.verify.started'
+  | 'iap.verify.apple.success'
+  | 'iap.verify.apple.rejected'
+  | 'iap.verify.apple.transient_failure'
+  | 'iap.verify.android_disabled'
+  | 'iap.credit.granted'
+  | 'iap.credit.replay'
+  | 'iap.verify.invalid_product'
+  | 'iap.verify.error';
+
+export interface IapObsFields {
+  provider?: 'apple' | 'android' | null;
+  platform?: string | null; // sanitized category: ios|apple|android|google|other
+  productId?: string | null; // allow-listed product id (not user PII)
+  resultClass?: string | null; // ok|rejected|transient|disabled|invalid|error
+  latencyMs?: number | null;
+  creditDelta?: number | null; // COMMITTED delta only: 0 | 1
+  replay?: boolean | null;
+  errorCode?: string | null; // stable safe reason code (e.g. apple_status_21002)
+  clientRequestId?: string | null; // per-operation random id (NEVER a uid)
+  txCorrelation?: string | null; // truncated one-way hash of the store idempotency key
+}
+
+const IAP_OBS_SEVERITY: Record<IapObsEventType, 'INFO' | 'WARNING' | 'ERROR'> = {
+  'iap.verify.started': 'INFO',
+  'iap.verify.apple.success': 'INFO',
+  'iap.verify.apple.rejected': 'WARNING',
+  'iap.verify.apple.transient_failure': 'WARNING',
+  'iap.verify.android_disabled': 'WARNING',
+  'iap.credit.granted': 'INFO',
+  'iap.credit.replay': 'INFO',
+  'iap.verify.invalid_product': 'WARNING',
+  'iap.verify.error': 'ERROR',
+};
+
+/** Sanitize a client-supplied platform string to a known safe category. */
+export function safePlatform(platform: string): string {
+  return platform === 'ios' || platform === 'apple' || platform === 'android' || platform === 'google'
+    ? platform
+    : 'other';
+}
+
+/**
+ * Safe, truncated, ONE-WAY correlation hash of the STORE-authoritative idempotency
+ * key. Lets a replay event be correlated to its original grant WITHOUT logging the
+ * raw store transaction id (irreversible; 16 hex chars, prefixed 't:').
+ */
+export function txCorrelationHash(idempotencyKey: string): string {
+  return 't:' + createHash('sha256').update(String(idempotencyKey)).digest('hex').slice(0, 16);
+}
+
+/** Build ONE PII-safe structured IAP event object (the ONLY thing that gets logged). */
+export function buildIapObsEvent(
+  eventType: IapObsEventType,
+  fields: IapObsFields = {},
+): Record<string, unknown> {
+  const severity = IAP_OBS_SEVERITY[eventType];
+  return {
+    source: 'functions',
+    service: 'iapVerify',
+    provider: fields.provider ?? null,
+    eventType,
+    severity,
+    platform: fields.platform ?? null,
+    productId: fields.productId ?? null,
+    resultClass: fields.resultClass ?? null,
+    latencyMs: fields.latencyMs ?? null,
+    creditDelta: fields.creditDelta ?? null,
+    replay: fields.replay ?? null,
+    errorCode: fields.errorCode ?? null,
+    clientRequestId: fields.clientRequestId ?? null,
+    txCorrelation: fields.txCorrelation ?? null,
+    // message embeds the safe errorCode so the severity+keyword collector can
+    // derive a category even before the IAP-aware normalizer overlay runs.
+    message: `iapVerify ${eventType}${fields.errorCode ? ' ' + fields.errorCode : ''}`,
+  };
+}
