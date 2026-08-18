@@ -89,6 +89,10 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
+        # Auto-distribute the processed build to the existing INTERNAL group.
+        # Internal testing needs NO App Review. Do NOT add external groups here.
+        beta_groups:
+          - deneme
 
   # İmzasız veya yalnızca derleme testi için basit iş akışı (CI smoke):
   ios-debug-build:
