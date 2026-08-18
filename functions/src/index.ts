@@ -39,6 +39,7 @@ import {
   grantCredit,
   parseAppleReceipt,
   parseGooglePurchase,
+  routePlatform,
   type VerifyResult,
 } from './iap-core.js';
 
@@ -47,9 +48,11 @@ import {
 if (!getApps().length) initializeApp();
 
 const OPENAI_API_KEY = defineSecret('OPENAI_API_KEY');
-// IAP verification secrets/params — bound ONLY to iapVerify (see README).
+// IAP verification. iOS milestone: iapVerify binds ONLY APPLE_SHARED_SECRET.
+// Google Play verification is NOT configured yet — PLAY_SERVICE_ACCOUNT_JSON is
+// intentionally NOT declared/bound so the Android path fails closed (see below).
+// ANDROID_PACKAGE_NAME stays (non-secret) for the future Android milestone.
 const APPLE_SHARED_SECRET = defineSecret('APPLE_SHARED_SECRET');
-const PLAY_SERVICE_ACCOUNT_JSON = defineSecret('PLAY_SERVICE_ACCOUNT_JSON');
 const ANDROID_PACKAGE_NAME = defineString('ANDROID_PACKAGE_NAME');
 
 /**
@@ -127,8 +130,10 @@ export const aiSummary = onCall(
 // so replays grant +0. Provider parsing/replay/atomic-grant logic is in
 // iap-core.ts (network-free, unit-tested).
 //
-// Secrets/params (configure before deploy — none set here):
-//   APPLE_SHARED_SECRET, PLAY_SERVICE_ACCOUNT_JSON (secrets), ANDROID_PACKAGE_NAME (param)
+// iOS milestone: binds ONLY APPLE_SHARED_SECRET (secret). Google Play verification
+// is NOT configured — the Android path fails closed (ANDROID_VERIFICATION_NOT_
+// CONFIGURED). The Android milestone re-adds PLAY_SERVICE_ACCOUNT_JSON (secret) +
+// ANDROID_PACKAGE_NAME (param) and sets ANDROID_VERIFY_ENABLED=true.
 // ===========================================================================
 
 const APPLE_PROD = 'https://buy.itunes.apple.com/verifyReceipt';
@@ -185,7 +190,7 @@ async function verifyGoogle(productId: string, purchaseToken: string, serviceAcc
 export const iapVerify = onCall(
   {
     region: 'us-central1',
-    secrets: [APPLE_SHARED_SECRET, PLAY_SERVICE_ACCOUNT_JSON],
+    secrets: [APPLE_SHARED_SECRET], // iOS milestone: Apple only (Android fails closed)
     enforceAppCheck: false, // client not App Check-ready yet; Firebase Auth still required
   },
   async (request: CallableRequest) => {
@@ -205,12 +210,21 @@ export const iapVerify = onCall(
     const credit = creditForProduct(productId);
     if (credit == null) throw new HttpsError('invalid-argument', 'Bilinmeyen ürün.');
 
+    // iOS milestone: Google Play verification is NOT configured -> Android FAILS
+    // CLOSED here (before grantCredit), so it grants 0 credits and writes no
+    // processedPurchases. Re-enable with the Android milestone (androidEnabled=true
+    // + PLAY_SERVICE_ACCOUNT_JSON secret + verifyGoogle wired below).
+    const ANDROID_VERIFY_ENABLED = false;
     let result: VerifyResult;
-    if (platform === 'ios' || platform === 'apple') {
+    const route = routePlatform(platform, ANDROID_VERIFY_ENABLED);
+    if (route === 'apple') {
       result = await verifyApple(verificationData, productId, APPLE_SHARED_SECRET.value());
-    } else if (platform === 'android' || platform === 'google') {
-      result = await verifyGoogle(productId, verificationData, PLAY_SERVICE_ACCOUNT_JSON.value(), ANDROID_PACKAGE_NAME.value());
+    } else if (route === 'android_disabled') {
+      throw new HttpsError('failed-precondition', 'Android doğrulama yapılandırılmadı.', {
+        errorCode: 'ANDROID_VERIFICATION_NOT_CONFIGURED',
+      });
     } else {
+      // 'invalid' (and, until the Android milestone, unreachable 'android').
       throw new HttpsError('invalid-argument', 'Geçersiz platform.');
     }
 

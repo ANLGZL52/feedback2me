@@ -26,6 +26,20 @@ export function creditForProduct(productId: string): number | null {
 }
 
 /**
+ * Route a purchase platform to a verification action. `androidEnabled=false`
+ * (the iOS-only milestone: Google Play verification not configured) FAILS CLOSED:
+ * an Android request routes to `android_disabled`, which the handler rejects with
+ * a failed-precondition — it never reaches grantCredit, so it grants 0 credits and
+ * writes no processedPurchases document.
+ */
+export type PlatformRoute = 'apple' | 'android' | 'android_disabled' | 'invalid';
+export function routePlatform(platform: string, androidEnabled: boolean): PlatformRoute {
+  if (platform === 'ios' || platform === 'apple') return 'apple';
+  if (platform === 'android' || platform === 'google') return androidEnabled ? 'android' : 'android_disabled';
+  return 'invalid';
+}
+
+/**
  * Result of a store receipt verification. `transactionId` (when ok) is the
  * STORE-AUTHORITATIVE unique purchase identity. `transient` distinguishes a
  * retryable failure (network / store outage / server config) from a permanent

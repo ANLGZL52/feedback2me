@@ -10,6 +10,7 @@ import {
   grantCredit,
   parseAppleReceipt,
   parseGooglePurchase,
+  routePlatform,
 } from '../lib/iap-core.js';
 
 const HAS_EMU = !!process.env.FIRESTORE_EMULATOR_HOST;
@@ -20,6 +21,22 @@ describe('iap-core pure logic (allow-list, idempotency key = store-authoritative
     assert.equal(creditForProduct('premium_link_single'), 1);    // legacy recovery product
     assert.equal(creditForProduct('bogus'), null);
     assert.equal(creditForProduct(''), null);
+  });
+
+  test('routePlatform: iOS milestone (androidEnabled=false) FAILS CLOSED on Android', () => {
+    // Apple always verifies.
+    assert.equal(routePlatform('ios', false), 'apple');
+    assert.equal(routePlatform('apple', false), 'apple');
+    // Android with Play NOT configured -> android_disabled (handler rejects with
+    // failed-precondition BEFORE grantCredit -> +0 credits, NO processedPurchases).
+    assert.equal(routePlatform('android', false), 'android_disabled');
+    assert.equal(routePlatform('google', false), 'android_disabled');
+    // Unknown platform -> invalid (rejected).
+    assert.equal(routePlatform('windows', false), 'invalid');
+    assert.equal(routePlatform('', false), 'invalid');
+    // Future Android milestone (androidEnabled=true) -> android verifies.
+    assert.equal(routePlatform('android', true), 'android');
+    assert.equal(routePlatform('google', true), 'android');
   });
 
   test('idempotencyKey: STORE txId only; NEVER a client-controlled value', () => {
