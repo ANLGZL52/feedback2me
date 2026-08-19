@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-19T13:06:33.978Z",
+  "generatedAt": "2026-08-19T13:11:38.013Z",
   "window": {
     "lookbackHours": 24,
     "events": 0
@@ -10,7 +10,9 @@
     "blocking": [
       "MISSING_IAP_E2E_EVIDENCE"
     ],
-    "warnings": []
+    "warnings": [
+      "COLLECTOR_RUN_FAILED"
+    ]
   },
   "domains": {
     "IAP": {
@@ -87,6 +89,17 @@
   },
   "alerts": [
     {
+      "domain": "COLLECTOR",
+      "code": "COLLECTOR_RUN_FAILED",
+      "severity": "WARNING",
+      "message": "collector run did not complete successfully",
+      "evidence": null,
+      "releaseBlocking": false,
+      "state": "ONGOING",
+      "firstSeen": "2026-08-19T13:11:37.876Z",
+      "lastSeen": "2026-08-19T13:11:38.013Z"
+    },
+    {
       "domain": "RELEASE",
       "code": "MISSING_IAP_E2E_EVIDENCE",
       "severity": "WARNING",
@@ -97,12 +110,12 @@
       "releaseBlocking": true,
       "state": "ONGOING",
       "firstSeen": "2026-08-19T13:05:34.710Z",
-      "lastSeen": "2026-08-19T13:06:33.978Z"
+      "lastSeen": "2026-08-19T13:11:38.013Z"
     }
   ],
   "resolvedAlerts": [],
   "deploymentContext": {
-    "commit": "06bc18b",
+    "commit": "251fb22",
     "build": "22",
     "functionRevision": null
   },

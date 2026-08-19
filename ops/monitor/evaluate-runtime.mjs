@@ -5,7 +5,7 @@
 // (ops-status/runtime-health.json) + a human report. Deterministic + pure at the
 // core (evaluate()) so it is fully unit-testable with fixtures. NO network in the
 // pure core; NO secrets/PII ever emitted.
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -252,10 +252,17 @@ function main() {
   const evDir = join(REPO, 'ops-status', 'runtime-events');
   const events = readEventsWindow(evDir, slo.window.lookbackHours, now);
 
-  // collector freshness: newest event timestamp we actually have.
-  let lastEventAt = null;
-  for (const e of events) { const t = e.timestamp ? Date.parse(e.timestamp) : null; if (t != null && (lastEventAt == null || t > lastEventAt)) lastEventAt = t; }
-  const collector = { lastEventAt: lastEventAt ? new Date(lastEventAt).toISOString() : null, ranOk: existsSync(evDir), providersAttempted: 3, providersSucceeded: null };
+  // Collector freshness = WHEN THE COLLECTOR LAST WROTE (newest runtime-events file
+  // mtime), NOT the newest event timestamp — a successful collection with only
+  // pre-window or timestamp-less events still proves the collector ran (fresh).
+  // A missing/empty dir means no collection happened -> UNKNOWN (NO_OBSERVABILITY).
+  let lastCollectionMs = null;
+  if (existsSync(evDir)) {
+    for (const f of readdirSync(evDir).filter((x) => x.endsWith('.jsonl'))) {
+      try { const m = statSync(join(evDir, f)).mtimeMs; if (lastCollectionMs == null || m > lastCollectionMs) lastCollectionMs = m; } catch {}
+    }
+  }
+  const collector = { lastEventAt: lastCollectionMs ? new Date(lastCollectionMs).toISOString() : null, ranOk: existsSync(evDir) && lastCollectionMs != null, providersAttempted: 3, providersSucceeded: null };
 
   // deployment correlation: derive from the CURRENT source (git HEAD + pubspec),
   // not a possibly-stale control-plane snapshot. functionRevision when discoverable.
