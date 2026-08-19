@@ -16,6 +16,13 @@
 #    workflow manually. It does NOT run on schedule/push.
 on:
   workflow_dispatch:
+  # GitHub's Pages "Source = GitHub Actions" injects a push-triggered Pages build
+  # for this workflow. When the workflow does NOT subscribe to push it STARTUP-FAILS
+  # (red, jobs never evaluated). We therefore subscribe to push so the workflow
+  # STARTS and the job-level guard below SKIPS it cleanly (green, no deploy). Manual
+  # dispatch still runs the deploy. Pages stays OFF regardless.
+  push:
+    branches: [main]
 
 permissions:
   contents: read
