@@ -123,9 +123,12 @@ jobs:
       - name: Ops V3 evaluator tests (SLO/alerts/release-gate/money-safety; fixtures, no network)
         id: evaluator_tests
         run: node --test ops/monitor/evaluate-runtime.test.mjs
-      - name: Ops V4 incident-delivery tests (dedup/cooldown/flapping/stability/dry-run; fixtures, no network)
+      - name: Ops V4/V5/V6 incident + durability tests (dedup/cooldown/flapping/state/dry-run; fixtures, no network)
         id: incident_tests
         run: node --test ops/monitor/incident-delivery.test.mjs
+      - name: Ops V6 digest + single-writer architecture guard tests (fixtures, no network)
+        id: v6_tests
+        run: node --test ops/monitor/digest.test.mjs ops/monitor/architecture-guard.test.mjs
       # V5 incident delivery — LIVE (owner-approved 2026-08-19). Computes
       # CREATE/UPDATE/RESOLVE/NONE from runtime-health.json and delivers real GitHub
       # Issues ONLY for NEW CRITICAL runtime alerts. Deduplicated (local state seeded
@@ -211,7 +214,7 @@ jobs:
       - name: Ops run summary (observability execution vs release readiness — no PII)
         if: always()
         env:
-          OBS_OK: ${{ steps.checks.outcome == 'success' && steps.engine_tests.outcome == 'success' && steps.alert_tests.outcome == 'success' && steps.preflight_tests.outcome == 'success' && steps.postgres_tests.outcome == 'success' && steps.runtimelog_tests.outcome == 'success' && steps.evaluator_tests.outcome == 'success' && steps.incident_tests.outcome == 'success' && steps.readiness.outcome == 'success' && steps.artifact.outcome == 'success' }}
+          OBS_OK: ${{ steps.checks.outcome == 'success' && steps.engine_tests.outcome == 'success' && steps.alert_tests.outcome == 'success' && steps.preflight_tests.outcome == 'success' && steps.postgres_tests.outcome == 'success' && steps.runtimelog_tests.outcome == 'success' && steps.evaluator_tests.outcome == 'success' && steps.incident_tests.outcome == 'success' && steps.v6_tests.outcome == 'success' && steps.readiness.outcome == 'success' && steps.artifact.outcome == 'success' }}
           READINESS: ${{ steps.readiness.outputs.readiness }}
           ART_OUTCOME: ${{ steps.artifact.outcome }}
           RTLOG_STATUS: ${{ steps.runtime_logs.outputs.status }}
@@ -221,7 +224,7 @@ jobs:
           {
             echo "## Feedback2Me Ops — run summary"
             echo ""
-            echo "- **Observability execution:** $OBS  _(monitor=${{ steps.checks.outcome }}, engine-tests=${{ steps.engine_tests.outcome }}, alert-tests=${{ steps.alert_tests.outcome }}, preflight-tests=${{ steps.preflight_tests.outcome }}, evaluator-tests=${{ steps.evaluator_tests.outcome }}, incident-tests=${{ steps.incident_tests.outcome }}, readiness=${{ steps.readiness.outcome }}, artifact=$ART_OUTCOME)_"
+            echo "- **Observability execution:** $OBS  _(monitor=${{ steps.checks.outcome }}, engine-tests=${{ steps.engine_tests.outcome }}, alert-tests=${{ steps.alert_tests.outcome }}, preflight-tests=${{ steps.preflight_tests.outcome }}, evaluator-tests=${{ steps.evaluator_tests.outcome }}, incident-tests=${{ steps.incident_tests.outcome }}, v6-tests=${{ steps.v6_tests.outcome }}, readiness=${{ steps.readiness.outcome }}, artifact=$ART_OUTCOME)_"
             echo "- **Incident delivery:** LIVE (delivery=${{ steps.incident_delivery.outcome }}, console=${{ steps.ops_console.outcome }}) — single canonical writer; see the Ops Console section for mode/health and issue writes."
             echo "- **Release readiness:** ${READINESS:-UNKNOWN}  _(does not affect observability execution)_"
             echo "- **Artifact upload:** $ART_OUTCOME"
