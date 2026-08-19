@@ -1,0 +1,42 @@
+{
+  "generatedAt": "2026-08-19T14:14:02.930Z",
+  "app": "Feedback2Me",
+  "version": "1.0.4",
+  "build": 22,
+  "sourceCommit": "d2471fc",
+  "branch": "release/1.0.4-complete-rc",
+  "observabilityPlatformStatus": "PARTIAL",
+  "runtimeValidationStatus": "PARTIAL",
+  "productReleaseGate": "WARN",
+  "currentRuntimeHealth": "HEALTHY",
+  "testflight": {
+    "processingState": "VALID",
+    "internalBuildState": "IN_BETA_TESTING",
+    "group": "deneme",
+    "note": "verified via App Store Connect API"
+  },
+  "iap": {
+    "iapVerify": "LIVE",
+    "product": "premium_link_single_v2",
+    "realE2E": "DEFERRED",
+    "realE2EReason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE",
+    "syntheticContract": "VERIFIED"
+  },
+  "deferredValidations": [
+    {
+      "id": "REAL_IAP_TESTFLIGHT_E2E",
+      "status": "DEFERRED",
+      "requiredForProductRelease": true,
+      "requiredForObservabilityPlatform": false,
+      "reason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE"
+    }
+  ],
+  "safetyBoundaries": {
+    "publicRelease": false,
+    "appReview": false,
+    "firestoreRulesDeployed": false,
+    "legacyRetired": false,
+    "prMerged": false,
+    "pagesEnabled": false
+  }
+}

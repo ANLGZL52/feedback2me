@@ -1,16 +1,58 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter/foundation.dart'
+    show debugPrint, kIsWeb, defaultTargetPlatform, TargetPlatform, visibleForTesting;
 import 'package:in_app_purchase/in_app_purchase.dart';
 
 import '../app_state.dart';
 import '../config/iap_products.dart';
-import '../models/user_profile.dart';
+
+/// Sunucu-yetkili IAP doğrulama sonucu.
+enum IapVerifyOutcome { granted, alreadyProcessed, rejected }
+
+/// Test için enjekte edilebilir: `iapVerify` Cloud Function çağrısını temsil eder
+/// (platform channel olmadan test edilebilsin diye). İstek → response Map.
+typedef IapVerifyFn = Future<Map<String, dynamic>> Function(
+    Map<String, dynamic> request);
+
+/// `iapVerify` hatası. [permanent]=true → makbuz kesin reddedildi (tekrar deneme);
+/// false → geçici hata (ağ/sunucu) → satın alma kuyrukta kalır, sonra tekrar denenir.
+class IapVerifyException implements Exception {
+  IapVerifyException(this.code, {this.permanent = false});
+  final String code;
+  final bool permanent;
+  @override
+  String toString() => 'IapVerifyException($code, permanent: $permanent)';
+}
 
 /// App Store / Google Play IAP — sadece consumable (link basina odeme).
+/// Kredi YALNIZCA sunucuda (iapVerify Cloud Function + Admin SDK) verilir; istemci
+/// `paidLinkCredits`'i asla doğrudan yazmaz (firestore.rules kilitli).
 class IapService {
-  IapService() {
-    if (!kIsWeb) _listenToPurchases();
+  IapService({IapVerifyFn? verify, String? Function()? uidProvider, bool listen = true})
+      : _verify = verify ?? _defaultVerify,
+        _uidProvider = uidProvider ?? (() => authService.uid) {
+    if (listen && !kIsWeb) _listenToPurchases();
+  }
+
+  final IapVerifyFn _verify;
+  final String? Function() _uidProvider;
+
+  /// Varsayılan doğrulama: `iapVerify` callable'ını çağırır. Kalıcı ret
+  /// (permission-denied / invalid-argument) [IapVerifyException.permanent]=true olur.
+  static Future<Map<String, dynamic>> _defaultVerify(
+      Map<String, dynamic> req) async {
+    try {
+      final res =
+          await FirebaseFunctions.instance.httpsCallable('iapVerify').call(req);
+      final d = res.data;
+      return d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
+    } on FirebaseFunctionsException catch (e) {
+      final permanent =
+          e.code == 'permission-denied' || e.code == 'invalid-argument';
+      throw IapVerifyException(e.code, permanent: permanent);
+    }
   }
 
   final List<ProductDetails> _products = [];
@@ -74,7 +116,7 @@ class IapService {
     }
     try {
       final response = await InAppPurchase.instance.queryProductDetails(
-        IapProducts.all,
+        IapProducts.purchasable, // yeni istemci yalnızca v2 sorgular/satın alır
       );
       notFoundProductIds = response.notFoundIDs.toSet();
       if (response.error != null) {
@@ -157,22 +199,40 @@ class IapService {
 
       if (fresh) {
         try {
-          if (purchase.productID == IapProducts.premiumLinkSingle) {
-            await _grantLinkCreditToCurrentUser();
-            _emitLinkCreditGranted();
-            _deliveredKeys.add(key);
-            shouldComplete = true;
-            lastPurchaseError = null;
+          // v2 (yeni satın alma) VEYA eski premium_link_single (güncelleme sonrası
+          // kurtarma). Her ikisi de SUNUCUDA (iapVerify) doğrulanır; istemci kredi
+          // yazmaz. Yeni satın alma yalnızca v2 için BAŞLATILIR (startPurchase),
+          // ama teslimat kanalı bekleyen eski işlemleri de kurtarır.
+          if (IapProducts.isKnownCreditProduct(purchase.productID)) {
+            final outcome = await verifyAndGrant(
+              purchase.productID,
+              purchase.verificationData.serverVerificationData,
+              purchase.purchaseID,
+            );
+            if (outcome == IapVerifyOutcome.rejected) {
+              // Makbuz mağaza tarafından KESIN reddedildi: kredi verilmez, tüketilir.
+              debugPrint('IAP: verification rejected for ${purchase.productID}');
+              lastPurchaseError = 'verify_rejected';
+              _deliveredKeys.add(key);
+              shouldComplete = true;
+            } else {
+              // granted VEYA alreadyProcessed → kredi sunucuda (Admin SDK) yazıldı.
+              _emitLinkCreditGranted();
+              _deliveredKeys.add(key);
+              shouldComplete = true;
+              lastPurchaseError = null;
+            }
           } else {
             debugPrint('IAP: unknown product ${purchase.productID}');
             _deliveredKeys.add(key);
             shouldComplete = true;
           }
         } catch (e, st) {
+          // Geçici hata (ağ / sunucu / giriş yok): completePurchase YAPMA. Satın
+          // alma kuyrukta kalır, sonraki stream/açılışta tekrar denenir. Sunucu
+          // idempotency çift-kredi'yi önler.
           debugPrint('IAP delivery error: $e\n$st');
-          lastPurchaseError =
-              'delivery_failed: $e';
-          // Hesaba yazılamadıysa completePurchase yapma; işlem kuyrukta kalır.
+          lastPurchaseError = 'delivery_failed: $e';
           shouldComplete = false;
         }
       } else {
@@ -189,17 +249,38 @@ class IapService {
     }
   }
 
-  Future<void> _grantLinkCreditToCurrentUser() async {
-    final uid = authService.uid;
-    if (uid == null) return;
-    final existing = await appData.getUserProfile(uid);
-    final profile = existing ?? UserProfile(uid: uid);
-    await appData.setUserProfile(
-      uid,
-      profile.copyWith(
-        paidLinkCredits: profile.paidLinkCredits + 1,
-      ),
-    );
+  /// Sunucu-yetkili kredi verme: mağaza makbuzunu `iapVerify` Cloud Function'a
+  /// gönderir; kredi YALNIZCA sunucuda (Admin SDK) doğrulama sonrası yazılır.
+  /// İstemci `paidLinkCredits`'i asla doğrudan yazmaz. Yerel profil Firestore
+  /// stream'inden güncellenir. Sunucu idempotent olduğundan retry güvenlidir.
+  ///
+  /// Dönüş: granted (+1), alreadyProcessed (replay — kredi yok), rejected (kalıcı
+  /// ret — kredi yok). Geçici hata → exception fırlatır (çağıran completePurchase
+  /// yapmaz → kuyrukta kalır, tekrar denenir).
+  @visibleForTesting
+  Future<IapVerifyOutcome> verifyAndGrant(
+      String productId, String verificationData, String? transactionId) async {
+    final uid = _uidProvider();
+    if (uid == null) throw StateError('not_signed_in'); // geçici: giriş sonrası retry
+    final platform =
+        defaultTargetPlatform == TargetPlatform.iOS ? 'ios' : 'android';
+    try {
+      final data = await _verify(<String, dynamic>{
+        'platform': platform,
+        'productId': productId,
+        'verificationData': verificationData,
+        'transactionId': transactionId,
+      });
+      if (data['ok'] != true) {
+        throw IapVerifyException('verify_failed', permanent: true);
+      }
+      return data['alreadyProcessed'] == true
+          ? IapVerifyOutcome.alreadyProcessed
+          : IapVerifyOutcome.granted;
+    } on IapVerifyException catch (e) {
+      if (e.permanent) return IapVerifyOutcome.rejected;
+      rethrow; // geçici → satın almayı kuyrukta bırak, tekrar dene
+    }
   }
 
   /// Consumable satin alma (link kredisi).

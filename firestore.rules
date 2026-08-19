@@ -1,6 +1,9 @@
 rules_version = '2';
 // Bu dosyayı canlıya almak için (yoksa permission-denied alırsın):
 //   firebase deploy --only firestore:rules
+// ⚠️ KOORDINELI DEPLOY: iapVerify fonksiyonu ile BIRLIKTE yayınlanmalı (bkz.
+//    ops/rollback/iap-migration-plan.md). Kurallar tek başına deploy edilirse ve
+//    eski istemciler hâlâ kredi'yi client-side yazıyorsa, satın almalar kredi VEREMEZ.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -20,23 +23,83 @@ service cloud.firestore {
         && linkTierAllowsPublicFeedback(link);
     }
 
+    // === Kullanıcı entitlement: kredi/premium/demo SUNUCU-yetkili ===
+    // paidLinkCredits SADECE iapVerify Cloud Function (Admin SDK, kuralları bypass
+    // eder) tarafından ARTIRILIR. İstemci kendi user dokümanını güncelleyebilir
+    // ama kredi/premium hakkını YÜKSELTEMEZ (yalnız tüketim = azaltma serbest).
+    function creditsOf(d) { return d.get('paidLinkCredits', 0); }
+    function isPremiumOf(d) { return d.get('isPremium', false); }
+    function premiumUntilOf(d) { return d.get('premiumUntil', null); }
+    function demoUsedOf(d) { return d.get('freeDemoLinkUsed', false); }
+
+    function userDoc(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function userExists(uid) { return exists(userDoc(uid)); }
+    function creditsBefore(uid) { return userExists(uid) ? creditsOf(get(userDoc(uid)).data) : 0; }
+    function demoUsedBefore(uid) { return userExists(uid) ? demoUsedOf(get(userDoc(uid)).data) : false; }
+
+    // İstemci kendi user dokümanını güncelleyebilir ama entitlement'i YÜKSELTEMEZ.
+    function noPrivilegeEscalation(prev, next) {
+      return creditsOf(next) <= creditsOf(prev)                       // kredi yalnızca azalır (tüketim)
+        && isPremiumOf(next) == isPremiumOf(prev)                     // premium bayrağı istemciden değişmez
+        && premiumUntilOf(next) == premiumUntilOf(prev)               // premium süresi uzatılamaz
+        && !(demoUsedOf(prev) == true && demoUsedOf(next) == false);  // demo hakkı sıfırlanamaz
+    }
+
+    // Link create AYNI atomic işlemde entitlement'i doğru tüketmeli:
+    //  - DEMO: freeDemoLinkUsed false→true (bir ücretsiz demo hakkı; ikinci demo DENY).
+    //  - PREMIUM: kredi before>=1 && after == before-1 (1 kredi = 1 premium link).
+    //    Güncel iş modeli SALT-KREDİ (subscription YOK; backend isPremium GRANT ETMEZ,
+    //    yalnızca paidLinkCredits verir → functions/src/index.ts iapVerify). Bu yüzden
+    //    eski isPremium bypass'i KALDIRILDI: her premium link create bir kredi tüketir.
+    function linkCreateConsumesEntitlement(link) {
+      let uid = link.ownerId;
+      let tier = link.get('linkTier', 'demo');
+      let after = getAfter(userDoc(uid)).data;
+      return tier == 'demo'
+        ? (demoUsedBefore(uid) == false && demoUsedOf(after) == true)
+        : (userExists(uid)
+            && creditsBefore(uid) >= 1
+            && creditsOf(after) == creditsBefore(uid) - 1);
+    }
+
     match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      // İlk oluşturma: kredi 0 + premium kapalı (kendine kredi/premium ile başlayamaz).
+      allow create: if request.auth != null && request.auth.uid == userId
+        && creditsOf(request.resource.data) == 0
+        && isPremiumOf(request.resource.data) == false;
+      allow update: if request.auth != null && request.auth.uid == userId
+        && noPrivilegeEscalation(resource.data, request.resource.data);
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+    // Alt koleksiyonlar (ör. audienceScoreSnapshots) — kullanıcının kendi verisi.
+    // ⚠️ `{document=**}` SIFIR-veya-daha-fazla segment eşler → users/{uid}
+    // DOKÜMANININ KENDİSİNİ de eşleyip yukarıdaki entitlement kilidini OR ile
+    // BYPASS ederdi. Bu yüzden en az bir alt-koleksiyon segmenti ({subCollection})
+    // ZORUNLU → yalnız gerçek alt-koleksiyon dokümanlarını kapsar, users/{uid}'i DEĞİL.
+    match /users/{userId}/{subCollection}/{docId=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
-    match /users/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    // Sunucu-yetkili IAP kayıtları (makbuz tekilliği / replay koruması).
+    // İstemci erişimi YOK; yalnızca Admin SDK (iapVerify) yazar/okur.
+    match /processedPurchases/{purchaseKey} {
+      allow read, write: if false;
     }
+
     match /links/{linkId} {
       // Aktif linkler + tükenmiş demo (tek kullanım sonrası mesaj için isActive=false).
       allow read: if resource.data.isActive == true
         || (resource.data.keys().hasAny(['linkTier']) && resource.data.linkTier == 'demo'
             && resource.data.keys().hasAny(['demoSubmissionUsed'])
             && resource.data.demoSubmissionUsed == true);
-      // Sadece oturum açmış kullanıcı kendi adına link oluşturabilir.
+      // Create: kendi adına + entitlement (kredi/demo hakkı) AYNI atomic işlemde
+      // doğru tüketilmiş olmalı → kredisiz premium link create DENY.
       allow create: if request.auth != null
         && request.resource.data.ownerId == request.auth.uid
         && request.resource.data.ownerId is string
-        && request.resource.data.code is string;
+        && request.resource.data.code is string
+        && linkCreateConsumesEntitlement(request.resource.data);
       allow update, delete: if request.auth != null && request.auth.uid == resource.data.ownerId;
       // Demo: tek yorum sonrasi misafir batch (yorum + link kapatma).
       allow update: if resource.data.linkTier == 'demo'

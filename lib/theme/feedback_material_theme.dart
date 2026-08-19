@@ -60,7 +60,10 @@ ThemeData buildFeedbackTheme() {
       primary: AppTheme.gold,
       surface: AppTheme.cardBg,
     ),
-    scaffoldBackgroundColor: Colors.transparent,
+    // Koyu taban: sarmalanmamış ekranlar (Premium, Ayarlar vb.) beyaz kalmasın.
+    // _DarkMysticalBackground kullanan ekranlar gradienti body'de çizdiği için
+    // bu değerden etkilenmez (gradient her şeyi kaplar).
+    scaffoldBackgroundColor: const Color(0xFF141210),
     fontFamily: isCupertinoLike ? null : 'Roboto',
     textTheme: textTheme,
     appBarTheme: AppBarTheme(

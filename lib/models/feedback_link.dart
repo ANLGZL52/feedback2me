@@ -103,13 +103,17 @@ class FeedbackLink {
     };
   }
 
-  /// Firestore yazımı: [validUntil] için Timestamp kullan.
+  /// Firestore yazımı. [createdAt] DAİMA sunucu zaman damgasıdır: güvenlik
+  /// kuralları expiry'yi `createdAt + tier süresi` üzerinden enforce eder ve
+  /// create kuralı `createdAt == request.time` ister — bu yüzden istemci
+  /// saatiyle backdate/postdate mümkün olmamalı (süre server-authoritative).
+  /// [validUntil] yalnızca istemci gösterimi/geri sayım içindir.
   Map<String, dynamic> toFirestoreMap() {
     return {
       'ownerId': ownerId,
       'code': code,
       'title': title,
-      'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : FieldValue.serverTimestamp(),
+      'createdAt': FieldValue.serverTimestamp(),
       'isActive': isActive,
       'linkTier': linkTier ?? 'demo',
       if (validUntil != null) 'validUntil': Timestamp.fromDate(validUntil!),

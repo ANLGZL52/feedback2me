@@ -118,6 +118,54 @@ export function extractOpenAiMeta(entry) {
   };
 }
 
+// --- iapVerify IAP structured events ---------------------------------------
+// The iapVerify callable emits PII-safe structured events (see
+// functions/src/iap-core.ts buildIapObsEvent). We preserve ONLY an explicit
+// allow-list of operational metadata — NEVER receipt / verificationData /
+// purchaseToken / raw transactionId / uid / email / secret. Built field-by-field
+// from the allow-list (never a source copy+prune), so sensitive fields cannot
+// leak by accident. productId + sanitized platform are app-level categories.
+const IAP_EVENT_TYPES = new Set([
+  'iap.verify.started',
+  'iap.verify.apple.success',
+  'iap.verify.apple.rejected',
+  'iap.verify.apple.transient_failure',
+  'iap.verify.android_disabled',
+  'iap.credit.granted',
+  'iap.credit.replay',
+  'iap.verify.invalid_product',
+  'iap.verify.error',
+]);
+
+function boolOrNull(v) {
+  return typeof v === 'boolean' ? v : null;
+}
+
+// Extract allow-listed IAP metadata from an iapVerify event, or null.
+export function extractIapMeta(entry) {
+  const p = payloadObject(entry);
+  if (!p) return null;
+  // Only our own iapVerify provider events — never arbitrary jsonPayloads.
+  if (p.source !== 'functions' || p.service !== 'iapVerify') return null;
+  if (typeof p.eventType !== 'string' || !IAP_EVENT_TYPES.has(p.eventType)) return null;
+  return {
+    eventType: p.eventType,
+    errorCode: safeStr(p.errorCode, 48), // e.g. apple_status_21002 | ANDROID_VERIFICATION_NOT_CONFIGURED | null
+    provider: safeStr(p.provider, 16), // apple | android | null
+    // Allow-listed metrics/ids ONLY — explicit fields, no spread.
+    metrics: {
+      platform: safeStr(p.platform, 16), // ios|apple|android|google|other
+      productId: safeStr(p.productId, 48), // app-level product id (not PII)
+      resultClass: safeStr(p.resultClass, 16),
+      latencyMs: numOrNull(p.latencyMs),
+      creditDelta: numOrNull(p.creditDelta), // 0 | 1
+      replay: boolOrNull(p.replay),
+      clientRequestId: safeStr(p.clientRequestId, 64), // per-op random id (NOT a uid)
+      txCorrelation: safeStr(p.txCorrelation, 32), // one-way hash (NOT the raw tx id)
+    },
+  };
+}
+
 // Normalize ONE Cloud Logging entry -> a safe event, or null to drop.
 // Raw payload/stack is NEVER emitted — only allow-listed metadata + a safe code.
 export function normalizeLogEntry(entry, opts = {}) {
@@ -146,6 +194,15 @@ export function normalizeLogEntry(entry, opts = {}) {
     out.errorCode = oai.errorCode; // OpenAI-normalized safe code (or null)
     out.provider = 'openai'; // constant we set — not copied from the payload
     out.openai = oai.metrics;
+  }
+  // iapVerify IAP events: overlay the safe provider eventType/errorCode and a
+  // strictly allow-listed `iap` metadata object. Generic GCP logs are untouched.
+  const iap = extractIapMeta(entry);
+  if (iap) {
+    out.eventType = iap.eventType;
+    out.errorCode = iap.errorCode; // IAP-normalized safe code (or null)
+    out.provider = iap.provider || 'apple'; // apple|android — bounded from payload
+    out.iap = iap.metrics;
   }
   return out;
 }

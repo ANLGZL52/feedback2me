@@ -30,6 +30,7 @@ abstract class AppDataBackend {
     String? responderName,
     String? relation,
     int? mood,
+    String? reaction,
     required String textRaw,
     CreatorSurveyPayload? creatorSurvey,
   });

@@ -2,11 +2,15 @@ import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
 import '../app_state.dart';
 import '../models/audience_score.dart';
+import '../models/community_feedback_summary.dart';
 import '../models/creator_intelligence_report.dart';
+import '../models/feedback_entry.dart';
 import 'creator_intelligence_heuristic.dart';
 import 'creator_survey_aggregate.dart';
 import 'app_data_backend.dart';
 import 'openai_audience_client.dart';
+import 'rating_service.dart';
+import 'reaction_service.dart';
 
 /// Rapor sonucu: tek link için toplanan yorumların analizi.
 class ReportResult {
@@ -118,6 +122,70 @@ class AudienceAnalysisResult {
       strengths: strengths,
       developmentAreas: developmentAreas,
       socialPersonalityGuidance: socialPersonalityGuidance,
+    );
+  }
+}
+
+/// Basit geri bildirim özeti: "N kişi şunu istiyor" listesi + tek satır duygu.
+class SimpleRequestSummary {
+  SimpleRequestSummary({
+    required this.feedbackCount,
+    required this.positiveCount,
+    required this.neutralCount,
+    required this.negativeCount,
+    required this.topRequests,
+    required this.otherRequests,
+    required this.aiUsed,
+  });
+
+  final int feedbackCount;
+  final int positiveCount;
+  final int neutralCount;
+  final int negativeCount;
+
+  /// Eşik ve üst sınırı geçen ana istekler (çoktan aza).
+  final List<AudienceRequest> topRequests;
+
+  /// Tek-tük gelen istekler ("diğer istekler" altında toplanır).
+  final List<AudienceRequest> otherRequests;
+
+  /// İstekler AI ile mi (true) yoksa yerel anahtar kelime yedeğiyle mi (false) çıkarıldı.
+  final bool aiUsed;
+
+  int get supportivePct =>
+      feedbackCount <= 0 ? 0 : ((100 * positiveCount) / feedbackCount).round();
+  int get neutralPct =>
+      feedbackCount <= 0 ? 0 : ((100 * neutralCount) / feedbackCount).round();
+  int get riskPct =>
+      feedbackCount <= 0 ? 0 : ((100 * negativeCount) / feedbackCount).round();
+
+  bool get hasRequests => topRequests.isNotEmpty || otherRequests.isNotEmpty;
+
+  Map<String, dynamic> toJson() => {
+        'feedbackCount': feedbackCount,
+        'positiveCount': positiveCount,
+        'neutralCount': neutralCount,
+        'negativeCount': negativeCount,
+        'topRequests': topRequests.map((e) => e.toJson()).toList(),
+        'otherRequests': otherRequests.map((e) => e.toJson()).toList(),
+        'aiUsed': aiUsed,
+      };
+
+  factory SimpleRequestSummary.fromJson(Map<String, dynamic> j) {
+    List<AudienceRequest> reqs(String key) =>
+        (j[key] as List?)
+            ?.whereType<Map>()
+            .map((e) => AudienceRequest.fromJson(Map<String, dynamic>.from(e)))
+            .toList() ??
+        const [];
+    return SimpleRequestSummary(
+      feedbackCount: (j['feedbackCount'] as num?)?.round() ?? 0,
+      positiveCount: (j['positiveCount'] as num?)?.round() ?? 0,
+      neutralCount: (j['neutralCount'] as num?)?.round() ?? 0,
+      negativeCount: (j['negativeCount'] as num?)?.round() ?? 0,
+      topRequests: reqs('topRequests'),
+      otherRequests: reqs('otherRequests'),
+      aiUsed: j['aiUsed'] == true,
     );
   }
 }
@@ -763,6 +831,344 @@ class ReportService {
       strengths: strengths,
       developmentAreas: developmentAreas,
       socialPersonalityGuidance: socialPersonalityGuidance,
+    );
+  }
+
+  /// Basit geri bildirim: yorumlardan somut istekleri çıkarıp "N kişi şunu istiyor"
+  /// listesine dönüştürür. Ağır iki-aşamalı analizi ÇAĞIRMAZ (tek AI çağrısı).
+  Future<SimpleRequestSummary> generateSimpleRequestSummary(
+    String ownerId, {
+    String? linkId,
+    String languageCode = 'tr',
+  }) async {
+    final entries = linkId != null
+        ? await _data.getFeedbacksForLink(linkId)
+        : await _data.getAllFeedbacksForOwner(ownerId);
+
+    if (entries.isEmpty) {
+      return SimpleRequestSummary(
+        feedbackCount: 0,
+        positiveCount: 0,
+        neutralCount: 0,
+        negativeCount: 0,
+        topRequests: const [],
+        otherRequests: const [],
+        aiUsed: false,
+      );
+    }
+
+    String clip(String s) => s.length > 140 ? '${s.substring(0, 140)}…' : s;
+
+    int pos = 0, neu = 0, neg = 0;
+    final texts = <String>[];
+    // Gerçek yorum örnekleri (duyguya göre) — "otomatik hissi" oluşmasın diye alıntılanır.
+    String? posSample, negSample, neuSample;
+    for (final e in entries) {
+      final m = _calibratedMood(e.mood, e.textRaw);
+      final txt = e.textRaw.trim();
+      if (m == 1) {
+        pos++;
+        if (posSample == null && txt.isNotEmpty) posSample = clip(txt);
+      } else if (m == -1) {
+        neg++;
+        if (negSample == null && txt.isNotEmpty) negSample = clip(txt);
+      } else {
+        neu++;
+        if (neuSample == null && txt.isNotEmpty) neuSample = clip(txt);
+      }
+      if (txt.isNotEmpty) texts.add(e.textRaw);
+    }
+
+    final oa = OpenAiAudienceClient();
+    List<AudienceRequest> requests = const [];
+    var aiUsed = false;
+    if (oa.isConfigured) {
+      requests = await oa.extractRequests(
+        entries,
+        outputEnglishModel: languageCode == 'en',
+      );
+      aiUsed = requests.isNotEmpty;
+    }
+
+    // Yedek: AI yoksa/boşsa DAİMA kısa çıkarım üret — "yorum ne gelirse gelsin".
+    // Önce anahtar kelime içerik önerileri, sonra duygu-temelli gözlemler (asla boş kalmaz).
+    if (requests.isEmpty) {
+      String t(String tr, String en) => languageCode == 'en' ? en : tr;
+      final fb = <AudienceRequest>[];
+      final cat = ReportService.extractContentSuggestions(texts);
+      for (final e in cat.entries) {
+        fb.add(AudienceRequest(label: e.key, count: e.value));
+      }
+      if (pos > 0) {
+        fb.add(AudienceRequest(
+          label: t('İçeriğini beğeniyor', 'Likes your content'),
+          count: pos,
+          examples: posSample != null ? [posSample] : const [],
+        ));
+      }
+      if (neg > 0) {
+        fb.add(AudienceRequest(
+          label: t('Eleştiri / iyileştirme belirtiyor', 'Raises criticism / improvement'),
+          count: neg,
+          examples: negSample != null ? [negSample] : const [],
+        ));
+      }
+      if (neu > 0) {
+        fb.add(AudienceRequest(
+          label: t('Nötr / kararsız', 'Neutral / undecided'),
+          count: neu,
+          examples: neuSample != null ? [neuSample] : const [],
+        ));
+      }
+      requests = fb..sort((a, b) => b.count.compareTo(a.count));
+    }
+
+    const threshold = 2;
+    const topCap = 8;
+    final top = <AudienceRequest>[];
+    final other = <AudienceRequest>[];
+    for (final r in requests) {
+      if (r.count >= threshold && top.length < topCap) {
+        top.add(r);
+      } else {
+        other.add(r);
+      }
+    }
+    // Hiçbiri eşiği geçmediyse (hepsi tek kişilik) en güçlü birkaçını yine de üste al —
+    // başlık alanı boş kalmasın, "her yorumda kısa çıkarım" garantisi.
+    if (top.isEmpty && requests.isNotEmpty) {
+      final n = requests.length < 5 ? requests.length : 5;
+      top.addAll(requests.take(n));
+      other.removeWhere((r) => top.contains(r));
+    }
+
+    return SimpleRequestSummary(
+      feedbackCount: entries.length,
+      positiveCount: pos,
+      neutralCount: neu,
+      negativeCount: neg,
+      topRequests: top,
+      otherRequests: other,
+      aiUsed: aiUsed,
+    );
+  }
+
+  /// FeedbackToMe 2.0 — Topluluk özeti (basit, sosyal, kısa).
+  ///
+  /// Akış: yorumları topla → reaction/duygu say → Crowd Score → istekleri
+  /// kümele (extractRequests) → AI YALNIZCA gerçek veriyi yorumlar
+  /// (summarizeCommunity). AI yoksa/boşsa sezgisel yedek üretir (asla boş kalmaz).
+  Future<CommunityFeedbackSummary> generateCommunitySummary(
+    String ownerId, {
+    String? linkId,
+    String languageCode = 'tr',
+  }) async {
+    final entries = linkId != null
+        ? await _data.getFeedbacksForLink(linkId)
+        : await _data.getAllFeedbacksForOwner(ownerId);
+    if (entries.isEmpty) return CommunityFeedbackSummary.empty();
+
+    final en = languageCode == 'en';
+    const svc = ReactionService();
+    final tally = svc.tally(entries);
+    final pos = tally.positive, neu = tally.neutral, neg = tally.negative;
+
+    // Gerçek yorum örnekleri (birebir) — hotTake + realComments için.
+    final samples = <String>[];
+    for (final e in entries) {
+      final t = e.textRaw.replaceAll('\n', ' ').trim();
+      if (t.isNotEmpty) samples.add(t);
+      if (samples.length >= 12) break;
+    }
+
+    final crowd = RatingService.crowdScoreFromEntries(
+      entries: entries,
+      positive: pos,
+      neutral: neu,
+      negative: neg,
+    );
+
+    final oa = OpenAiAudienceClient();
+    List<AudienceRequest> requests = const [];
+    if (oa.isConfigured) {
+      requests = await oa.extractRequests(entries, outputEnglishModel: en);
+    }
+    if (requests.isEmpty) {
+      requests = _fallbackCommunityRequests(entries, pos, neg, neu, en);
+    }
+
+    // AI özet — yalnızca gerçek veriyi yorumlar.
+    if (oa.isConfigured) {
+      final ai = await oa.summarizeCommunity(
+        requests: requests,
+        feedbackCount: entries.length,
+        positive: pos,
+        neutral: neu,
+        negative: neg,
+        reactionCounts: tally.byEmoji,
+        crowdScore: crowd,
+        sampleComments: samples,
+        outputEnglishModel: en,
+      );
+      if (ai != null) return ai;
+    }
+
+    // Sezgisel yedek: AI olmadan da anlamlı, kısa özet.
+    return _heuristicCommunitySummary(
+      requests: requests,
+      feedbackCount: entries.length,
+      positive: pos,
+      neutral: neu,
+      negative: neg,
+      reactionCounts: tally.byEmoji,
+      crowdScore: crowd,
+      samples: samples,
+      en: en,
+    );
+  }
+
+  /// AI yoksa/boşsa: duygu + içerik-önerisi anahtar kelimelerinden istek listesi.
+  List<AudienceRequest> _fallbackCommunityRequests(
+    List<FeedbackEntry> entries,
+    int pos,
+    int neg,
+    int neu,
+    bool en,
+  ) {
+    String t(String tr, String enS) => en ? enS : tr;
+    String clip(String s) => s.length > 140 ? '${s.substring(0, 140)}…' : s;
+    final texts = <String>[
+      for (final e in entries)
+        if (e.textRaw.trim().isNotEmpty) e.textRaw,
+    ];
+    String? posSample, negSample, neuSample;
+    for (final e in entries) {
+      final m = _calibratedMood(e.mood, e.textRaw);
+      final txt = e.textRaw.trim();
+      if (txt.isEmpty) continue;
+      if (m == 1) {
+        posSample ??= clip(txt);
+      } else if (m == -1) {
+        negSample ??= clip(txt);
+      } else {
+        neuSample ??= clip(txt);
+      }
+    }
+    final fb = <AudienceRequest>[];
+    final cat = ReportService.extractContentSuggestions(texts);
+    for (final e in cat.entries) {
+      fb.add(AudienceRequest(label: e.key, count: e.value));
+    }
+    if (pos > 0) {
+      fb.add(AudienceRequest(
+        label: t('İçeriğini beğeniyor', 'Likes your content'),
+        count: pos,
+        examples: posSample != null ? [posSample] : const [],
+      ));
+    }
+    if (neg > 0) {
+      fb.add(AudienceRequest(
+        label: t('Eleştiri / iyileştirme belirtiyor', 'Raises criticism / improvement'),
+        count: neg,
+        examples: negSample != null ? [negSample] : const [],
+      ));
+    }
+    if (neu > 0) {
+      fb.add(AudienceRequest(
+        label: t('Nötr / kararsız', 'Neutral / undecided'),
+        count: neu,
+        examples: neuSample != null ? [neuSample] : const [],
+      ));
+    }
+    return fb..sort((a, b) => b.count.compareTo(a.count));
+  }
+
+  CommunityFeedbackSummary _heuristicCommunitySummary({
+    required List<AudienceRequest> requests,
+    required int feedbackCount,
+    required int positive,
+    required int neutral,
+    required int negative,
+    required Map<String, int> reactionCounts,
+    required double? crowdScore,
+    required List<String> samples,
+    required bool en,
+  }) {
+    String t(String tr, String enS) => en ? enS : tr;
+    String clip(String s) => s.length > 160 ? '${s.substring(0, 160)}…' : s;
+
+    final total = positive + neutral + negative;
+    final bothStrong = positive > 0 &&
+        negative > 0 &&
+        positive >= total * 0.25 &&
+        negative >= total * 0.25;
+
+    CommunityMood mood;
+    if (total == 0) {
+      mood = CommunityMood.neutral;
+    } else if (bothStrong) {
+      mood = CommunityMood.mixed;
+    } else if (positive >= negative && positive >= neutral) {
+      mood = CommunityMood.positive;
+    } else if (negative > positive && negative >= neutral) {
+      mood = CommunityMood.negative;
+    } else {
+      mood = CommunityMood.neutral;
+    }
+
+    final headline = switch (mood) {
+      CommunityMood.positive => t('İnsanlar genel olarak sevmiş 🔥', 'People generally liked it 🔥'),
+      CommunityMood.mixed => t('Topluluk biraz ikiye bölünmüş 👀', 'The crowd is a bit divided 👀'),
+      CommunityMood.negative => t('Birkaç kişi bazı noktalarda kararsız 🤔', 'A few people seem unsure on some points 🤔'),
+      CommunityMood.neutral => t('İlk izlenimler toplanıyor 🙂', 'First impressions are coming in 🙂'),
+    };
+
+    final topLabels = requests.take(3).map((r) => r.label).toList();
+    final mostMentioned = topLabels;
+    final mostLiked = (positive >= negative)
+        ? requests.take(2).map((r) => r.label).toList()
+        : const <String>[];
+
+    final hotTake = samples.isNotEmpty ? clip(samples.first) : '';
+
+    final moodWord = switch (mood) {
+      CommunityMood.positive => t('olumlu', 'positive'),
+      CommunityMood.mixed => t('karışık', 'mixed'),
+      CommunityMood.negative => t('temkinli', 'cautious'),
+      CommunityMood.neutral => t('nötr', 'neutral'),
+    };
+    final shortSummary = t(
+      '$feedbackCount kişi görüş bildirdi. Genel hava $moodWord.',
+      '$feedbackCount people shared their thoughts. Overall mood is $moodWord.',
+    );
+
+    final mixedOpinions = bothStrong
+        ? [t('Topluluk bu konuda ikiye bölünmüş.', 'The crowd is split on this.')]
+        : const <String>[];
+
+    final confidence = feedbackCount < 5
+        ? SummaryConfidence.low
+        : feedbackCount < 20
+            ? SummaryConfidence.medium
+            : SummaryConfidence.high;
+
+    return CommunityFeedbackSummary(
+      mood: mood,
+      headline: headline,
+      mostLiked: mostLiked,
+      mostMentioned: mostMentioned,
+      mixedOpinions: mixedOpinions,
+      hotTake: hotTake,
+      shortSummary: shortSummary,
+      confidence: confidence,
+      crowdScore: crowdScore,
+      feedbackCount: feedbackCount,
+      positive: positive,
+      neutral: neutral,
+      negative: negative,
+      reactionCounts: reactionCounts,
+      realComments: samples.take(6).map(clip).toList(),
+      aiUsed: false,
     );
   }
 

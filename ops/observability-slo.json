@@ -1,0 +1,58 @@
+{
+  "description": "Feedback2Me Observability V3 — CENTRAL SLO/threshold contract. The runtime evaluator (ops/monitor/evaluate-runtime.mjs) is the ONLY consumer; no thresholds are hardcoded in scripts. Tuned for LOW-TRAFFIC: rate alarms require a minimum sample AND an absolute-count floor so a 1/1 blip never pages. Money-safety invariants are CRITICAL regardless of sample size. All values are conservative starting points — adjust with evidence, not guesswork.",
+  "version": "3.0.0",
+  "window": {
+    "lookbackHours": 24,
+    "note": "Evaluation window over ops-status/runtime-events/*.jsonl. Kept modest for low-traffic + low Cloud Logging cost."
+  },
+  "collector": {
+    "staleMinutes": 95,
+    "note": "Scheduled collector runs ~every 30 min. 95 min tolerance = ~3 missed runs before COLLECTOR_STALE CRITICAL (avoids paging on one late run). NO_OBSERVABILITY (auth/collector failure) is distinct from NO_TRAFFIC."
+  },
+  "iap": {
+    "minSampleForRate": 5,
+    "verifyFailureRate": { "warn": 0.20, "critical": 0.50, "minAbsoluteFailures": 3 },
+    "transientFailure": { "warnCount": 3, "criticalCount": 10 },
+    "rejectedSpike": { "warnCount": 5, "criticalCount": 20 },
+    "latencyMsP95": { "warn": 5000, "critical": 10000 },
+    "moneySafety": {
+      "severity": "CRITICAL",
+      "note": "Any invariant breach (verify-success-without-credit, granted!=+1, replay!=+0, credit-on-unknown-product, credit-on-failure, duplicate-grant-per-correlation) is CRITICAL + releaseBlocking immediately, regardless of sample size."
+    }
+  },
+  "openai": {
+    "minSampleForRate": 5,
+    "failureRate": { "warn": 0.20, "critical": 0.50, "minAbsoluteFailures": 3 },
+    "latencyMsP95": { "warn": 8000, "critical": 20000 },
+    "tokenSpike": { "warnTotalTokensPerRequest": 4000, "note": "avg total tokens/request above this = possible prompt/response explosion (WARNING only)" }
+  },
+  "railway": {
+    "min5xxAbsolute": 3,
+    "http5xxRate": { "warn": 0.10, "critical": 0.30, "minSampleForRate": 10 },
+    "note": "0 requests = NO_TRAFFIC (HEALTHY/IDLE), NOT failure. RAILWAY_UNREACHABLE (collector could not reach Railway) is distinct and WARNING (release-informational)."
+  },
+  "postgres": {
+    "singleFailureSeverity": "WARNING",
+    "consecutiveFailures": { "critical": 3 },
+    "note": "Direct low-privilege health probe. One failed probe = WARNING; 3 consecutive = CRITICAL."
+  },
+  "releaseGate": {
+    "blockOn": [
+      "IAP_MONEY_SAFETY_BREACH",
+      "IAP_VERIFY_DOWN",
+      "POSTGRES_CRITICAL",
+      "COLLECTOR_STALE",
+      "SECRET_OR_PII_LEAK"
+    ],
+    "warnOn": [
+      "IAP_E2E_VALIDATION_DEFERRED",
+      "IAP_VERIFY_FAILURE_ELEVATED",
+      "IAP_LATENCY_DEGRADED",
+      "OPENAI_DEGRADED",
+      "RAILWAY_5XX_ELEVATED",
+      "POSTGRES_WARNING",
+      "RAILWAY_UNREACHABLE"
+    ],
+    "note": "Real IAP E2E is a DEFERRED VALIDATION (IAP_E2E_VALIDATION_DEFERRED = WARN, non-blocking at the current TestFlight stage) — tracked in ops/validation-requirements.json (requiredForProductRelease=true, requiredForObservabilityPlatform=false). It keeps runtimeValidationStatus PARTIAL but does NOT block observabilityPlatformStatus=FULL. Only real runtime CRITICALs (money-safety, verify-down, postgres-critical, collector-stale, secret-leak) BLOCK. A public/production-release policy that requires real E2E would re-add it to blockOn for that gate."
+  }
+}

@@ -1,0 +1,176 @@
+{
+  "generatedAt": "2026-08-19T14:14:02.930Z",
+  "window": {
+    "lookbackHours": 24,
+    "events": 0
+  },
+  "observabilityPlatformStatus": "PARTIAL",
+  "runtimeValidationStatus": "PARTIAL",
+  "productReleaseGate": {
+    "status": "WARN",
+    "blocking": [],
+    "warnings": [
+      "COLLECTOR_RUN_FAILED",
+      "IAP_E2E_VALIDATION_DEFERRED"
+    ]
+  },
+  "currentRuntimeHealth": "HEALTHY",
+  "domains": {
+    "IAP": {
+      "status": "IDLE",
+      "metrics": {
+        "counts": {
+          "started": 0,
+          "success": 0,
+          "rejected": 0,
+          "transientFailure": 0,
+          "error": 0,
+          "creditGranted": 0,
+          "creditReplay": 0,
+          "androidDisabled": 0,
+          "invalidProduct": 0,
+          "verifyAttempts": 0,
+          "terminal": 0
+        },
+        "rates": {
+          "verifySuccess": null,
+          "verifyFailure": null,
+          "transientFailure": null,
+          "creditGrant": null,
+          "replay": null
+        },
+        "latencyMs": {
+          "p50": null,
+          "p95": null,
+          "samples": 0
+        },
+        "sampleSize": 0
+      }
+    },
+    "OPENAI": {
+      "status": "IDLE",
+      "metrics": {
+        "requests": 0,
+        "completed": 0,
+        "failed": 0,
+        "latencyP95Ms": null,
+        "avgTotalTokens": null
+      }
+    },
+    "RAILWAY": {
+      "status": "IDLE",
+      "metrics": {
+        "requests": 0,
+        "2xx": 0,
+        "3xx": 0,
+        "4xx": 0,
+        "5xx": 0
+      }
+    },
+    "POSTGRES": {
+      "status": "HEALTHY",
+      "metrics": {
+        "probe": "HEALTHY",
+        "consecutiveFailures": 0
+      }
+    },
+    "COLLECTOR": {
+      "status": "UNKNOWN",
+      "metrics": {
+        "lastEventAt": null,
+        "ageMinutes": null,
+        "providersSucceeded": null,
+        "providersAttempted": 3
+      }
+    },
+    "SECURITY": {
+      "status": "HEALTHY",
+      "metrics": {}
+    }
+  },
+  "alerts": [
+    {
+      "domain": "COLLECTOR",
+      "code": "COLLECTOR_RUN_FAILED",
+      "severity": "WARNING",
+      "message": "collector run did not complete successfully",
+      "evidence": null,
+      "releaseBlocking": false,
+      "state": "ONGOING",
+      "startedAt": "2026-08-19T14:14:02.930Z",
+      "lastObservedAt": "2026-08-19T14:14:02.930Z",
+      "resolvedAt": null,
+      "durationMs": 0,
+      "deployContextAtStart": {
+        "commit": "d2471fc",
+        "build": "22",
+        "functionRevision": null
+      }
+    },
+    {
+      "domain": "VALIDATION",
+      "code": "IAP_E2E_VALIDATION_DEFERRED",
+      "severity": "WARNING",
+      "message": "real TestFlight sandbox IAP purchase not yet performed (DEFERRED — not fabricated)",
+      "evidence": {
+        "reason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE"
+      },
+      "releaseBlocking": false,
+      "state": "NEW",
+      "startedAt": "2026-08-19T14:14:02.930Z",
+      "lastObservedAt": "2026-08-19T14:14:02.930Z",
+      "resolvedAt": null,
+      "durationMs": 0,
+      "deployContextAtStart": {
+        "commit": "d2471fc",
+        "build": "22",
+        "functionRevision": null
+      }
+    }
+  ],
+  "resolvedAlerts": [
+    {
+      "domain": "RELEASE",
+      "code": "MISSING_IAP_E2E_EVIDENCE",
+      "severity": "WARNING",
+      "message": "no verified real TestFlight sandbox purchase evidence yet (ops-status/iap-e2e-evidence.json verified=true required)",
+      "evidence": {
+        "present": false
+      },
+      "releaseBlocking": true,
+      "state": "RESOLVED",
+      "firstSeen": "2026-08-19T13:05:34.710Z",
+      "lastSeen": "2026-08-19T13:11:38.013Z",
+      "lastObservedAt": "2026-08-19T14:14:02.930Z",
+      "resolvedAt": "2026-08-19T14:14:02.930Z",
+      "durationMs": 0
+    }
+  ],
+  "deferredValidations": [
+    {
+      "id": "REAL_IAP_TESTFLIGHT_E2E",
+      "status": "DEFERRED",
+      "requiredForProductRelease": true,
+      "requiredForObservabilityPlatform": false,
+      "reason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE"
+    }
+  ],
+  "deploymentContext": {
+    "commit": "d2471fc",
+    "build": "22",
+    "functionRevision": null
+  },
+  "collectorFreshness": {
+    "lastEventAt": null,
+    "ageMinutes": null,
+    "providersSucceeded": null,
+    "providersAttempted": 3
+  },
+  "validationEvidence": {
+    "realIapE2E": "DEFERRED",
+    "realIapE2EReason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE",
+    "syntheticIapContract": "VERIFIED",
+    "evidenceType": "NONE",
+    "source": null
+  }
+}

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../design_system/design_system.dart';
+import '../l10n/app_localizations.dart';
+
 const String kOnboardingPrefsKey = 'feedbacktome_onboarding_v1_completed';
 
 Future<bool> isOnboardingCompleted() async {
@@ -14,21 +17,24 @@ Future<void> setOnboardingCompleted() async {
   await p.setBool(kOnboardingPrefsKey, true);
 }
 
-class _Slide {
-  const _Slide({
-    required this.icon,
-    required this.title,
-    required this.body,
-    this.badge,
+enum _OnbArt { crowd, link, fast, ai }
+
+class _SlideV2 {
+  const _SlideV2({
+    required this.art,
+    required this.titleKey,
+    required this.bodyKey,
+    this.footerKey,
   });
 
-  final IconData icon;
-  final String title;
-  final String body;
-  final String? badge;
+  final _OnbArt art;
+  final String titleKey;
+  final String bodyKey;
+  final String? footerKey;
 }
 
-/// İlk açılış: vaatler ve ürün özeti — dokunarak veya kaydırarak ilerler.
+/// İlk açılış tanıtımı — V2 aydınlık. [onFinished] mevcut davranışı korur
+/// (flag'i çağıran taraf yönetir; bu widget flag'e dokunmaz).
 class AppOnboarding extends StatefulWidget {
   const AppOnboarding({super.key, required this.onFinished});
 
@@ -39,44 +45,30 @@ class AppOnboarding extends StatefulWidget {
 }
 
 class _AppOnboardingState extends State<AppOnboarding> {
-  static const _gold = Color(0xFFE8C547);
-  static const _goldDim = Color(0xFFD4AF37);
-
   final PageController _controller = PageController();
   int _index = 0;
 
-  static const List<_Slide> _slides = [
-    _Slide(
-      icon: Icons.auto_awesome_rounded,
-      title: 'Gerçek geri bildirim,\nnet içgörü',
-      body:
-          'Feedback2Me ile takipçilerinden anonim, dürüst yorumlar topla. '
-          'Kısayol linkin tek; paylaşımı sen kontrol edersin.',
-      badge: 'Başlangıç',
+  static const List<_SlideV2> _slides = [
+    _SlideV2(
+      art: _OnbArt.crowd,
+      titleKey: 'onboardingV2Slide1Title',
+      bodyKey: 'onboardingV2Slide1Body',
     ),
-    _Slide(
-      icon: Icons.link_rounded,
-      title: 'Bir link,\nsınırsız dinlenme',
-      body:
-          'Kendi geri bildirim linkini oluştur, bio veya hikâyede paylaş. '
-          'Yorumlar tek havuzda birikir; kimlik gizli kalır.',
-      badge: 'Toplama',
+    _SlideV2(
+      art: _OnbArt.link,
+      titleKey: 'onboardingV2Slide2Title',
+      bodyKey: 'onboardingV2Slide2Body',
     ),
-    _Slide(
-      icon: Icons.psychology_alt_rounded,
-      title: 'AI ile takipçi\nanalizi',
-      body:
-          'Yorum havuzunu yapay zekâ ile işle: duygu dağılımı, temalar ve '
-          'uygulanabilir öneriler. İstersen kayıtlı raporlarla gelişimini izle.',
-      badge: 'Derinlemesine',
+    _SlideV2(
+      art: _OnbArt.fast,
+      titleKey: 'onboardingV2Slide3Title',
+      bodyKey: 'onboardingV2Slide3Body',
     ),
-    _Slide(
-      icon: Icons.trending_up_rounded,
-      title: 'Gelişimini\ngör',
-      body:
-          'Zaman içinde puan ve özetlerle ilerlemen görünür. '
-          'Rapor gelişim ekranıyla kendini ve kitleni daha iyi tanı.',
-      badge: 'Büyüme',
+    _SlideV2(
+      art: _OnbArt.ai,
+      titleKey: 'onboardingV2Slide4Title',
+      bodyKey: 'onboardingV2Slide4Body',
+      footerKey: 'onboardingV2Slide4Footer',
     ),
   ];
 
@@ -90,7 +82,7 @@ class _AppOnboardingState extends State<AppOnboarding> {
     if (_index < _slides.length - 1) {
       HapticFeedback.lightImpact();
       _controller.nextPage(
-        duration: const Duration(milliseconds: 380),
+        duration: const Duration(milliseconds: 320),
         curve: Curves.easeOutCubic,
       );
     } else {
@@ -99,83 +91,32 @@ class _AppOnboardingState extends State<AppOnboarding> {
     }
   }
 
-  void _prev() {
-    if (_index > 0) {
-      HapticFeedback.selectionClick();
-      _controller.previousPage(
-        duration: const Duration(milliseconds: 380),
-        curve: Curves.easeOutCubic,
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final bottomInset = MediaQuery.of(context).padding.bottom;
-
-    return Scaffold(
-      backgroundColor: const Color(0xFF0a0a0f),
-      resizeToAvoidBottomInset: true,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF1a0a2e),
-              Color(0xFF0d0d14),
-              Color(0xFF0a0a0f),
-            ],
-            stops: [0.0, 0.45, 1.0],
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              top: -100,
-              right: -60,
-              child: Container(
-                width: 260,
-                height: 260,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: RadialGradient(
-                    colors: [
-                      _gold.withValues(alpha: 0.12),
-                      Colors.transparent,
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            SafeArea(
+    final last = _index == _slides.length - 1;
+    return Theme(
+      data: buildFeedbackLightTheme(),
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        resizeToAvoidBottomInset: true,
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: AppSpacing.maxWidthWide),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Üst bar: marka + Atla
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(8, 8, 12, 0),
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.pageH, AppSpacing.s, AppSpacing.s, 0),
                     child: Row(
                       children: [
-                        const SizedBox(width: 8),
-                        Text(
-                          'Feedback2Me',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.5,
-                            color: Colors.white,
-                          ),
-                        ),
+                        const FeedbackBrandMark(),
                         const Spacer(),
-                        TextButton(
+                        FeedbackTextButton(
+                          label: L10n.get(context, 'onboardingV2Skip'),
+                          color: AppColors.textSecondary,
                           onPressed: widget.onFinished,
-                          child: Text(
-                            'Atla',
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: Colors.white54,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
                         ),
                       ],
                     ),
@@ -185,20 +126,16 @@ class _AppOnboardingState extends State<AppOnboarding> {
                       controller: _controller,
                       itemCount: _slides.length,
                       onPageChanged: (i) => setState(() => _index = i),
-                      itemBuilder: (context, i) {
-                        final s = _slides[i];
-                        return _OnboardingPage(
-                          slide: s,
-                          gold: _gold,
-                          goldDim: _goldDim,
-                          onTapAdvance: _next,
-                          onTapBack: _prev,
-                        );
-                      },
+                      itemBuilder: (context, i) => _OnboardingPageV2(
+                        slide: _slides[i],
+                        pageLabel:
+                            '${i + 1} / ${_slides.length}',
+                      ),
                     ),
                   ),
                   Padding(
-                    padding: EdgeInsets.fromLTRB(24, 0, 24, 16 + bottomInset),
+                    padding: const EdgeInsets.fromLTRB(AppSpacing.pageH, 0,
+                        AppSpacing.pageH, AppSpacing.l),
                     child: Column(
                       children: [
                         Row(
@@ -206,53 +143,26 @@ class _AppOnboardingState extends State<AppOnboarding> {
                           children: List.generate(_slides.length, (i) {
                             final active = i == _index;
                             return AnimatedContainer(
-                              duration: const Duration(milliseconds: 250),
-                              margin: const EdgeInsets.symmetric(horizontal: 4),
-                              width: active ? 28 : 8,
+                              duration: const Duration(milliseconds: 220),
+                              margin:
+                                  const EdgeInsets.symmetric(horizontal: 4),
+                              width: active ? 26 : 8,
                               height: 8,
                               decoration: BoxDecoration(
                                 borderRadius: BorderRadius.circular(999),
-                                color: active
-                                    ? _gold
-                                    : Colors.white.withValues(alpha: 0.2),
+                                color:
+                                    active ? AppColors.primary : AppColors.border,
                               ),
                             );
                           }),
                         ),
-                        const SizedBox(height: 20),
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton(
-                            onPressed: _next,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: _gold,
-                              foregroundColor: const Color(0xFF1a1a1a),
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              elevation: 0,
-                            ),
-                            child: Text(
-                              _index < _slides.length - 1
-                                  ? 'Devam et'
-                                  : 'Başlayalım',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 16,
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'İlerlemek için düğmeye bas veya sayfayı kaydır',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.white38,
-                            height: 1.3,
-                          ),
+                        const SizedBox(height: AppSpacing.l),
+                        FeedbackPrimaryButton(
+                          label: last
+                              ? L10n.get(context, 'onboardingV2GetStarted')
+                              : L10n.get(context, 'onboardingV2Continue'),
+                          trailingArrow: !last,
+                          onPressed: _next,
                         ),
                       ],
                     ),
@@ -260,149 +170,223 @@ class _AppOnboardingState extends State<AppOnboarding> {
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _OnboardingPage extends StatelessWidget {
-  const _OnboardingPage({
-    required this.slide,
-    required this.gold,
-    required this.goldDim,
-    required this.onTapAdvance,
-    required this.onTapBack,
-  });
+class _OnboardingPageV2 extends StatelessWidget {
+  const _OnboardingPageV2({required this.slide, required this.pageLabel});
 
-  final _Slide slide;
-  final Color gold;
-  final Color goldDim;
-  final VoidCallback onTapAdvance;
-  final VoidCallback onTapBack;
+  final _SlideV2 slide;
+  final String pageLabel;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final title = Text(
+      L10n.get(context, slide.titleKey),
+      textAlign: TextAlign.center,
+      style: AppType.display.copyWith(height: 1.2),
+      maxLines: 3,
+    );
+    final body = Text(
+      L10n.get(context, slide.bodyKey),
+      textAlign: TextAlign.center,
+      style: AppType.body.copyWith(height: 1.5),
+    );
+    final footer = slide.footerKey == null
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.m),
+            child: FeedbackTrustChip(
+              label: L10n.get(context, slide.footerKey!),
+              icon: Icons.card_giftcard_rounded,
+            ),
+          );
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTapUp: (d) {
-            final w = constraints.maxWidth;
-            final x = d.localPosition.dx;
-            if (x > w * 0.62) {
-              onTapAdvance();
-            } else if (x < w * 0.38) {
-              onTapBack();
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xl, vertical: AppSpacing.s),
+      child: Semantics(
+        label: pageLabel,
+        child: LayoutBuilder(
+          builder: (context, c) {
+            final wide = c.maxWidth >= 720;
+            final art = ExcludeSemantics(child: _OnboardingArt(art: slide.art));
+            final textCol = Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                title,
+                const SizedBox(height: AppSpacing.m),
+                body,
+                ?footer,
+              ],
+            );
+            if (wide) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: Center(child: art)),
+                  const SizedBox(width: AppSpacing.xl),
+                  Expanded(child: textCol),
+                ],
+              );
             }
-          },
-          child: SingleChildScrollView(
-            clipBehavior: Clip.none,
-            physics: const ClampingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            return SingleChildScrollView(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (slide.badge != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(999),
-                          border:
-                              Border.all(color: gold.withValues(alpha: 0.45)),
-                          color: gold.withValues(alpha: 0.08),
-                        ),
-                        child: Text(
-                          slide.badge!,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: goldDim,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                      ),
-                    ),
-                  Container(
-                    padding: const EdgeInsets.all(28),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: RadialGradient(
-                        colors: [
-                          gold.withValues(alpha: 0.2),
-                          gold.withValues(alpha: 0.05),
-                          Colors.transparent,
-                        ],
-                      ),
-                    ),
-                    child: Icon(
-                      slide.icon,
-                      size: 72,
-                      color: gold,
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  Text(
-                    slide.title,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      height: 1.25,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    slide.body,
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: Colors.white70,
-                      height: 1.5,
-                      fontSize: 16,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.chevron_left_rounded,
-                        color: Colors.white.withValues(alpha: 0.25),
-                        size: 20,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Text(
-                          'Sol / sağ dokunuş · kaydır',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: Colors.white30,
-                          ),
-                        ),
-                      ),
-                      Icon(
-                        Icons.chevron_right_rounded,
-                        color: Colors.white.withValues(alpha: 0.25),
-                        size: 20,
-                      ),
-                    ],
-                  ),
+                  const SizedBox(height: AppSpacing.m),
+                  art,
+                  const SizedBox(height: AppSpacing.xl),
+                  textCol,
+                  const SizedBox(height: AppSpacing.m),
                 ],
               ),
-            ),
-          ),
-        );
-      },
+            );
+          },
+        ),
+      ),
     );
+  }
+}
+
+/// Flutter-native onboarding illüstrasyonu (asset yok, responsive, lokalizasyon
+/// bağımsız). Her slide için farklı kompozisyon.
+class _OnboardingArt extends StatelessWidget {
+  const _OnboardingArt({required this.art});
+
+  final _OnbArt art;
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 1,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 300, maxHeight: 300),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.primarySoft, AppColors.violetSoft],
+          ),
+          borderRadius: AppRadius.rCard,
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Center(child: _composition(context)),
+      ),
+    );
+  }
+
+  Widget _bubble(String emoji) => Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          shape: BoxShape.circle,
+          boxShadow: AppShadows.soft,
+        ),
+        child: Text(emoji, style: const TextStyle(fontSize: 24)),
+      );
+
+  Widget _chip(String label, {Color? color}) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: AppRadius.rPill,
+          boxShadow: AppShadows.soft,
+        ),
+        child: Text(label,
+            style: AppType.caption
+                .copyWith(color: color ?? AppColors.textPrimary)),
+      );
+
+  Widget _iconBadge(IconData icon) => Container(
+        width: 72,
+        height: 72,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          gradient: AppColors.primaryGradient,
+          borderRadius: AppRadius.rLarge,
+          boxShadow: AppShadows.primaryGlow,
+        ),
+        child: Icon(icon, color: AppColors.onPrimary, size: 34),
+      );
+
+  Widget _composition(BuildContext context) {
+    switch (art) {
+      case _OnbArt.crowd:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _bubble('😍'),
+                const SizedBox(width: 12),
+                _bubble('🔥'),
+                const SizedBox(width: 12),
+                _bubble('🤔'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _iconBadge(Icons.forum_rounded),
+          ],
+        );
+      case _OnbArt.link:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _iconBadge(Icons.link_rounded),
+            const SizedBox(height: 16),
+            _chip('feedback2me.app/f/…', color: AppColors.primary),
+            const SizedBox(height: 10),
+            _chip('🔗  Paylaş'),
+          ],
+        );
+      case _OnbArt.fast:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              children: [
+                _chip('😍'),
+                _chip('🔥'),
+                _chip('👀'),
+                _chip('🤔'),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _iconBadge(Icons.bolt_rounded),
+          ],
+        );
+      case _OnbArt.ai:
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _chip('💬'),
+                const SizedBox(width: 8),
+                _chip('💬'),
+                const SizedBox(width: 8),
+                const Icon(Icons.auto_awesome_rounded,
+                    color: AppColors.primary, size: 22),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _iconBadge(Icons.insights_rounded),
+            const SizedBox(height: 12),
+            _chip('7.8 / 10', color: AppColors.primary),
+          ],
+        );
+    }
   }
 }

@@ -19,11 +19,17 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
-      # Yüklenen .p12 + .mobileprovision’ı build VM’e kopyalar; keychain add-certificates tek başına yetmez.
-      # Code signing identities’teki profil/sertifika bu bundle id ile eşleşmeli (App Store).
+      # Otomatik seçim (distribution_type) YANLIŞ sertifikayı (revoke 1B17) yüklüyordu.
+      # Bunun yerine, Codemagic Code signing identities'e yüklenen GEÇERLİ sertifikayı
+      # ADIYLA açıkça referansla → yalnızca o (fb2me_2026son = 3B685214..., exp
+      # 2027-08-18) keychain'e yüklenir. NOT: referans kullanınca distribution_type +
+      # bundle_identifier KULLANILAMAZ. Provisioning profilini script içinde App Store
+      # Connect'ten (list-profiles) çekiyoruz.
       ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.anlgzl.feedback2meapp
+        provisioning_profiles:
+          - fb2me_build21
+        certificates:
+          - fb2me_2026son
       vars:
         BUNDLE_ID: com.anlgzl.feedback2meapp
         # Xcode 26+ altool: bundle id → App Store uygulama ID eşlemesi bazen başarısız olur.
@@ -37,6 +43,26 @@ workflows:
     integrations:
       app_store_connect: feedback2me
     scripts:
+      # Kaynak provenance — hangi commit'in derlendiğini kanıtla (yanlış-dal
+      # sorununu bir daha yaşamamak için). CM_COMMIT != HEAD ise build'i düşür.
+      - name: Provenance (branch/commit/versiyon + kritik V2 dosya hashleri)
+        script: |
+          set -e
+          echo "CM_BRANCH=$CM_BRANCH"
+          echo "CM_COMMIT=$CM_COMMIT"
+          HEAD=$(git rev-parse HEAD)
+          echo "GIT_HEAD=$HEAD"
+          git log -1 --oneline
+          echo "PUBSPEC_VERSION=$(grep -E '^version:' pubspec.yaml)"
+          echo "-- critical V2 UI file hashes --"
+          for f in lib/main.dart lib/design_system/design_system.dart \
+                   lib/widgets/splash/feedback_splash_view.dart \
+                   lib/widgets/app_onboarding.dart lib/screens/premium_screen.dart; do
+            shasum -a 256 "$f" 2>/dev/null || sha256sum "$f"
+          done
+          if [ -n "$CM_COMMIT" ] && [ "$CM_COMMIT" != "$HEAD" ]; then
+            echo "ERROR: CM_COMMIT ($CM_COMMIT) != git HEAD ($HEAD) — provenance mismatch."; exit 1
+          fi
       - name: Flutter bağımlılıkları
         script: |
           set -e
@@ -48,15 +74,23 @@ workflows:
           test -f ios/Podfile || { echo "ERROR: ios/Podfile eksik — repoya commit edin."; exit 1; }
           cd ios
           pod install
-      # Sıra: keychain → sertifikaları ekle → use-profiles (Manuel imza + export_options.plist) → flutter ipa
-      - name: Keychain ve sertifikalar
+      # Kod imzalama — Codemagic'in ÜRETTİĞİ yeni geçerli sertifikaya sabitlenmiş.
+      # Codemagic UI'da (Code signing identities) TAZE bir Apple Distribution
+      # sertifikası + özel anahtarı üretildi (serial 3B685214..., exp 2027-08-18);
+      # özel anahtar Codemagic Code signing identities'te saklı olduğundan
+      # "Set up code signing identities" adımı onu build keychain'ine yükler.
+      # Bu certe bağlı ACTIVE App Store profilini (ada göre) indirip uyguluyoruz;
+      # eski/revoke profiller devre dışı kalır. use-profiles $HOME/export_options.plist
+      # üretir (IPA adımı kullanır).
+      - name: Kod imzalama (referanslı sertifika + profil)
         script: |
           set -e
-          keychain initialize
-          keychain add-certificates
-      - name: Xcode proje profilleri (App Store)
-        script: |
-          set -e
+          # ios_signing referansları sayesinde "Set up code signing identities"
+          # adımı fb2me_2026son sertifikasını (özel anahtarıyla) keychain'e ve
+          # fb2me_build21 profilini profil klasörüne indirdi. Burada projeye
+          # uygulayıp $HOME/export_options.plist üretiyoruz.
+          echo "=== keychain imza kimlikleri ==="
+          security find-identity -v -p codesigning || true
           xcode-project use-profiles \
             --project ios/Runner.xcodeproj \
             --archive-method app-store \
@@ -89,6 +123,10 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
+        # Auto-distribute the processed build to the existing INTERNAL group.
+        # Internal testing needs NO App Review. Do NOT add external groups here.
+        beta_groups:
+          - deneme
 
   # İmzasız veya yalnızca derleme testi için basit iş akışı (CI smoke):
   ios-debug-build:

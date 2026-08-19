@@ -13,30 +13,42 @@ import 'package:device_preview/device_preview.dart';
 import 'package:gal/gal.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'app_state.dart';
+import 'design_system/design_system.dart';
 import 'services/auth_service.dart' show firebaseAuthUserMessage;
 import 'config/backend_config.dart';
+import 'config/feature_flags.dart';
+import 'config/feedback_reactions.dart';
 import 'services/api_session.dart' show ApiSession;
 import 'services/railway_backend_sync.dart';
 import 'firebase_options.dart';
 import 'l10n/app_localizations.dart';
+import 'models/community_feedback_summary.dart';
 import 'models/feedback_entry.dart';
 import 'models/feedback_link.dart';
 import 'models/audience_score.dart';
 import 'models/user_profile.dart';
 import 'screens/premium_screen.dart';
 import 'screens/settings_screen.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import 'services/report_service.dart';
+import 'services/community_summary_store.dart';
+import 'services/submitted_marker.dart';
+import 'services/version_gate.dart';
+import 'widgets/insights/community_summary_v2.dart';
+import 'widgets/insights/comment_card.dart';
+import 'widgets/profile/profile_header.dart';
+import 'widgets/profile/link_history_card.dart';
+import 'widgets/splash/feedback_splash_view.dart';
 import 'widgets/app_onboarding.dart';
 import 'widgets/audience_score_widgets.dart';
 import 'widgets/creator_intelligence_report_view.dart';
 import 'widgets/creator_survey_section.dart';
-import 'theme/app_theme.dart';
 import 'theme/feedback_material_theme.dart';
 import 'widgets/feedback_link_tile.dart';
-import 'widgets/link_plan_banner.dart';
+import 'widgets/link_validity_countdown.dart';
 import 'package:feedback_to_me/utils/reload_stub.dart' if (dart.library.html) 'package:feedback_to_me/utils/reload_web.dart' as reload_util;
 import 'package:feedback_to_me/utils/link_create_error.dart';
 import 'package:feedback_to_me/utils/unwrap_web_future_error.dart';
@@ -315,6 +327,40 @@ class _WebInitWrapperState extends State<_WebInitWrapper> {
 }
 
 /// İlk açılışta onboarding; tamamlanınca veya atlanınca normal akış.
+/// Paylaşılan feedback linki (`.../f/<code>`) ile açıldıysa kodu döndürür.
+/// Backend/router değişmez; yalnızca launch URL'i istemci tarafında okunur.
+/// Path stratejisi (`/f/x`) ve hash stratejisi (`#/f/x`) desteklenir.
+String? _feedbackDeepLinkCode() {
+  if (!kIsWeb) return null;
+  try {
+    String? fromSegments(List<String> segs) {
+      final i = segs.indexWhere((s) => s.toLowerCase() == 'f');
+      if (i != -1 && i + 1 < segs.length) {
+        final c = segs[i + 1].trim();
+        return c.isEmpty ? null : c;
+      }
+      return null;
+    }
+
+    final uri = Uri.base;
+    final direct = fromSegments(uri.pathSegments);
+    if (direct != null) return direct;
+
+    final frag = uri.fragment;
+    if (frag.isNotEmpty) {
+      final fragUri =
+          Uri.tryParse(frag.startsWith('/') ? frag.substring(1) : frag);
+      if (fragUri != null) {
+        final f = fromSegments(fragUri.pathSegments);
+        if (f != null) return f;
+      }
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 class _AppLaunchGate extends StatefulWidget {
   const _AppLaunchGate();
 
@@ -324,10 +370,12 @@ class _AppLaunchGate extends StatefulWidget {
 
 class _AppLaunchGateState extends State<_AppLaunchGate> {
   bool? _onboardingDone;
+  String? _deepLinkCode;
 
   @override
   void initState() {
     super.initState();
+    _deepLinkCode = _feedbackDeepLinkCode();
     _load();
   }
 
@@ -345,18 +393,103 @@ class _AppLaunchGateState extends State<_AppLaunchGate> {
 
   @override
   Widget build(BuildContext context) {
+    // Paylaşılan feedback linki: onboarding/giriş atlanır, doğrudan public akış.
+    // (Feedback vermek anonim; owner girişi gerekmez.)
+    if (_deepLinkCode != null) {
+      return FeedbackFormScreen(linkCode: _deepLinkCode);
+    }
     if (_onboardingDone == null) {
-      return Scaffold(
-        backgroundColor: const Color(0xFF141210),
-        body: Center(
-          child: CircularProgressIndicator(color: AppTheme.gold),
-        ),
-      );
+      return const FeedbackSplashView();
     }
     if (_onboardingDone == false) {
       return AppOnboarding(onFinished: _finishOnboarding);
     }
-    return const _AuthGate();
+    // Owner app: min-version gate (eski client cutover). Public feedback akışı
+    // yukarıda (_deepLinkCode) döndüğü için bu gate'ten GEÇMEZ.
+    return const _MinVersionGate(child: _AuthGate());
+  }
+}
+
+/// Owner app min-version gate (Phase 3/4 old-client cutover).
+/// [VersionGate] Firestore `appConfig/version`'ı okur; `kAppBuild` desteklenen
+/// minimumun altındaysa [_ForceUpdateScreen] gösterir. FAIL-OPEN: hata/offline
+/// → [child] (uygulama normal açılır). Yalnız owner app — public feedback değil.
+class _MinVersionGate extends StatefulWidget {
+  const _MinVersionGate({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_MinVersionGate> createState() => _MinVersionGateState();
+}
+
+class _MinVersionGateState extends State<_MinVersionGate> {
+  bool? _updateRequired; // null = kontrol ediliyor
+
+  @override
+  void initState() {
+    super.initState();
+    VersionGate.isUpdateRequired().then((v) {
+      if (mounted) setState(() => _updateRequired = v);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_updateRequired == null) return const FeedbackSplashView();
+    if (_updateRequired == true) return const _ForceUpdateScreen();
+    return widget.child;
+  }
+}
+
+/// "Güncelleme gerekli" bloklayıcı ekran (geri yok). Mağaza URL'sini açar.
+class _ForceUpdateScreen extends StatelessWidget {
+  const _ForceUpdateScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.huge),
+            Center(
+              child: Container(
+                width: 96,
+                height: 96,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  shape: BoxShape.circle,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.system_update_rounded,
+                    color: AppColors.onPrimary, size: 48),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'forceUpdateTitle'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'forceUpdateBody'),
+                style: AppType.body, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'forceUpdateCta'),
+              icon: Icons.system_update_rounded,
+              onPressed: () async {
+                final uri = VersionGate.storeUrl();
+                try {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } catch (_) {/* mağaza açılamazsa sessizce yut */}
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -410,92 +543,7 @@ class _AuthGateState extends State<_AuthGate> {
   @override
   Widget build(BuildContext context) {
     if (_user != null || _timedOut) return const LandingScreen();
-    return Scaffold(
-      backgroundColor: const Color(0xFF141210),
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const CircularProgressIndicator(color: Color(0xFFD4AF37)),
-            const SizedBox(height: 24),
-            Text(
-              L10n.get(context, 'loading'),
-              style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 18),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Koyu mistik arka plan: gece gökyüzü, yumuşak merkez ışığı.
-class _DarkMysticalBackground extends StatelessWidget {
-  const _DarkMysticalBackground({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Color(0xFF1a0a2e),
-            Color(0xFF0d0d1a),
-            Color(0xFF0a0a0d),
-          ],
-          stops: [0.0, 0.5, 1.0],
-        ),
-      ),
-      child: Stack(
-        children: [
-          // Yumuşak merkez ışığı (kristal / ay etkisi)
-          Positioned(
-            top: -80,
-            left: -80,
-            right: -80,
-            child: Container(
-              height: 280,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    const Color(0xFF2a1a4a).withOpacity(0.5),
-                    const Color(0xFF1a0a2e).withOpacity(0.2),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-/// AppBar başlığı: dar alanda kırpılmasın (Apple HIG: net başlık).
-class _AppBarBrandTitle extends StatelessWidget {
-  const _AppBarBrandTitle();
-
-  @override
-  Widget build(BuildContext context) {
-    final title = L10n.get(context, 'appTitle');
-    return FittedBox(
-      fit: BoxFit.scaleDown,
-      alignment: feedbackAppUsesIosTypography
-          ? Alignment.center
-          : Alignment.centerLeft,
-      child: Text(
-        title,
-        maxLines: 1,
-        style: Theme.of(context).appBarTheme.titleTextStyle,
-      ),
-    );
+    return const FeedbackSplashView();
   }
 }
 
@@ -504,7 +552,8 @@ class FeedbackToMeApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = buildFeedbackTheme();
+    // V2 global aydınlık tema (gerçek production varsayılanı).
+    final theme = buildFeedbackLightTheme();
 
     return ValueListenableBuilder<Locale?>(
       valueListenable: localeNotifier,
@@ -562,120 +611,148 @@ Future<void> _afterFirebaseLoginCloseSheet(BuildContext context, User? user) asy
 }
 
 /// Giriş: sadece Apple ve Google (ödeme App Store / Play Store'da).
+/// Giriş — V2 aydınlık. Auth handler'ları (Google/Apple + misafir) korunur.
 class LoginScreen extends StatelessWidget {
   const LoginScreen({super.key});
 
+  Future<void> _google(BuildContext context) async {
+    try {
+      final user = await authService.signInWithGoogle();
+      if (!context.mounted) return;
+      await _afterFirebaseLoginCloseSheet(context, user);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '${L10n.get(context, 'loginFailedGoogle')}: ${firebaseAuthUserMessage(e)}'),
+        ));
+      }
+    }
+  }
+
+  Future<void> _apple(BuildContext context) async {
+    try {
+      final user = await authService.signInWithApple();
+      if (!context.mounted) return;
+      await _afterFirebaseLoginCloseSheet(context, user);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              '${L10n.get(context, 'loginFailedApple')}: ${firebaseAuthUserMessage(e)}'),
+        ));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        title: Text(L10n.get(context, 'login')),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-          tooltip: L10n.get(context, 'back'),
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthAuth,
+      appBar: feedbackAppBar(context, title: L10n.get(context, 'login')),
+      body: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.h),
+            Center(
+              child: Container(
+                width: 76,
+                height: 76,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: AppRadius.rLarge,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.chat_bubble_rounded,
+                    color: AppColors.onPrimary, size: 38),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.m),
+            Text('Feedback2Me',
+                style: AppType.pageTitle, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            Text(L10n.get(context, 'login'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'loginSubtitle'),
+                style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            _AuthProviderButton(
+              label: L10n.get(context, 'loginGoogle'),
+              icon: Icons.g_mobiledata_rounded,
+              onPressed: () => _google(context),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _AuthProviderButton(
+              label: L10n.get(context, 'loginApple'),
+              icon: Icons.apple,
+              onPressed: () => _apple(context),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            Center(
+              child: FeedbackTextButton(
+                label: L10n.get(context, 'continueWithoutLogin'),
+                onPressed: () => Navigator.of(context).pop(false),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.m),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock_outline_rounded,
+                    size: 14, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Text(L10n.get(context, 'loginPrivacyNote'),
+                    style: AppType.caption),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
         ),
       ),
-      body: _DarkMysticalBackground(
-        child: SafeArea(
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 400),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const _AppBrand(),
-                          const SizedBox(height: 32),
-                          Text(
-                            L10n.get(context, 'loginSubtitle'),
-                            style: theme.textTheme.bodyMedium
-                                ?.copyWith(color: Colors.white70),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 32),
-                          FilledButton.icon(
-                            onPressed: () async {
-                              try {
-                                final user = await authService.signInWithGoogle();
-                                if (!context.mounted) return;
-                                await _afterFirebaseLoginCloseSheet(context, user);
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        '${L10n.get(context, 'loginFailedGoogle')}: '
-                                        '${firebaseAuthUserMessage(e)}',
-                                      ),
-                                    ),
-                                  );
-                                }
-                              }
-                            },
-                            icon: const Icon(Icons.g_mobiledata_rounded),
-                            label: Text(L10n.get(context, 'loginGoogle')),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              try {
-                                final user = await authService.signInWithApple();
-                                if (!context.mounted) return;
-                                await _afterFirebaseLoginCloseSheet(context, user);
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        '${L10n.get(context, 'loginFailedApple')}: '
-                                        '${firebaseAuthUserMessage(e)}',
-                                      ),
-                                    ),
-                                  );
-                                }
-                              }
-                            },
-                            icon: const Icon(Icons.apple),
-                            label: Text(L10n.get(context, 'loginApple')),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              side: BorderSide(
-                                  color: Colors.white.withOpacity(0.4)),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          TextButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            child: Text(L10n.get(context, 'continueWithoutLogin')),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
+    );
+  }
+}
+
+/// Giriş sağlayıcı butonu (beyaz yüzey + ikon + ortalı etiket).
+class _AuthProviderButton extends StatelessWidget {
+  const _AuthProviderButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.surface,
+      borderRadius: AppRadius.rMedium,
+      child: InkWell(
+        borderRadius: AppRadius.rMedium,
+        onTap: onPressed,
+        child: Container(
+          height: 54,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: AppRadius.rMedium,
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, color: AppColors.textPrimary, size: 24),
+              const SizedBox(width: 10),
+              Text(label,
+                  style: AppType.bodyStrong
+                      .copyWith(fontWeight: FontWeight.w700)),
+            ],
           ),
         ),
       ),
@@ -713,28 +790,7 @@ class _LandingScreenState extends State<LandingScreen> {
         }
         final dataOwner = effectiveDataOwnerId(uid);
         if (BackendConfig.isRailwayBackendConfigured && dataOwner == null) {
-          return Scaffold(
-            backgroundColor: Colors.transparent,
-            body: _DarkMysticalBackground(
-              child: SafeArea(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const CircularProgressIndicator(color: AppTheme.gold),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Sunucu oturumu açılıyor…',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.white70,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
+          return const FeedbackSplashView();
         }
         return StreamBuilder(
           stream: appData.userProfileStream(dataOwner!),
@@ -752,223 +808,353 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   Widget _buildLandingBody(BuildContext context, {required bool isLoggedIn, UserProfile? profile, String? uid}) {
-    return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: _DarkMysticalBackground(
-            child: SafeArea(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final content = _currentIndex == 0
-                      ? _buildHomeContent(isLoggedIn: isLoggedIn, uid: uid)
-                      : _ProfileTab(profile: profile, uid: uid);
-
-                  // Küçük Android ekranlarda taşmayı önlemek için Home sekmesi kaydırılabilir.
-                  if (_currentIndex == 0) {
-                    return SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: Align(
-                        alignment: Alignment.topCenter,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 520),
-                          child: content,
-                        ),
-                      ),
-                    );
-                  }
-
-                  return Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 520),
-                        child: content,
-                      ),
-                    ),
-                  );
-                },
-              ),
+    final isHome = _currentIndex == 0;
+    final lang = L10n.languageCodeForApp(context);
+    return Theme(
+      data: buildFeedbackLightTheme(),
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        appBar: AppBar(
+          backgroundColor: AppColors.background,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          scrolledUnderElevation: 0,
+          titleSpacing: AppSpacing.pageH,
+          title: const FeedbackBrandMark(),
+          actions: [
+            FeedbackLanguageSelector(
+              currentCode: lang,
+              onSelect: (c) => L10n.setLocale(Locale(c)),
             ),
-          ),
-          appBar: AppBar(
-            title: const _AppBarBrandTitle(),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.settings_outlined),
-                tooltip: L10n.get(context, 'settings'),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (ctx) => SettingsScreen(
-                        onOpenLogin: (c) {
-                          Navigator.of(c).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => const LoginScreen(),
-                            ),
-                          );
-                        },
+            const SizedBox(width: AppSpacing.s),
+            IconButton(
+              icon: const Icon(Icons.settings_outlined,
+                  color: AppColors.textSecondary),
+              tooltip: L10n.get(context, 'settings'),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (ctx) => SettingsScreen(
+                      onOpenLogin: (c) => Navigator.of(c).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const LoginScreen()),
                       ),
                     ),
-                  );
-                },
+                  ),
+                );
+              },
+            ),
+            if (isLoggedIn)
+              IconButton(
+                icon: const Icon(Icons.logout_rounded,
+                    color: AppColors.textSecondary),
+                tooltip: L10n.get(context, 'logout'),
+                onPressed: () async => authService.signOut(),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.login_rounded,
+                    color: AppColors.primary),
+                tooltip: L10n.get(context, 'login'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+                ),
               ),
-              Padding(
-                padding: EdgeInsets.only(
-                  right: feedbackAppUsesIosTypography ? 0 : 8,
+            const SizedBox(width: AppSpacing.s),
+          ],
+        ),
+        body: SafeArea(
+          child: isHome
+              ? SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.pageH, vertical: AppSpacing.l),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                          maxWidth: AppSpacing.maxWidthContent),
+                      child: _buildHomeContent(isLoggedIn: isLoggedIn, uid: uid),
+                    ),
+                  ),
+                )
+              // Profil V2 (aydınlık). Kendi ListView'ı kaydırılır.
+              : Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.pageH),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                          maxWidth: AppSpacing.maxWidthWide),
+                      child: _ProfileTab(profile: profile, uid: uid),
+                    ),
+                  ),
                 ),
-                child: _LinkTierHeaderBadge(
-                  isLoggedIn: isLoggedIn,
-                  profile: profile,
-                  compact: feedbackAppUsesIosTypography,
-                ),
+        ),
+        bottomNavigationBar: DecoratedBox(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            border: Border(top: BorderSide(color: AppColors.border)),
+          ),
+          child: BottomNavigationBar(
+            currentIndex: _currentIndex,
+            onTap: (index) => setState(() => _currentIndex = index),
+            backgroundColor: AppColors.surface,
+            elevation: 0,
+            type: BottomNavigationBarType.fixed,
+            selectedItemColor: AppColors.primary,
+            unselectedItemColor: AppColors.textSecondary,
+            items: [
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.home_rounded),
+                label: L10n.get(context, 'home'),
               ),
-              if (isLoggedIn)
-                IconButton(
-                  icon: const Icon(Icons.logout),
-                  onPressed: () async {
-                    await authService.signOut();
-                  },
-                  tooltip: L10n.get(context, 'logout'),
-                )
-              else if (feedbackAppUsesIosTypography)
-                IconButton(
-                  icon: const Icon(Icons.person_outline_rounded),
-                  tooltip: L10n.get(context, 'login'),
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const LoginScreen(),
-                      ),
-                    );
-                  },
-                )
-              else
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    );
-                  },
-                  icon: const Icon(Icons.login, size: 20),
-                  label: Text(L10n.get(context, 'login')),
-                ),
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.person_rounded),
+                label: L10n.get(context, 'profile'),
+              ),
             ],
           ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
-        items: [
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.home_outlined),
-            label: L10n.get(context, 'home'),
-          ),
-          BottomNavigationBarItem(
-            icon: const Icon(Icons.person_outline),
-            label: L10n.get(context, 'profile'),
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildHomeContent({required bool isLoggedIn, String? uid}) {
-    final ios = feedbackAppUsesIosTypography;
-    final cardPad = ios ? 24.0 : 20.0;
     final oid = uid != null ? effectiveDataOwnerId(uid) : null;
+    if (!isLoggedIn || oid == null) {
+      return const _GuestHomeV2();
+    }
+    return StreamBuilder<List<FeedbackLink>>(
+      stream: appData.linksForOwnerStream(oid),
+      builder: (context, linksSnap) {
+        final links = linksSnap.data ?? [];
+        final activeLink = links.cast<FeedbackLink?>().firstWhere(
+              (l) => l!.acceptsPublicFeedback,
+              orElse: () => null,
+            );
+        if (activeLink != null) {
+          return _ActiveLinkHomeCard(
+              link: activeLink, uid: uid!, ownerId: oid, cardPad: 20);
+        }
+        final latest = links.isNotEmpty ? links.first : null;
+        final expired =
+            (latest != null && latest.isPastValidWindow) ? latest : null;
+        if (expired != null) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Süresi dolan link final özeti (V2 light-token).
+              _LinkSummaryCard(
+                key: ValueKey('sum-final-${expired.id}'),
+                link: expired,
+                ownerId: oid,
+                cardPad: 20,
+                isExpired: true,
+                cacheable: true,
+              ),
+              const SizedBox(height: AppSpacing.m),
+              _LoggedInHomeV2(uid: uid!),
+            ],
+          );
+        }
+        return _LoggedInHomeV2(uid: uid!);
+      },
+    );
+  }
+}
 
+/// Misafir ana ekran V2 — hero + iki aksiyon kartı + "Nasıl çalışır" + güven.
+class _GuestHomeV2 extends StatelessWidget {
+  const _GuestHomeV2();
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
-      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _AppBrand(),
-        SizedBox(height: ios ? 28 : 24),
-        const _Tagline(),
-        SizedBox(height: ios ? 36 : 32),
-        if (isLoggedIn && oid != null)
-          StreamBuilder<List<FeedbackLink>>(
-            stream: appData.linksForOwnerStream(oid),
-            builder: (context, linksSnap) {
-              final links = linksSnap.data ?? [];
-              final activeLink = links.cast<FeedbackLink?>().firstWhere(
-                    (l) => l!.acceptsPublicFeedback,
-                    orElse: () => null,
-                  );
-
-              if (activeLink != null) {
-                return _ActiveLinkHomeCard(
-                  link: activeLink,
-                  uid: uid!,
-                  cardPad: cardPad,
-                );
-              }
-
-              return _CreateLinkHomeCard(
-                isLoggedIn: isLoggedIn,
-                uid: uid,
-                cardPad: cardPad,
-              );
-            },
-          )
-        else
-          _CreateLinkHomeCard(
-            isLoggedIn: isLoggedIn,
-            uid: uid,
-            cardPad: cardPad,
+        const SizedBox(height: AppSpacing.s),
+        Text(L10n.get(context, 'homeGreeting'), style: AppType.secondary),
+        const SizedBox(height: AppSpacing.xs),
+        Text(L10n.get(context, 'homeHeroTitle'), style: AppType.display),
+        const SizedBox(height: AppSpacing.s),
+        Text(L10n.get(context, 'homeHeroSubtitle'), style: AppType.body),
+        const SizedBox(height: AppSpacing.xl),
+        FeedbackFeatureCard(
+          icon: Icons.link_rounded,
+          title: L10n.get(context, 'homeCreateCardTitle'),
+          description: L10n.get(context, 'homeCreateCardDesc'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
           ),
-        SizedBox(height: ios ? 36 : 32),
-        const _FooterNote(),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        FeedbackFeatureCard(
+          icon: Icons.edit_note_rounded,
+          iconGradient: const LinearGradient(
+              colors: [AppColors.success, Color(0xFF2FB07A)]),
+          title: L10n.get(context, 'homeWriteCardTitle'),
+          description: L10n.get(context, 'homeWriteCardDesc'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+                builder: (_) => const FeedbackFormScreen()),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        const _HowItWorksV2(),
+        const SizedBox(height: AppSpacing.l),
+        const _TrustRowV2(),
+        const SizedBox(height: AppSpacing.m),
       ],
     );
   }
 }
 
-class _CreateLinkHomeCard extends StatelessWidget {
-  const _CreateLinkHomeCard({
-    required this.isLoggedIn,
-    required this.uid,
-    required this.cardPad,
-  });
-
-  final bool isLoggedIn;
-  final String? uid;
-  final double cardPad;
+/// Girişli kullanıcı, aktif link yokken — V2 karşılama + link oluştur.
+class _LoggedInHomeV2 extends StatelessWidget {
+  const _LoggedInHomeV2({required this.uid});
+  final String uid;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final ios = feedbackAppUsesIosTypography;
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(cardPad),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: AppSpacing.s),
+        Text(L10n.get(context, 'homeWelcomeBack'), style: AppType.pageTitle),
+        const SizedBox(height: AppSpacing.xs),
+        Text(L10n.get(context, 'homeWhatToDo'), style: AppType.secondary),
+        const SizedBox(height: AppSpacing.xl),
+        FeedbackFeatureCard(
+          icon: Icons.add_link_rounded,
+          title: L10n.get(context, 'homeCreateCardTitle'),
+          description: L10n.get(context, 'homeCreateCardDesc'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => CreateLinkScreenV2(uid: uid)),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        FeedbackFeatureCard(
+          icon: Icons.edit_note_rounded,
+          iconGradient: const LinearGradient(
+              colors: [AppColors.success, Color(0xFF2FB07A)]),
+          title: L10n.get(context, 'homeWriteCardTitle'),
+          description: L10n.get(context, 'homeWriteCardDesc'),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+                builder: (_) => const FeedbackFormScreen()),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xl),
+        const _HowItWorksV2(),
+        const SizedBox(height: AppSpacing.m),
+      ],
+    );
+  }
+}
+
+/// "Nasıl çalışır?" 4 adım (V2).
+class _HowItWorksV2 extends StatelessWidget {
+  const _HowItWorksV2();
+
+  @override
+  Widget build(BuildContext context) {
+    final steps = [
+      (Icons.link_rounded, L10n.get(context, 'stepCreate')),
+      (Icons.ios_share_rounded, L10n.get(context, 'stepShare')),
+      (Icons.forum_rounded, L10n.get(context, 'stepCollect')),
+      (Icons.auto_awesome_rounded, L10n.get(context, 'stepSummary')),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(L10n.get(context, 'howItWorks'), style: AppType.sectionTitle),
+        const SizedBox(height: AppSpacing.m),
+        Row(
           children: [
-            Text(
-              L10n.get(context, 'createLinkCardTitle'),
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
+            for (var i = 0; i < steps.length; i++) ...[
+              Expanded(
+                child: FeedbackStepItem(
+                    number: i + 1, icon: steps[i].$1, label: steps[i].$2),
               ),
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// Güven göstergeleri (Anonim · Hızlı · Güvenli).
+class _TrustRowV2 extends StatelessWidget {
+  const _TrustRowV2();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        FeedbackTrustChip(
+            label: L10n.get(context, 'trustAnonymous'),
+            icon: Icons.visibility_off_rounded),
+        FeedbackTrustChip(
+            label: L10n.get(context, 'trustFast'), icon: Icons.bolt_rounded),
+        FeedbackTrustChip(
+            label: L10n.get(context, 'trustSecure'),
+            icon: Icons.shield_rounded),
+      ],
+    );
+  }
+}
+
+/// Yeni link oluştur — V2 (Demo/Premium bilgi kartları). Mevcut `_createLink`
+/// akışını çağırır; tier'a backend karar verir (mantık değişmez).
+class CreateLinkScreenV2 extends StatelessWidget {
+  const CreateLinkScreenV2({super.key, required this.uid});
+  final String uid;
+
+  @override
+  Widget build(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthAuth,
+      appBar: feedbackAppBar(context, title: L10n.get(context, 'createLinkTitle')),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'createLinkV2Heading'),
+                style: AppType.pageTitle),
+            const SizedBox(height: AppSpacing.xs),
+            Text(L10n.get(context, 'createLinkV2Sub'), style: AppType.secondary),
+            const SizedBox(height: AppSpacing.xl),
+            _TierCard(
+              icon: Icons.science_rounded,
+              title: L10n.get(context, 'tierDemo'),
+              priceLabel: L10n.get(context, 'tierFree'),
+              features: [
+                L10n.get(context, 'tierDemoF1'),
+                L10n.get(context, 'tierDemoF2'),
+                L10n.get(context, 'tierDemoF3'),
+              ],
             ),
-            SizedBox(height: ios ? 12 : 8),
-            Text(
-              L10n.get(context, 'createLinkCardSubtitle'),
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.white.withValues(alpha: 0.82),
-              ),
+            const SizedBox(height: AppSpacing.m),
+            _TierCard(
+              icon: Icons.workspace_premium_rounded,
+              title: L10n.get(context, 'tierPremium'),
+              priceLabel: L10n.get(context, 'tierPaid'),
+              gradient: true,
+              features: [
+                L10n.get(context, 'tierPremiumF1'),
+                L10n.get(context, 'tierPremiumF2'),
+                L10n.get(context, 'tierPremiumF3'),
+              ],
             ),
-            SizedBox(height: ios ? 14 : 8),
-            Text(
-              L10n.get(context, 'createLinkTierHint'),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: Colors.white.withValues(alpha: 0.48),
-                height: 1.4,
-              ),
+            const SizedBox(height: AppSpacing.xl),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'createMyLink'),
+              trailingArrow: true,
+              onPressed: () => _createLink(context, uid),
             ),
-            SizedBox(height: ios ? 22 : 16),
-            _PrimaryActions(isLoggedIn: isLoggedIn, uid: uid),
+            const SizedBox(height: AppSpacing.xl),
           ],
         ),
       ),
@@ -976,576 +1162,517 @@ class _CreateLinkHomeCard extends StatelessWidget {
   }
 }
 
+/// Demo/Premium tier bilgi kartı.
+class _TierCard extends StatelessWidget {
+  const _TierCard({
+    required this.icon,
+    required this.title,
+    required this.priceLabel,
+    required this.features,
+    this.gradient = false,
+  });
+
+  final IconData icon;
+  final String title;
+  final String priceLabel;
+  final List<String> features;
+  final bool gradient;
+
+  @override
+  Widget build(BuildContext context) {
+    final onGrad = gradient;
+    final titleColor = onGrad ? AppColors.onPrimary : AppColors.textPrimary;
+    final featColor =
+        onGrad ? AppColors.onPrimary.withValues(alpha: 0.92) : AppColors.textPrimary;
+    return FeedbackCard(
+      gradient: gradient ? AppColors.primaryGradient : null,
+      shadow: gradient,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon,
+                  color: onGrad ? AppColors.onPrimary : AppColors.primary,
+                  size: 22),
+              const SizedBox(width: 8),
+              Text(title,
+                  style: AppType.cardTitle.copyWith(color: titleColor)),
+              const Spacer(),
+              FeedbackStatusBadge(
+                label: priceLabel,
+                tone: onGrad ? BadgeTone.neutral : BadgeTone.primary,
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          for (final f in features)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded,
+                      size: 17,
+                      color: onGrad ? AppColors.onPrimary : AppColors.success),
+                  const SizedBox(width: 8),
+                  Expanded(
+                      child: Text(f,
+                          style: AppType.secondary.copyWith(color: featColor))),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<void> _shareLink(BuildContext context, String url) async {
+  try {
+    await Share.share(url, subject: L10n.get(context, 'appTitle'));
+  } catch (_) {
+    Clipboard.setData(ClipboardData(text: url));
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+      );
+    }
+  }
+}
+
+/// Aktif link kartı: geri sayım + yorum sayısı + BÜYÜK "Paylaş" (asıl eylem) +
+/// tek satır canlı önizleme + "süre bitince özet" ipucu.
 class _ActiveLinkHomeCard extends StatelessWidget {
   const _ActiveLinkHomeCard({
     required this.link,
     required this.uid,
+    required this.ownerId,
     required this.cardPad,
   });
 
   final FeedbackLink link;
   final String uid;
+  final String ownerId;
   final double cardPad;
 
   @override
   Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Ana performans kartı (gradient)
+        FeedbackCard(
+          gradient: AppColors.primaryGradient,
+          shadow: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  FeedbackStatusBadge(
+                    label: L10n.get(context, 'profileV2Active'),
+                    tone: BadgeTone.neutral,
+                    dot: true,
+                  ),
+                  const Spacer(),
+                  if (link.validUntil != null)
+                    LinkValidityCountdown(
+                      validUntil: link.validUntil!,
+                      compact: true,
+                      foreground: AppColors.onPrimary,
+                    ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(L10n.get(context, 'homeLinkActive'),
+                  style: AppType.cardTitle.copyWith(color: AppColors.onPrimary)),
+              const SizedBox(height: 3),
+              Text(
+                link.shareUrl,
+                style: AppType.secondary
+                    .copyWith(color: AppColors.onPrimary.withValues(alpha: 0.85)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: AppSpacing.m),
+              StreamBuilder<List<FeedbackEntry>>(
+                stream: appData.feedbacksForLinkStream(link.id),
+                builder: (context, snap) {
+                  final count = snap.data?.length ?? 0;
+                  return FeedbackMetricCard(
+                    value: '$count',
+                    label: L10n.get(context, 'feedbacksShort'),
+                    icon: Icons.forum_rounded,
+                    onSurface: true,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.m),
+        FeedbackPrimaryButton(
+          label: L10n.get(context, 'shareLink'),
+          icon: Icons.ios_share_rounded,
+          onPressed: () => _shareLink(context, link.shareUrl),
+        ),
+        const SizedBox(height: AppSpacing.s),
+        Row(
+          children: [
+            Expanded(
+              child: FeedbackSecondaryButton(
+                label: L10n.get(context, 'copyLink'),
+                icon: Icons.copy_rounded,
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: link.shareUrl));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(width: AppSpacing.s),
+            Expanded(
+              child: FeedbackSecondaryButton(
+                label: L10n.get(context, 'newLink'),
+                icon: Icons.add_link_rounded,
+                onPressed: () => _createLink(context, uid),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.l),
+        FeedbackCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(L10n.get(context, 'homeSummaryHint'),
+                  style: AppType.caption),
+              const SizedBox(height: AppSpacing.s),
+              _LiveSummaryLine(link: link, ownerId: ownerId),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Aktif linkte tek satır canlı önizleme ("N kişi — çıkarım"); dokununca tam özet.
+class _LiveSummaryLine extends StatefulWidget {
+  const _LiveSummaryLine({required this.link, required this.ownerId});
+
+  final FeedbackLink link;
+  final String ownerId;
+
+  @override
+  State<_LiveSummaryLine> createState() => _LiveSummaryLineState();
+}
+
+class _LiveSummaryLineState extends State<_LiveSummaryLine> {
+  CommunityFeedbackSummary? _summary;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+  }
+
+  Future<void> _load() async {
+    if (mounted) setState(() => _loading = true);
+    try {
+      final lang = mounted ? L10n.languageCodeForApp(context) : 'tr';
+      final s = await reportService.generateCommunitySummary(
+        widget.ownerId,
+        linkId: widget.link.id,
+        languageCode: lang,
+      );
+      if (!mounted) return;
+      setState(() {
+        _summary = s;
+        _loading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _open() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AudienceAnalysisScreen(
+          ownerId: widget.ownerId,
+          linkId: widget.link.id,
+          cacheable: false,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Row(
+        children: [
+          const SizedBox(
+            width: 15,
+            height: 15,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, color: AppColors.primary),
+          ),
+          const SizedBox(width: 8),
+          Text(L10n.get(context, 'expiredSummaryPreparing'),
+              style: AppType.caption),
+        ],
+      );
+    }
+    final s = _summary;
+    if (s == null || s.feedbackCount == 0) {
+      return Row(
+        children: [
+          const Icon(Icons.chat_bubble_outline_rounded,
+              size: 16, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(L10n.get(context, 'homeNoFeedbackYet'),
+                style: AppType.secondary),
+          ),
+        ],
+      );
+    }
+    final line = s.headline.isNotEmpty
+        ? s.headline
+        : (s.mostMentioned.isNotEmpty
+            ? s.mostMentioned.first
+            : L10n.get(context, 'liveSummaryTitle'));
+    return InkWell(
+      onTap: _open,
+      borderRadius: AppRadius.rSmall,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            const Icon(Icons.auto_awesome_rounded,
+                size: 17, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(line,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.bodyStrong),
+            ),
+            const SizedBox(width: 6),
+            Text(L10n.get(context, 'expiredSummaryOpen'),
+                style: AppType.caption.copyWith(
+                    color: AppColors.primary, fontWeight: FontWeight.w700)),
+            const Icon(Icons.chevron_right_rounded,
+                size: 18, color: AppColors.primary),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Link özet kartı: aktifken "canlı özet" (yorum geldikçe), süre dolunca "final özet".
+/// Kısa çıkarımları (istek + gözlem) üretir; tam özete "Özeti gör" ile götürür.
+class _LinkSummaryCard extends StatefulWidget {
+  const _LinkSummaryCard({
+    super.key,
+    required this.link,
+    required this.ownerId,
+    required this.cardPad,
+    required this.isExpired,
+    this.cacheable = true,
+  });
+
+  final FeedbackLink link;
+  final String ownerId;
+  final double cardPad;
+
+  /// true: link süresi doldu → "final özet". false: aktif link → "canlı özet".
+  final bool isExpired;
+
+  /// true: özet cihazda önbelleğe alınır (final özet — bir kez üret).
+  /// false: her seferinde taze üret (canlı özet, yorum geldikçe).
+  final bool cacheable;
+
+  @override
+  State<_LinkSummaryCard> createState() => _LinkSummaryCardState();
+}
+
+class _LinkSummaryCardState extends State<_LinkSummaryCard> {
+  CommunityFeedbackSummary? _summary;
+  bool _loading = true;
+  bool _error = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+  }
+
+  Future<void> _load() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _error = false;
+      });
+    }
+    try {
+      CommunityFeedbackSummary? summary = widget.cacheable
+          ? await CommunitySummaryStore.instance.load(widget.link.id)
+          : null;
+      if (summary == null) {
+        final lang = mounted ? L10n.languageCodeForApp(context) : 'tr';
+        summary = await reportService.generateCommunitySummary(
+          widget.ownerId,
+          linkId: widget.link.id,
+          languageCode: lang,
+        );
+        if (widget.cacheable) {
+          await CommunitySummaryStore.instance.save(widget.link.id, summary);
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _summary = summary;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = true;
+      });
+    }
+  }
+
+  void _openSummary() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AudienceAnalysisScreen(
+          ownerId: widget.ownerId,
+          linkId: widget.link.id,
+          cacheable: widget.cacheable,
+        ),
+      ),
+    );
+  }
+
+  String _preview(BuildContext context, CommunityFeedbackSummary s) {
+    if (s.headline.isNotEmpty) return s.headline;
+    if (s.shortSummary.isNotEmpty) return s.shortSummary;
+    return L10n.get(context, 'summaryPreviewNone')
+        .replaceAll('{count}', '${s.feedbackCount}');
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    // Canlı özet + henüz yorum yok → kartı gizle (aktif link kartı zaten sayaç gösterir).
+    final s = _summary;
+    if (!_loading &&
+        !_error &&
+        s != null &&
+        !widget.isExpired &&
+        s.feedbackCount == 0) {
+      return const SizedBox.shrink();
+    }
     return Card(
       child: Padding(
-        padding: EdgeInsets.all(cardPad),
+        padding: EdgeInsets.all(widget.cardPad),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(Icons.link_rounded, color: theme.colorScheme.primary, size: 22),
+                Icon(
+                  widget.isExpired
+                      ? Icons.timer_off_outlined
+                      : Icons.insights_outlined,
+                  color: theme.colorScheme.primary,
+                  size: 22,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    L10n.get(context, 'homeLinkActive'),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                    L10n.get(
+                      context,
+                      widget.isExpired
+                          ? 'expiredSummaryTitle'
+                          : 'liveSummaryTitle',
                     ),
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
                   ),
+                ),
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.refresh, size: 20),
+                  tooltip: L10n.get(context, 'retry'),
+                  onPressed: _loading ? null : _load,
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            LinkPlanBanner(link: link),
-            const SizedBox(height: 12),
-            StreamBuilder<List<FeedbackEntry>>(
-              stream: appData.feedbacksForLinkStream(link.id),
-              builder: (context, snap) {
-                final count = snap.data?.length ?? 0;
-                return Row(
-                  children: [
-                    Icon(Icons.comment_outlined, size: 16, color: Colors.white70),
-                    const SizedBox(width: 6),
-                    Text(
-                      '$count ${L10n.get(context, 'feedbacksShort')}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+            const SizedBox(height: 10),
+            if (_loading)
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      L10n.get(context, 'expiredSummaryPreparing'),
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: AppColors.textSecondary),
                     ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            SelectableText(
-              link.shareUrl,
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: link.shareUrl));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
-                      );
-                    },
-                    icon: const Icon(Icons.copy_rounded, size: 18),
-                    label: Text(L10n.get(context, 'copyLink')),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _createLink(context, uid),
-                    icon: const Icon(Icons.add_link, size: 18),
-                    label: Text(L10n.get(context, 'newLink')),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _AppBrand extends StatelessWidget {
-  const _AppBrand();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 48,
-          height: 48,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppTheme.goldDark, AppTheme.gold],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.gold.withOpacity(0.35),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: const Icon(
-            Icons.feedback_rounded,
-            color: Color(0xFF1C1917),
-            size: 26,
-          ),
-        ),
-        const SizedBox(width: 14),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              L10n.get(context, 'appTitle'),
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
-                color: Colors.white.withOpacity(0.98),
-              ),
-            ),
-            Text(
-              L10n.get(context, 'appSubtitle'),
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.white.withOpacity(0.65),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _Tagline extends StatelessWidget {
-  const _Tagline();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      L10n.get(context, 'tagline'),
-      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            height: 1.4,
-            color: Colors.white.withOpacity(0.9),
-          ),
-    );
-  }
-}
-
-class _PrimaryActions extends StatelessWidget {
-  const _PrimaryActions({this.isLoggedIn = false, this.uid});
-
-  final bool isLoggedIn;
-  final String? uid;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        if (isLoggedIn && uid != null)
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () => _createLink(context, uid!),
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: Text(
-                L10n.get(context, 'newLink'),
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          )
-        else
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () async {
-                final loggedIn = await Navigator.of(context).push<bool>(
-                  MaterialPageRoute(
-                    builder: (_) => const LoginScreen(),
-                  ),
-                );
-                if (!context.mounted) return;
-                // Girişten hemen sonra link oluşturma: demo hakkı bitmiş kullanıcıda
-                // createLink → premium Snackbar; kullanıcı bunu "giriş olmadı" sanıyor.
-                // Link, giriş sonrası "Yeni link oluştur" ile ayrı adımda istenir.
-                if (loggedIn ?? false) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          L10n.get(context, 'afterLoginUseNewLinkButton'),
-                        ),
-                      ),
-                    );
-                  });
-                }
-              },
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              child: Text(
-                L10n.get(context, 'premiumAndCreateLink'),
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          ),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const FeedbackFormScreen(),
-                ),
-              );
-            },
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              side: BorderSide(
-                color: Colors.white.withOpacity(0.4),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-            ),
-            child: Text(
-              L10n.get(context, 'writeFeedbackFromLink'),
-              style: TextStyle(fontSize: 16),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _FooterNote extends StatelessWidget {
-  const _FooterNote();
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      '${L10n.get(context, 'footerPremium')}\n${L10n.get(context, 'footerGuests')}',
-      style: const TextStyle(
-        fontSize: 12,
-        color: Colors.white60,
-      ),
-      textAlign: TextAlign.left,
-    );
-  }
-}
-
-/// Üst çubuk: aktif premium veya link kredisi → Premium; ücretsiz demo → Demo; demo bitti → satın alma.
-Future<void> _showFreeDemoSheet(BuildContext context, {required bool isLoggedIn}) async {
-  final theme = Theme.of(context);
-  await showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: const Color(0xFF1a1a1f),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (sheetCtx) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                L10n.get(sheetCtx, 'demoSheetTitle'),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                L10n.get(
-                  sheetCtx,
-                  isLoggedIn ? 'demoSheetBodyLoggedIn' : 'demoSheetBodyGuest',
-                ),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 22),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(sheetCtx).pop();
-                  if (isLoggedIn) {
-                    Navigator.of(context).push<void>(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const PremiumScreen(),
-                      ),
-                    );
-                  } else {
-                    Navigator.of(context).push<void>(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const LoginScreen(),
-                      ),
-                    );
-                  }
-                },
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                child: Text(
-                  L10n.get(
-                    sheetCtx,
-                    isLoggedIn ? 'demoSheetGoPremium' : 'demoSheetLoginFirst',
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.of(sheetCtx).pop(),
-                child: Text(L10n.get(sheetCtx, 'close')),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
-
-Future<void> _showLinkCreditSheet(BuildContext context) async {
-  final theme = Theme.of(context);
-  await showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: const Color(0xFF1a1a1f),
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-    ),
-    builder: (sheetCtx) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                L10n.get(sheetCtx, 'creditSheetTitle'),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                L10n.get(sheetCtx, 'creditSheetBody'),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.white70,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 22),
-              FilledButton(
-                onPressed: () {
-                  Navigator.of(sheetCtx).pop();
-                  Navigator.of(context).push<void>(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const PremiumScreen(),
-                    ),
-                  );
-                },
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                ),
-                child: Text(L10n.get(sheetCtx, 'creditSheetOpenPremium')),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => Navigator.of(sheetCtx).pop(),
-                child: Text(L10n.get(sheetCtx, 'close')),
-              ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
-
-class _LinkTierHeaderBadge extends StatelessWidget {
-  const _LinkTierHeaderBadge({
-    required this.isLoggedIn,
-    this.profile,
-    this.compact = false,
-  });
-
-  final bool isLoggedIn;
-  final UserProfile? profile;
-
-  /// iOS AppBar: metin yerine ikon + tooltip (HIG: 44pt hedef, taşma yok).
-  final bool compact;
-
-  static const Color _demoOrange = Color(0xFFEA580C);
-  static const Color _demoBg = Color(0x1FEA580C);
-  static const Color _slate = Color(0xFF94A3B8);
-  static const Color _slateBg = Color(0x1F94A3B8);
-
-  @override
-  Widget build(BuildContext context) {
-    final p = profile;
-    final premiumEligible = isLoggedIn &&
-        (p?.hasActivePremium == true || (p?.paidLinkCredits ?? 0) > 0);
-    final needCredit = isLoggedIn &&
-        p != null &&
-        p.freeDemoLinkUsed &&
-        !premiumEligible;
-
-    late final Color borderColor;
-    late final Color fg;
-    late final Color bg;
-    late final String label;
-    late final String tip;
-    late final IconData icon;
-    VoidCallback? onTap;
-
-    if (premiumEligible) {
-      borderColor = AppTheme.gold;
-      fg = AppTheme.gold;
-      bg = AppTheme.gold.withValues(alpha: 0.14);
-      label = L10n.get(context, 'headerBadgePremium');
-      final n = p?.paidLinkCredits ?? 0;
-      tip = n > 0
-          ? '${L10n.get(context, 'headerBadgePremiumTooltip')} (${L10n.get(context, 'linkCreditsCount')}: $n)'
-          : L10n.get(context, 'headerBadgePremiumTooltip');
-      icon = Icons.workspace_premium_rounded;
-      onTap = null;
-    } else if (needCredit) {
-      borderColor = _slate;
-      fg = _slate;
-      bg = _slateBg;
-      label = L10n.get(context, 'headerBadgeNeedCredit');
-      tip = L10n.get(context, 'headerBadgeNeedCreditTooltip');
-      icon = Icons.shopping_cart_outlined;
-      onTap = () => _showLinkCreditSheet(context);
-    } else {
-      borderColor = _demoOrange;
-      fg = _demoOrange;
-      bg = _demoBg;
-      label = L10n.get(context, 'headerBadgeDemo');
-      tip = L10n.get(context, 'headerBadgeDemoTooltip');
-      icon = Icons.timer_outlined;
-      onTap = () => _showFreeDemoSheet(context, isLoggedIn: isLoggedIn);
-    }
-
-    if (compact) {
-      final semanticsLabel = '$label. $tip';
-      if (onTap == null) {
-        return Semantics(
-          label: semanticsLabel,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: bg,
-                border: Border.all(color: borderColor.withValues(alpha: 0.85)),
-              ),
-              child: Icon(icon, size: 18, color: fg),
-            ),
-          ),
-        );
-      }
-      return Semantics(
-        label: semanticsLabel,
-        button: true,
-        child: Tooltip(
-          message: '$label\n$tip',
-          child: IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            style: IconButton.styleFrom(
-              backgroundColor: bg,
-              foregroundColor: fg,
-              side: BorderSide(color: borderColor.withValues(alpha: 0.85)),
-              shape: const CircleBorder(),
-            ),
-            icon: Icon(icon, size: 20),
-            onPressed: onTap,
-          ),
-        ),
-      );
-    }
-
-    return Tooltip(
-      message: tip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(999),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: borderColor.withValues(alpha: 0.85)),
-              color: bg,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, size: 16, color: fg),
-                const SizedBox(width: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: fg,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                  ),
-                ),
-                if (onTap != null) ...[
-                  const SizedBox(width: 2),
-                  Icon(Icons.expand_more_rounded, size: 18, color: fg),
                 ],
-              ],
-            ),
-          ),
+              )
+            else if (_error)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    L10n.get(context, 'expiredSummaryError'),
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: Text(L10n.get(context, 'retry')),
+                  ),
+                ],
+              )
+            else ...[
+              Text(
+                _preview(context, _summary!),
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: AppColors.textSecondary, height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _openSummary,
+                  icon: const Icon(Icons.list_alt_rounded, size: 18),
+                  label: Text(L10n.get(context, 'expiredSummaryOpen')),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -1619,7 +1746,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                   Text(
                     L10n.get(context, 'createProfileSubtitle'),
                     style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.white70),
+                        ?.copyWith(color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 24),
                   TextField(
@@ -1656,7 +1783,7 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
                   Text(
                     L10n.get(context, 'createProfileNote'),
                     style: theme.textTheme.bodySmall
-                        ?.copyWith(color: Colors.white60),
+                        ?.copyWith(color: AppColors.textSecondary),
                   ),
                 ],
               ),
@@ -1860,100 +1987,134 @@ class CreatedLinkScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(L10n.get(context, 'yourLinks'))),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        L10n.get(context, 'linkCreated'),
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
-                      const SizedBox(height: 12),
-                      LinkPlanBanner(link: link),
-                      const SizedBox(height: 12),
-                      SelectableText(
-                        link.shareUrl,
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodyMedium
-                            ?.copyWith(color: Colors.white70),
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () async {
-                          await Clipboard.setData(ClipboardData(text: link.shareUrl));
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
-                          );
-                        },
-                        icon: const Icon(Icons.copy),
-                        label: Text(L10n.get(context, 'linkCopied')),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: () async {
-                          await Share.share(link.shareUrl);
-                        },
-                        icon: const Icon(Icons.share_outlined),
-                        label: Text(L10n.get(context, 'shareLink')),
-                      ),
-                      if (link.isDemoTier) ...[
-                        const SizedBox(height: 20),
-                        Divider(color: Colors.white.withValues(alpha: 0.12)),
-                        const SizedBox(height: 12),
-                        Text(
-                          L10n.get(context, 'createdLinkPremiumPitch'),
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
-                              ?.copyWith(color: Colors.white60, height: 1.4),
-                        ),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push<void>(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const PremiumScreen(),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.workspace_premium_outlined),
-                          label: Text(L10n.get(context, 'createdLinkOpenPremium')),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Theme.of(context).colorScheme.primary,
-                            side: BorderSide(
-                              color: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .withValues(alpha: 0.7),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+    final demo = link.isDemoTier;
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context, title: L10n.get(context, 'yourLinks')),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.l),
+            Center(
+              child: Container(
+                width: 72,
+                height: 72,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  shape: BoxShape.circle,
+                  boxShadow: AppShadows.primaryGlow,
                 ),
+                child: const Icon(Icons.check_rounded,
+                    color: AppColors.onPrimary, size: 40),
               ),
             ),
-          ),
+            const SizedBox(height: AppSpacing.m),
+            Text(L10n.get(context, 'linkCreatedV2Title'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'linkCreatedV2Sub'),
+                style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xl),
+            FeedbackCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      FeedbackStatusBadge(
+                        label: demo
+                            ? L10n.get(context, 'tierDemo')
+                            : L10n.get(context, 'tierPremium'),
+                        tone: demo ? BadgeTone.neutral : BadgeTone.primary,
+                      ),
+                      const Spacer(),
+                      Icon(
+                          demo
+                              ? Icons.science_rounded
+                              : Icons.workspace_premium_rounded,
+                          color: AppColors.primary,
+                          size: 20),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  SelectableText(link.shareUrl, style: AppType.bodyStrong),
+                  const SizedBox(height: AppSpacing.sm),
+                  Row(
+                    children: [
+                      _tierInfo(
+                          Icons.schedule_rounded,
+                          demo
+                              ? L10n.get(context, 'tierDemoF1')
+                              : L10n.get(context, 'tierPremiumF1')),
+                      const SizedBox(width: AppSpacing.m),
+                      _tierInfo(
+                          Icons.forum_rounded,
+                          demo
+                              ? L10n.get(context, 'tierDemoF2')
+                              : L10n.get(context, 'tierPremiumF2')),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.m),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'shareLink'),
+              icon: Icons.ios_share_rounded,
+              onPressed: () => Share.share(link.shareUrl),
+            ),
+            const SizedBox(height: AppSpacing.s),
+            FeedbackSecondaryButton(
+              label: L10n.get(context, 'copyLink'),
+              icon: Icons.copy_rounded,
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: link.shareUrl));
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+                );
+              },
+            ),
+            if (demo) ...[
+              const SizedBox(height: AppSpacing.l),
+              FeedbackCard(
+                color: AppColors.primarySoft,
+                shadow: false,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(L10n.get(context, 'createdLinkPremiumPitch'),
+                        style: AppType.secondary),
+                    const SizedBox(height: AppSpacing.sm),
+                    FeedbackSecondaryButton(
+                      label: L10n.get(context, 'createdLinkOpenPremium'),
+                      icon: Icons.workspace_premium_rounded,
+                      onPressed: () => Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const PremiumScreen()),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.xl),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _tierInfo(IconData icon, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: AppColors.textSecondary),
+        const SizedBox(width: 5),
+        Text(label, style: AppType.caption),
+      ],
     );
   }
 }
@@ -1986,7 +2147,7 @@ Future<void> _createReport(BuildContext context, String linkId) async {
                   const SizedBox(height: 8),
                   Text(
                     report.sentimentLine!,
-                    style: const TextStyle(fontSize: 13, color: Colors.white70),
+                    style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                   ),
                 ],
                 if (report.summary != null) ...[
@@ -2042,7 +2203,7 @@ Future<void> _createReport(BuildContext context, String linkId) async {
                 const SizedBox(height: 8),
                 Text(
                   L10n.get(context, 'reportMoreDetail'),
-                  style: const TextStyle(fontSize: 12, color: Colors.white54),
+                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                 ),
               ],
             ),
@@ -2100,7 +2261,7 @@ class DashboardScreen extends StatelessWidget {
           title: Text(L10n.get(context, 'dashboardTitle')),
         ),
         body: const Center(
-          child: CircularProgressIndicator(color: AppTheme.gold),
+          child: CircularProgressIndicator(color: AppColors.primary),
         ),
       );
     }
@@ -2153,7 +2314,7 @@ class DashboardScreen extends StatelessWidget {
                                     Text(
                                       handleText,
                                       style: theme.textTheme.bodySmall
-                                          ?.copyWith(color: Colors.white70),
+                                          ?.copyWith(color: AppColors.textSecondary),
                                     ),
                                   const SizedBox(height: 4),
                                   Text(
@@ -2210,7 +2371,7 @@ class DashboardScreen extends StatelessWidget {
                                   Text(
                                     L10n.get(context, 'noLinksYet'),
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: Colors.white70,
+                                      color: AppColors.textSecondary,
                                     ),
                                   ),
                                 const SizedBox(height: 12),
@@ -2273,7 +2434,7 @@ class DashboardScreen extends StatelessWidget {
                                 Text(
                                   L10n.get(context, 'linksInfo'),
                                   style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: Colors.white54),
+                                      ?.copyWith(color: AppColors.textSecondary),
                                 ),
                               ],
                             ),
@@ -2304,7 +2465,7 @@ class DashboardScreen extends StatelessWidget {
                               '${L10n.get(context, 'comparePeriodsExampleTitle')}\n'
                               '${L10n.get(context, 'comparePeriodsExampleBody')}',
                               style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.white70),
+                                  ?.copyWith(color: AppColors.textSecondary),
                             ),
                             const SizedBox(height: 12),
                             OutlinedButton.icon(
@@ -2337,36 +2498,358 @@ class _ProfileTab extends StatefulWidget {
   State<_ProfileTab> createState() => _ProfileTabState();
 }
 
+
 class _ProfileTabState extends State<_ProfileTab> {
+  @override
+  Widget build(BuildContext context) {
+    final profile = widget.profile;
+    final uid = widget.uid;
+    final oid = uid != null ? effectiveDataOwnerId(uid) : null;
+
+    if (uid == null) {
+      return ListView(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
+        children: [
+          const SizedBox(height: AppSpacing.h),
+          FeedbackEmptyState(
+            icon: Icons.person_outline_rounded,
+            title: L10n.get(context, 'profileV2SignedOutTitle'),
+            message: L10n.get(context, 'profileV2SignedOutBody'),
+            ctaLabel: L10n.get(context, 'login'),
+            onCta: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+            ),
+          ),
+        ],
+      );
+    }
+    if (oid == null) {
+      return const Center(child: FeedbackLoadingState());
+    }
+
+    return StreamBuilder<List<FeedbackLink>>(
+      stream: appData.linksForOwnerStream(oid),
+      builder: (context, snap) {
+        final hasError = snap.hasError;
+        final loading =
+            snap.connectionState == ConnectionState.waiting && !snap.hasData;
+        final links = snap.data ?? const <FeedbackLink>[];
+        final activeCount = links.where((l) => l.acceptsPublicFeedback).length;
+
+        return ListView(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
+          children: [
+            FeedbackProfileHeader(profile: profile),
+            const SizedBox(height: AppSpacing.l),
+            _ProfileActions(
+              onSettings: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (ctx) => SettingsScreen(
+                    onOpenLogin: (c) => Navigator.of(c).push(
+                      MaterialPageRoute<void>(
+                          builder: (_) => const LoginScreen()),
+                    ),
+                    developerToolsBuilder: kDebugMode
+                        ? (dctx) => DeveloperToolsScreen(ownerId: oid)
+                        : null,
+                  ),
+                ),
+              ),
+              onReports: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                    builder: (_) => const ReportAnalysisScreen()),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            if (!hasError) ...[
+              _ProfileMetrics(
+                  ownerId: oid,
+                  totalLinks: links.length,
+                  activeLinks: activeCount),
+              const SizedBox(height: AppSpacing.l),
+            ],
+            Text(L10n.get(context, 'profileV2Links'),
+                style: AppType.sectionTitle),
+            const SizedBox(height: AppSpacing.m),
+            if (hasError)
+              FeedbackErrorState(
+                message: L10n.get(context, 'profileV2LinksError'),
+                retryLabel: L10n.get(context, 'retry'),
+                onRetry: () => setState(() {}),
+              )
+            else if (loading) ...[
+              const _LinkSkeleton(),
+              const SizedBox(height: AppSpacing.sm),
+              const _LinkSkeleton(),
+            ] else if (links.isEmpty)
+              FeedbackEmptyState(
+                icon: Icons.link_rounded,
+                title: L10n.get(context, 'profileV2NoLinksTitle'),
+                message: L10n.get(context, 'profileV2NoLinksBody'),
+                ctaLabel: L10n.get(context, 'createLinkTitle'),
+                onCta: () => _createLink(context, uid),
+              )
+            else
+              ...links.map((l) => Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: _LinkHistoryTile(link: l, ownerId: oid),
+                  )),
+            const SizedBox(height: AppSpacing.l),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ProfileActions extends StatelessWidget {
+  const _ProfileActions({required this.onSettings, required this.onReports});
+  final VoidCallback onSettings;
+  final VoidCallback onReports;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: FeedbackSecondaryButton(
+            label: L10n.get(context, 'settings'),
+            icon: Icons.settings_outlined,
+            onPressed: onSettings,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.s),
+        Expanded(
+          child: FeedbackSecondaryButton(
+            label: L10n.get(context, 'profileV2Reports'),
+            icon: Icons.trending_up_rounded,
+            onPressed: onReports,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProfileMetrics extends StatefulWidget {
+  const _ProfileMetrics({
+    required this.ownerId,
+    required this.totalLinks,
+    required this.activeLinks,
+  });
+  final String ownerId;
+  final int totalLinks;
+  final int activeLinks;
+
+  @override
+  State<_ProfileMetrics> createState() => _ProfileMetricsState();
+}
+
+class _ProfileMetricsState extends State<_ProfileMetrics> {
+  int? _totalFeedback;
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_ProfileMetrics old) {
+    super.didUpdateWidget(old);
+    if (old.ownerId != widget.ownerId) {
+      setState(() {
+        _totalFeedback = null;
+        _done = false;
+      });
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    try {
+      final n = await appData
+          .countAllFeedbacksForOwner(widget.ownerId)
+          .timeout(const Duration(seconds: 12));
+      if (mounted) setState(() {
+        _totalFeedback = n;
+        _done = true;
+      });
+    } catch (_) {
+      // Timeout/hata → sonsuz spinner yerine "—" (sahte sayı gösterme).
+      if (mounted) setState(() => _done = true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: FeedbackMetricCard(
+            value: '${widget.totalLinks}',
+            label: L10n.get(context, 'profileV2TotalLinks'),
+            icon: Icons.link_rounded,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: FeedbackMetricCard(
+            value: _totalFeedback?.toString() ?? '—',
+            loading: !_done,
+            label: L10n.get(context, 'profileV2TotalFeedback'),
+            icon: Icons.forum_rounded,
+          ),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: FeedbackMetricCard(
+            value: '${widget.activeLinks}',
+            label: L10n.get(context, 'profileV2ActiveLinks'),
+            icon: Icons.bolt_rounded,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Link kartı — feedback sayısını bir kez çeker (kalıcı listener değil).
+class _LinkHistoryTile extends StatefulWidget {
+  const _LinkHistoryTile({required this.link, required this.ownerId});
+  final FeedbackLink link;
+  final String ownerId;
+
+  @override
+  State<_LinkHistoryTile> createState() => _LinkHistoryTileState();
+}
+
+class _LinkHistoryTileState extends State<_LinkHistoryTile> {
+  int? _count;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final n = await appData.feedbackCountForLink(widget.link.id);
+      if (mounted) setState(() => _count = n);
+    } catch (_) {}
+  }
+
+  void _openSummary() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AudienceAnalysisScreen(
+          ownerId: widget.ownerId,
+          linkId: widget.link.id,
+          cacheable: true,
+        ),
+      ),
+    );
+  }
+
+  void _openComments() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _AllCommentsScreen(
+          linkId: widget.link.id,
+          title: L10n.get(context, 'commentsTitle'),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final link = widget.link;
+    return LinkHistoryCard(
+      link: link,
+      feedbackCount: _count,
+      onShare: () => _shareLink(context, link.shareUrl),
+      onCopy: () async {
+        await Clipboard.setData(ClipboardData(text: link.shareUrl));
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(L10n.get(context, 'linkCopied'))),
+        );
+      },
+      onSummary: _openSummary,
+      onComments: _openComments,
+      onTap: link.acceptsPublicFeedback ? null : _openSummary,
+    );
+  }
+}
+
+class _LinkSkeleton extends StatelessWidget {
+  const _LinkSkeleton();
+
+  @override
+  Widget build(BuildContext context) {
+    Widget bar(double w, double h) => Container(
+          width: w,
+          height: h,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceSecondary,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        );
+    return FeedbackCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          bar(90, 20),
+          const SizedBox(height: 14),
+          bar(160, 14),
+          const SizedBox(height: 10),
+          bar(double.infinity, 12),
+          const SizedBox(height: 16),
+          bar(double.infinity, 48),
+        ],
+      ),
+    );
+  }
+}
+
+/// Debug-only geliştirici araçları (örnek/bot yorum tohumlama + havuz).
+/// Yalnızca kDebugMode'da profilden erişilir; release widget tree'sinde YOK.
+class DeveloperToolsScreen extends StatefulWidget {
+  const DeveloperToolsScreen({super.key, required this.ownerId});
+  final String ownerId;
+
+  @override
+  State<DeveloperToolsScreen> createState() => _DeveloperToolsScreenState();
+}
+
+class _DeveloperToolsScreenState extends State<DeveloperToolsScreen> {
   int _refreshTick = 0;
   int _bulkTarget = 1000;
 
-  void _refreshPool() {
-    setState(() => _refreshTick++);
-  }
+  void _refreshPool() => setState(() => _refreshTick++);
 
-  Future<void> _runBulkSeed(BuildContext context, String ownerId) async {
+  Future<void> _runBulkSeed() async {
+    final ownerId = widget.ownerId;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(L10n.get(context, 'bulkTestDataTitle')),
-        content: Text(
-          L10n.get(context, 'bulkTestDataBody').replaceAll('{n}', '$_bulkTarget'),
-        ),
+        content: Text(L10n.get(context, 'bulkTestDataBody')
+            .replaceAll('{n}', '$_bulkTarget')),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(L10n.get(context, 'cancel')),
-          ),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(L10n.get(context, 'cancel'))),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(L10n.get(context, 'yes')),
-          ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(L10n.get(context, 'yes'))),
         ],
       ),
     );
-    if (ok != true || !context.mounted) return;
-
+    if (ok != true || !mounted) return;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -2386,13 +2869,10 @@ class _ProfileTabState extends State<_ProfileTab> {
         ),
       ),
     );
-
     try {
-      final written = await appData.seedBulkDemoFeedbacksForOwner(
-        ownerId,
-        count: _bulkTarget,
-      );
-      if (!context.mounted) return;
+      final written = await appData.seedBulkDemoFeedbacksForOwner(ownerId,
+          count: _bulkTarget);
+      if (!mounted) return;
       Navigator.of(context).pop();
       if (written == 0) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2401,647 +2881,115 @@ class _ProfileTabState extends State<_ProfileTab> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              L10n.get(context, 'snackCommentsAdded').replaceAll('{n}', '$written'),
-            ),
-          ),
+              content: Text(L10n.get(context, 'snackCommentsAdded')
+                  .replaceAll('{n}', '$written'))),
         );
         _refreshPool();
       }
     } catch (e) {
-      if (context.mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(L10n.get(context, 'errorGeneric').replaceAll('{e}', '$e')),
-          ),
-        );
-      }
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                L10n.get(context, 'errorGeneric').replaceAll('{e}', '$e'))),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final profile = widget.profile;
-    final uid = widget.uid;
-    final oid = uid != null ? effectiveDataOwnerId(uid) : null;
-    final theme = Theme.of(context);
-    final name = profile?.displayName ?? L10n.get(context, 'profileDefaultUser');
-    final initial = name.isNotEmpty ? name[0].toUpperCase() : 'F';
-
-    return ListView(
-      children: [
-        Text(
-          L10n.get(context, 'profileSectionTitle'),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: ListTile(
-            leading: CircleAvatar(child: Text(initial)),
-            title: Text(name),
-            subtitle: Text(
-              profile?.handle ?? L10n.get(context, 'profileEditHint'),
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          L10n.get(context, 'feedbackPoolSectionTitle'),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        if (kDebugMode && uid != null && oid != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Card(
-              color: const Color(0xFF1e293b),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      L10n.get(context, 'devSeedTitle'),
-                      style: theme.textTheme.titleSmall
-                          ?.copyWith(fontWeight: FontWeight.w700, color: const Color(0xFF94A3B8)),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      L10n.get(context, 'devSeedBody'),
-                      style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.tonalIcon(
-                      onPressed: () async {
-                        try {
-                          final n = await appData.seedDemoFeedbacksForOwner(oid);
-                          if (!context.mounted) return;
-                          if (n == 0) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(L10n.get(context, 'snackCreateLinkFirstLong')),
-                              ),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  L10n.get(context, 'snackSampleCommentsAdded')
-                                      .replaceAll('{n}', '$n'),
-                                ),
-                              ),
-                            );
-                            _refreshPool();
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  L10n.get(context, 'snackCouldNotAdd').replaceAll('{e}', '$e'),
-                                ),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      icon: const Icon(Icons.science_outlined),
-                      label: Text(L10n.get(context, 'devSeed12')),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Toplu bot yorumları',
-                            style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        DropdownButton<int>(
-                          value: _bulkTarget,
-                          items: const [
-                            DropdownMenuItem(value: 100, child: Text('100')),
-                            DropdownMenuItem(value: 250, child: Text('250')),
-                            DropdownMenuItem(value: 500, child: Text('500')),
-                            DropdownMenuItem(value: 1000, child: Text('1000')),
-                            DropdownMenuItem(value: 2000, child: Text('2000')),
-                            DropdownMenuItem(value: 3000, child: Text('3000')),
-                          ],
-                          onChanged: (v) {
-                            if (v != null) setState(() => _bulkTarget = v);
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => _runBulkSeed(context, oid!),
-                      icon: const Icon(Icons.smart_toy_outlined),
-                      label: Text(
-                        L10n.get(context, 'bulkBotGenerate').replaceAll('{n}', '$_bulkTarget'),
-                      ),
-                    ),
-                  ],
-                ),
+    // Debug aracı — koyu tema (V2 kapsamı dışı).
+    return Theme(
+      data: buildFeedbackTheme(),
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Developer Tools')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(L10n.get(context, 'devSeedTitle'),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(L10n.get(context, 'devSeedBody'),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.white70)),
+              const SizedBox(height: 12),
+              FilledButton.tonalIcon(
+                onPressed: () async {
+                  try {
+                    final n = await appData
+                        .seedDemoFeedbacksForOwner(widget.ownerId);
+                    if (!mounted) return;
+                    if (n == 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(
+                              L10n.get(context, 'snackCreateLinkFirstLong'))));
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(
+                              L10n.get(context, 'snackSampleCommentsAdded')
+                                  .replaceAll('{n}', '$n'))));
+                      _refreshPool();
+                    }
+                  } catch (e) {
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        content: Text(L10n.get(context, 'snackCouldNotAdd')
+                            .replaceAll('{e}', '$e'))));
+                  }
+                },
+                icon: const Icon(Icons.science_outlined),
+                label: Text(L10n.get(context, 'devSeed12')),
               ),
-            ),
-          ),
-        if (uid == null)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                'Yorum havuzunu görmek için giriş yapman gerekiyor.',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-              ),
-            ),
-          )
-        else if (BackendConfig.isRailwayBackendConfigured && oid == null)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          )
-        else
-          _FeedbackPoolCard(
-            ownerId: oid!,
-            refreshTick: _refreshTick,
-            onRefresh: _refreshPool,
-          ),
-        const SizedBox(height: 24),
-        if (uid == null) ...[
-          Text(
-            L10n.get(context, 'previousReports'),
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.description_outlined),
-              title: Text(L10n.get(context, 'noReportsYet')),
-              subtitle: Text(L10n.get(context, 'firstReportNote')),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            L10n.get(context, 'reportAnalysisTitle'),
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.trending_up_outlined),
-              title: Text(L10n.get(context, 'reportAnalysisTitle')),
-              subtitle: Text(
-                'Giriş yaptıktan sonra son analiz özetin ve gelişim kıyası burada görünür.',
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
-              ),
-            ),
-          ),
-        ] else if (BackendConfig.isRailwayBackendConfigured && oid == null)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          )
-        else
-          StreamBuilder<List<AudienceScoreSnapshot>>(
-            stream: appData.audienceScoreHistoryStream(
-              audienceRecordsOwnerKey(uid!, oid),
-              limit: 12,
-            ),
-            builder: (context, snap) {
-              final storageKey = audienceRecordsOwnerKey(uid!, oid);
-              Widget errorCard(String extra) => Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(Icons.error_outline,
-                                  color: Theme.of(context).colorScheme.error),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  extra,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.white70,
-                                    height: 1.35,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          SelectableText(
-                            snap.error.toString(),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              fontSize: 11,
-                              color: Colors.white38,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-
-              if (snap.hasError) {
-                final err = snap.error.toString();
-                final perm = err.contains('permission-denied');
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      L10n.get(context, 'previousReports'),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    errorCard(
-                      perm
-                          ? 'Kayıtlar yüklenemedi: Firestore güvenlik kuralları bu yolu reddediyor. '
-                              'Projede güncel `firestore.rules` dosyasını '
-                              '`firebase deploy --only firestore:rules` ile yayınlayın. '
-                              'Kurallarda `users/{userId}` altında `audienceScoreSnapshots` için '
-                              'okuma/yazma, `request.auth.uid == userId` olmalı.'
-                          : 'Kayıtlar yüklenemedi.',
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      L10n.get(context, 'reportAnalysisTitle'),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    errorCard('Özet kartları için analiz geçmişi gerekir.'),
-                  ],
-                );
-              }
-              if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      L10n.get(context, 'previousReports'),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      L10n.get(context, 'reportAnalysisTitle'),
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    const Card(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: CircularProgressIndicator()),
-                      ),
-                    ),
-                  ],
-                );
-              }
-              final history = snap.data ?? const <AudienceScoreSnapshot>[];
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              const SizedBox(height: 20),
+              Row(
                 children: [
-                  Text(
-                    L10n.get(context, 'previousReports'),
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                  Expanded(
+                    child: Text('Toplu bot yorumları',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleSmall
+                            ?.copyWith(fontWeight: FontWeight.w600)),
                   ),
-                  const SizedBox(height: 12),
-                  if (history.isEmpty)
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.description_outlined),
-                        title: Text(L10n.get(context, 'noReportsYet')),
-                        subtitle: Text(
-                          '${L10n.get(context, 'firstReportNote')} '
-                          '${L10n.get(context, 'firstReportExtraHint')}',
-                        ),
-                        trailing: TextButton(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => AudienceAnalysisScreen(ownerId: oid!),
-                              ),
-                            );
-                          },
-                          child: Text(L10n.get(context, 'runAnalysis')),
-                        ),
-                      ),
-                    )
-                  else
-                    Card(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    L10n.get(context, 'savedAnalysesLine')
-                                        .replaceAll('{n}', '${history.length}'),
-                                    style: theme.textTheme.labelMedium
-                                        ?.copyWith(color: Colors.white60),
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) => const ReportAnalysisScreen(),
-                                      ),
-                                    );
-                                  },
-                                  child: Text(L10n.get(context, 'growthAnalysisNav')),
-                                ),
-                              ],
-                            ),
-                          ),
-                          ...history.take(6).map((s) {
-                            final d = s.createdAt;
-                            final dateStr =
-                                '${d.day.toString().padLeft(2, '0')}.${d.month.toString().padLeft(2, '0')}.${d.year} '
-                                '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
-                            final idx = history.indexWhere((e) => e.id == s.id);
-                            final prev = (idx >= 0 && idx + 1 < history.length)
-                                ? history[idx + 1]
-                                : null;
-                            return ListTile(
-                              leading: const Icon(Icons.insert_chart_outlined),
-                              title: Text(dateStr),
-                              subtitle: Text(
-                                L10n.get(context, 'scoreOverallComments')
-                                    .replaceAll('{score}', '${s.scores.overall}')
-                                    .replaceAll('{count}', '${s.feedbackCount}'),
-                                style: theme.textTheme.bodySmall
-                                    ?.copyWith(color: Colors.white54),
-                              ),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => SavedAudienceReportScreen(
-                                      ownerId: storageKey,
-                                      snapshot: s,
-                                      previousSnapshot: prev,
-                                    ),
-                                  ),
-                                );
-                              },
-                            );
-                          }),
-                          if (history.length > 6)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: TextButton(
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => const ReportAnalysisScreen(),
-                                    ),
-                                  );
-                                },
-                                child: Text(L10n.get(context, 'allHistoryCompare')),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 24),
-                  Text(
-                    L10n.get(context, 'reportAnalysisTitle'),
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
-                  ),
-                  const SizedBox(height: 12),
-                  if (history.isEmpty)
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              L10n.get(context, 'comparePeriods'),
-                              style: theme.textTheme.titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w600),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              L10n.get(context, 'compareNoSavedBody'),
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.white60, height: 1.35),
-                            ),
-                            const SizedBox(height: 12),
-                            FilledButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        AudienceAnalysisScreen(ownerId: oid!),
-                                  ),
-                                );
-                              },
-                              child: Text(L10n.get(context, 'runFollowerAnalysis')),
-                            ),
-                            const SizedBox(height: 8),
-                            TextButton(
-                              onPressed: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => const ReportAnalysisScreen(),
-                                  ),
-                                );
-                              },
-                              child: Text(L10n.get(context, 'goGrowthScreen')),
-                            ),
-                          ],
-                        ),
-                      ),
-                    )
-                  else
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Text(
-                              L10n.get(context, 'lastAnalysisTitle'),
-                              style: theme.textTheme.titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              L10n.get(context, 'lastAnalysisBody'),
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.white54, height: 1.35),
-                            ),
-                            const SizedBox(height: 16),
-                            AudienceScoreSummaryCard(
-                              scores: history.first.scores,
-                              deltaFromPrevious: history.length >= 2
-                                  ? history.first.scores.overall -
-                                      history[1].scores.overall
-                                  : null,
-                            ),
-                            const SizedBox(height: 12),
-                            CreatorPerceptionPreviewCard(snapshot: history.first),
-                            const SizedBox(height: 12),
-                            AudienceGrowthComparisonCard(history: history),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () {
-                                      final latest = history.first;
-                                      final prev = history.length >= 2
-                                          ? history[1]
-                                          : null;
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) =>
-                                              SavedAudienceReportScreen(
-                                            ownerId: storageKey,
-                                            snapshot: latest,
-                                            previousSnapshot: prev,
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.article_outlined),
-                                    label: Text(L10n.get(context, 'fullReport')),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: FilledButton.icon(
-                                    onPressed: () {
-                                      Navigator.of(context).push(
-                                        MaterialPageRoute<void>(
-                                          builder: (_) =>
-                                              const ReportAnalysisScreen(),
-                                        ),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.trending_up),
-                                    label: Text(L10n.get(context, 'growthShort')),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-        const SizedBox(height: 24),
-        Text(
-          L10n.get(context, 'yourLinks'),
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
-        ),
-        const SizedBox(height: 12),
-        if (uid == null)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                L10n.get(context, 'noLinksYet'),
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-              ),
-            ),
-          )
-        else if (BackendConfig.isRailwayBackendConfigured && oid == null)
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          )
-        else
-          StreamBuilder<List<FeedbackLink>>(
-            stream: appData.linksForOwnerStream(oid!),
-            builder: (context, snap) {
-              final links = snap.data ?? [];
-              return Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              links.isEmpty
-                                  ? L10n.get(context, 'noLinksYet')
-                                  : '${links.length} ${L10n.get(context, 'yourLinks')}',
-                              style: theme.textTheme.bodySmall
-                                  ?.copyWith(color: Colors.white70),
-                            ),
-                          ),
-                          FilledButton.tonalIcon(
-                            onPressed: () => _createLink(context, uid!),
-                            icon: const Icon(Icons.add_link),
-                            label: Text(L10n.get(context, 'newLink')),
-                          ),
-                        ],
-                      ),
-                      if (links.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        ...links.map(
-                          (l) => Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
-                            child: FeedbackLinkTile(
-                              link: l,
-                              onAnalyze: (lid) {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => AudienceAnalysisScreen(
-                                      ownerId: oid!,
-                                      linkId: lid,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
+                  DropdownButton<int>(
+                    value: _bulkTarget,
+                    items: const [
+                      DropdownMenuItem(value: 100, child: Text('100')),
+                      DropdownMenuItem(value: 250, child: Text('250')),
+                      DropdownMenuItem(value: 500, child: Text('500')),
+                      DropdownMenuItem(value: 1000, child: Text('1000')),
+                      DropdownMenuItem(value: 2000, child: Text('2000')),
+                      DropdownMenuItem(value: 3000, child: Text('3000')),
                     ],
+                    onChanged: (v) {
+                      if (v != null) setState(() => _bulkTarget = v);
+                    },
                   ),
-                ),
-              );
-            },
+                ],
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _runBulkSeed,
+                icon: const Icon(Icons.smart_toy_outlined),
+                label: Text(L10n.get(context, 'bulkBotGenerate')
+                    .replaceAll('{n}', '$_bulkTarget')),
+              ),
+              const SizedBox(height: 24),
+              _FeedbackPoolCard(
+                ownerId: widget.ownerId,
+                refreshTick: _refreshTick,
+                onRefresh: _refreshPool,
+              ),
+            ],
           ),
-      ],
+        ),
+      ),
     );
   }
 }
@@ -3116,7 +3064,7 @@ class _FeedbackPoolCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   L10n.get(context, 'poolNoActiveLinkHint'),
-                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                  style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                 ),
               ],
             ),
@@ -3178,7 +3126,7 @@ class _ActiveLinkPoolContent extends StatelessWidget {
                 if (entries.isEmpty)
                   Text(
                     L10n.get(context, 'poolEmptyHint'),
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                    style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                   )
                 else ...[
                   ...entries.take(10).map(
@@ -3187,7 +3135,7 @@ class _ActiveLinkPoolContent extends StatelessWidget {
                       child: Text(
                         '• ${e.textRaw}\n'
                         '  ${e.relation?.trim().isNotEmpty == true ? e.relation! : L10n.get(context, 'relationUnknown')} · ${_moodLabel(context, e.mood)}',
-                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                        style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                       ),
                     ),
                   ),
@@ -3273,7 +3221,7 @@ class _ExpiredLinkPoolContent extends StatelessWidget {
                 if (count > 0) ...[
                   Text(
                     L10n.get(context, 'poolExpiredReady'),
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                    style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                   ),
                   const SizedBox(height: 12),
                   FilledButton.icon(
@@ -3293,7 +3241,7 @@ class _ExpiredLinkPoolContent extends StatelessWidget {
                 ] else
                   Text(
                     L10n.get(context, 'poolExpiredNoComments'),
-                    style: theme.textTheme.bodySmall?.copyWith(color: Colors.white54),
+                    style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                   ),
               ],
             ),
@@ -3304,99 +3252,157 @@ class _ExpiredLinkPoolContent extends StatelessWidget {
   }
 }
 
-class _AllCommentsScreen extends StatelessWidget {
+class _AllCommentsScreen extends StatefulWidget {
   const _AllCommentsScreen({required this.linkId, required this.title});
 
   final String linkId;
   final String title;
 
   @override
+  State<_AllCommentsScreen> createState() => _AllCommentsScreenState();
+}
+
+class _AllCommentsScreenState extends State<_AllCommentsScreen> {
+  int _filter = 0; // 0=Tümü, 1=Olumlu, 2=Nötr, 3=Geliştirmeli
+
+  bool _match(FeedbackEntry e) {
+    switch (_filter) {
+      case 1:
+        return e.mood == 1;
+      case 2:
+        return e.mood == 0 || e.mood == null;
+      case 3:
+        return e.mood == -1;
+      default:
+        return true;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthComments,
+      appBar: feedbackAppBar(context, title: widget.title),
       body: StreamBuilder<List<FeedbackEntry>>(
-        stream: appData.feedbacksForLinkStream(linkId),
+        stream: appData.feedbacksForLinkStream(widget.linkId),
         builder: (context, snap) {
-          final entries = snap.data ?? const <FeedbackEntry>[];
-          if (snap.connectionState == ConnectionState.waiting && entries.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+          final all = snap.data ?? const <FeedbackEntry>[];
+          if (snap.connectionState == ConnectionState.waiting && all.isEmpty) {
+            return FeedbackLoadingState(message: L10n.get(context, 'loading'));
           }
-          if (entries.isEmpty) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Text(
-                  L10n.get(context, 'poolEmptyHint'),
-                  style: theme.textTheme.bodyMedium?.copyWith(color: Colors.white70),
-                  textAlign: TextAlign.center,
-                ),
-              ),
+          if (all.isEmpty) {
+            return FeedbackEmptyState(
+              icon: Icons.forum_outlined,
+              title: L10n.get(context, 'commentsEmptyTitle'),
+              message: L10n.get(context, 'commentsEmptyBody'),
             );
           }
-          return ListView.separated(
-            padding: const EdgeInsets.all(16),
-            itemCount: entries.length,
-            separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
-            itemBuilder: (context, i) {
-              final e = entries[i];
-              final date = e.createdAt != null
-                  ? MaterialLocalizations.of(context).formatShortDate(e.createdAt!)
-                  : '';
-              final relation = e.relation?.trim().isNotEmpty == true
-                  ? e.relation!
-                  : L10n.get(context, 'relationUnknown');
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      e.textRaw,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        height: 1.4,
+          // Sıralama backend'den geldiği gibi korunur (newest-first).
+          final filtered = all.where(_match).toList();
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(
+                      top: AppSpacing.m, bottom: AppSpacing.s),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        L10n.get(context, 'commentsCount')
+                            .replaceFirst('{n}', '${all.length}'),
+                        style: AppType.secondary,
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Icon(
-                          e.mood == 1
-                              ? Icons.sentiment_satisfied_alt
-                              : e.mood == -1
-                                  ? Icons.sentiment_dissatisfied
-                                  : Icons.sentiment_neutral,
-                          size: 16,
-                          color: e.mood == 1
-                              ? Colors.green.shade300
-                              : e.mood == -1
-                                  ? Colors.red.shade300
-                                  : Colors.white54,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          '$relation · ${_moodLabel(context, e.mood)}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: Colors.white54,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (date.isNotEmpty)
-                          Text(
-                            date,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: Colors.white38,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
+                      const SizedBox(height: AppSpacing.m),
+                      _CommentFilterBar(
+                        current: _filter,
+                        onSelect: (i) => setState(() => _filter = i),
+                      ),
+                      const SizedBox(height: AppSpacing.s),
+                    ],
+                  ),
                 ),
-              );
-            },
+              ),
+              if (filtered.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: AppSpacing.xl),
+                    child: FeedbackEmptyState(
+                      icon: Icons.filter_alt_off_rounded,
+                      title: L10n.get(context, 'commentsFilterEmpty'),
+                    ),
+                  ),
+                )
+              else
+                SliverList.separated(
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: AppSpacing.sm),
+                  itemBuilder: (context, i) =>
+                      FeedbackCommentCard(entry: filtered[i]),
+                ),
+              const SliverToBoxAdapter(
+                  child: SizedBox(height: AppSpacing.l)),
+            ],
           );
         },
+      ),
+    );
+  }
+}
+
+/// Yorum filtreleri (client-side; backend query/sıralama değişmez).
+class _CommentFilterBar extends StatelessWidget {
+  const _CommentFilterBar({required this.current, required this.onSelect});
+
+  final int current;
+  final ValueChanged<int> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final labels = [
+      L10n.get(context, 'filterAll'),
+      L10n.get(context, 'moodPositive'),
+      L10n.get(context, 'moodNeutral'),
+      L10n.get(context, 'insightNeedsWork'),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (var i = 0; i < labels.length; i++) ...[
+            _pill(labels[i], current == i, () => onSelect(i)),
+            if (i < labels.length - 1) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(String label, bool selected, VoidCallback onTap) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? AppColors.primary : AppColors.surface,
+        borderRadius: AppRadius.rPill,
+        child: InkWell(
+          borderRadius: AppRadius.rPill,
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+            decoration: BoxDecoration(
+              borderRadius: AppRadius.rPill,
+              border: Border.all(
+                  color: selected ? AppColors.primary : AppColors.border),
+            ),
+            child: Text(label,
+                style: AppType.secondary.copyWith(
+                    color:
+                        selected ? AppColors.onPrimary : AppColors.textSecondary,
+                    fontWeight: FontWeight.w700)),
+          ),
+        ),
       ),
     );
   }
@@ -3431,7 +3437,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const accent = Color(0xFFD4AF37);
+    const accent = AppColors.primary;
     final phase = state?.phase ?? AudienceAnalysisLoadPhase.fetchingComments;
     final title =
         state?.title ?? L10n.get(context, 'audienceLoadingTitle');
@@ -3454,8 +3460,8 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  const Color(0xFF252320),
-                  const Color(0xFF141210),
+                  AppColors.surfaceSecondary,
+                  AppColors.surface,
                 ],
               ),
               boxShadow: [
@@ -3498,7 +3504,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                     subtitle,
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.white70,
+                          color: AppColors.textSecondary,
                           height: 1.45,
                         ),
                   ),
@@ -3518,7 +3524,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                         Text(
                           '${((idx * 100) / tot).round()}%',
                           style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                color: Colors.white54,
+                                color: AppColors.textSecondary,
                               ),
                         ),
                       ],
@@ -3529,7 +3535,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                       child: LinearProgressIndicator(
                         value: idx / tot,
                         minHeight: 7,
-                        backgroundColor: Colors.white.withValues(alpha: 0.08),
+                        backgroundColor: AppColors.border,
                         color: accent,
                       ),
                     ),
@@ -3538,7 +3544,7 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                       borderRadius: BorderRadius.circular(6),
                       child: const LinearProgressIndicator(
                         minHeight: 7,
-                        backgroundColor: Color(0x22FFFFFF),
+                        backgroundColor: AppColors.border,
                         color: accent,
                       ),
                     ),
@@ -3547,14 +3553,14 @@ class _AudienceAnalysisLoadingPanel extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.lock_clock_rounded, size: 16, color: Colors.white.withValues(alpha: 0.45)),
+                      Icon(Icons.lock_clock_rounded, size: 16, color: AppColors.textSecondary),
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
                           'Ekranı açık tutun · uygulama arka planda uzun süre beklerse işlem yarıda kalabilir',
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                color: Colors.white38,
+                                color: AppColors.textSecondary,
                                 height: 1.35,
                               ),
                         ),
@@ -3646,11 +3652,11 @@ class _ReportSharePreviewCard extends StatelessWidget {
             : null;
 
     return Card(
-      color: const Color(0xFF1C1917),
+      color: AppColors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
         side: BorderSide(
-          color: Colors.white.withOpacity(0.08),
+          color: AppColors.border,
         ),
       ),
       child: Padding(
@@ -3662,13 +3668,13 @@ class _ReportSharePreviewCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(999),
-                color: const Color(0xFFD4AF37).withOpacity(0.2),
-                border: Border.all(color: const Color(0xFFD4AF37)),
+                color: AppColors.primary.withOpacity(0.2),
+                border: Border.all(color: AppColors.primary),
               ),
               child: Text(
                 L10n.get(context, 'growthSummaryBadge'),
                 style: const TextStyle(
-                  color: Color(0xFFD4AF37),
+                  color: AppColors.primary,
                   fontWeight: FontWeight.w600,
                   fontSize: 12,
                 ),
@@ -3689,7 +3695,7 @@ class _ReportSharePreviewCard extends StatelessWidget {
                   final ds = '${d >= 0 ? '+' : ''}$d';
                   return L10n.get(context, 'pointsDelta').replaceAll('{delta}', ds);
                 }(),
-                style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
               ),
             ],
             if (summary != null && summary.isNotEmpty) ...[
@@ -3697,7 +3703,7 @@ class _ReportSharePreviewCard extends StatelessWidget {
               Text(
                 summary.length > 400 ? '${summary.substring(0, 400)}…' : summary,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.white70,
+                  color: AppColors.textSecondary,
                   height: 1.35,
                 ),
               ),
@@ -3705,7 +3711,7 @@ class _ReportSharePreviewCard extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               L10n.get(context, 'generatedByLine'),
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white38),
+              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
             ),
           ],
         ),
@@ -3714,17 +3720,188 @@ class _ReportSharePreviewCard extends StatelessWidget {
   }
 }
 
+/// Basit geri bildirim (varsayılan): "N kişi şunu istiyor" listesi + tek satır duygu.
+/// Süre sonunda ve elle açıldığında gösterilen sade özet. Ağır analiz "Detaylı
+/// raporu gör" ile [DetailedAudienceReportScreen]'e devreder.
 class AudienceAnalysisScreen extends StatefulWidget {
-  const AudienceAnalysisScreen({super.key, required this.ownerId, this.linkId});
+  const AudienceAnalysisScreen({
+    super.key,
+    required this.ownerId,
+    this.linkId,
+    this.cacheable = false,
+  });
 
   final String ownerId;
   final String? linkId;
+
+  /// true: süresi dolmuş link — özet cihazda önbelleğe alınır, tekrar AI çağrısı olmaz.
+  /// false: aktif link / havuz — her açılışta taze üretilir.
+  final bool cacheable;
 
   @override
   State<AudienceAnalysisScreen> createState() => _AudienceAnalysisScreenState();
 }
 
 class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
+  Future<CommunityFeedbackSummary>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _run();
+    });
+  }
+
+  void _run() {
+    final lang = L10n.languageCodeForApp(context);
+    setState(() {
+      _future = _loadOrGenerate(lang);
+    });
+  }
+
+  Future<CommunityFeedbackSummary> _loadOrGenerate(String lang) async {
+    final linkId = widget.linkId;
+    final canCache = widget.cacheable && linkId != null && linkId.isNotEmpty;
+    if (canCache) {
+      final cached = await CommunitySummaryStore.instance.load(linkId);
+      if (cached != null) return cached;
+    }
+    final summary = await reportService.generateCommunitySummary(
+      widget.ownerId,
+      linkId: widget.linkId,
+      languageCode: lang,
+    );
+    if (canCache) {
+      await CommunitySummaryStore.instance.save(linkId, summary);
+    }
+    return summary;
+  }
+
+  void _openDetailed() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DetailedAudienceReportScreen(
+          ownerId: widget.ownerId,
+          linkId: widget.linkId,
+        ),
+      ),
+    );
+  }
+
+  void _openComments(String linkId) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _AllCommentsScreen(
+          linkId: linkId,
+          title: L10n.get(context, 'commentsTitle'),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final future = _future;
+    final linkId = widget.linkId;
+    final hasLink = linkId != null && linkId.isNotEmpty;
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthWide,
+      appBar:
+          feedbackAppBar(context, title: L10n.get(context, 'audienceAppBarTitle')),
+      body: future == null
+          ? const SingleChildScrollView(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.l),
+              child: CommunitySummaryLoading(),
+            )
+          : FutureBuilder<CommunityFeedbackSummary>(
+              future: future,
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(vertical: AppSpacing.l),
+                    child: CommunitySummaryLoading(),
+                  );
+                }
+                if (snap.hasError) {
+                  return SingleChildScrollView(
+                    child: Column(
+                      children: [
+                        const SizedBox(height: AppSpacing.h),
+                        FeedbackErrorState(
+                          message: L10n.get(context, 'insightErrorTitle'),
+                          retryLabel: L10n.get(context, 'retry'),
+                          onRetry: _run,
+                        ),
+                        if (hasLink) ...[
+                          const SizedBox(height: AppSpacing.m),
+                          Center(
+                            child: FeedbackTextButton(
+                              label: L10n.get(context, 'insightSeeComments'),
+                              onPressed: () => _openComments(linkId),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  );
+                }
+                final summary = snap.data;
+                if (summary == null || summary.isEmpty) {
+                  return FeedbackEmptyState(
+                    icon: Icons.auto_awesome_rounded,
+                    title: L10n.get(context, 'insightInsufficientTitle'),
+                    message: L10n.get(context, 'insightInsufficientBody'),
+                  );
+                }
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.l),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      CommunitySummaryV2View(
+                        summary: summary,
+                        onSeeComments:
+                            hasLink ? () => _openComments(linkId) : null,
+                      ),
+                      if (kShowDetailedReport) ...[
+                        const SizedBox(height: AppSpacing.m),
+                        Center(
+                          child: FeedbackTextButton(
+                            label: L10n.get(context, 'detailedReportOpen'),
+                            onPressed: _openDetailed,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: AppSpacing.l),
+                    ],
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+/// Detaylı Creator Intelligence raporu (ağır iki-aşamalı analiz).
+/// Artık varsayılan değil; basit özetin "Detaylı raporu gör" bağlantısından açılır.
+class DetailedAudienceReportScreen extends StatefulWidget {
+  const DetailedAudienceReportScreen({
+    super.key,
+    required this.ownerId,
+    this.linkId,
+  });
+
+  final String ownerId;
+  final String? linkId;
+
+  @override
+  State<DetailedAudienceReportScreen> createState() =>
+      _DetailedAudienceReportScreenState();
+}
+
+class _DetailedAudienceReportScreenState
+    extends State<DetailedAudienceReportScreen> {
   Future<AudienceAnalysisResult>? _future;
   AudienceAnalysisLoadState? _loadState;
 
@@ -3937,7 +4114,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.error_outline, size: 48, color: Color(0xFFF87171)),
+                        const Icon(Icons.error_outline, size: 48, color: AppColors.danger),
                         const SizedBox(height: 16),
                         Text(
                           'Analiz sırasında hata oluştu',
@@ -3951,7 +4128,7 @@ class _AudienceAnalysisScreenState extends State<AudienceAnalysisScreen> {
                           snap.error.toString(),
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.white70,
+                                color: AppColors.textSecondary,
                                 height: 1.4,
                               ),
                         ),
@@ -4277,7 +4454,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                         const SizedBox(height: 12),
                         Text(
                           L10n.get(context, 'reportAnalysisLoginRequired'),
-                          style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+                          style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
                         ),
                       ],
                     )
@@ -4294,7 +4471,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                         Text(
                           L10n.get(context, 'reportAnalysisHistoryHint'),
                           style: theme.textTheme.bodySmall
-                              ?.copyWith(color: Colors.white70, height: 1.35),
+                              ?.copyWith(color: AppColors.textSecondary, height: 1.35),
                         ),
                         const SizedBox(height: 20),
                         StreamBuilder<List<AudienceScoreSnapshot>>(
@@ -4308,7 +4485,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                                   L10n.get(context, 'historyLoadFailed')
                                       .replaceAll('{e}', '${snap.error}'),
                                   style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: const Color(0xFFF87171)),
+                                      ?.copyWith(color: AppColors.danger),
                                 ),
                               );
                             }
@@ -4327,7 +4504,7 @@ class _ReportAnalysisScreenState extends State<ReportAnalysisScreen> {
                                 child: Text(
                                   L10n.get(context, 'noSavedAudienceRun'),
                                   style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: Colors.white60),
+                                      ?.copyWith(color: AppColors.textSecondary),
                                 ),
                               );
                             }
@@ -4405,13 +4582,77 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   final _nameController = TextEditingController();
   final _relationController = TextEditingController();
   final _feedbackController = TextEditingController();
-  int _selectedMood = 0; // -1 kötü, 0 nötr, 1 iyi
+  int _selectedMood = 0; // -1 kötü, 0 nötr, 1 iyi (reaction'dan türetilir)
+  String? _selectedReaction; // FeedbackToMe 2.0 reaction anahtarı (ör. "fire")
+
+  // V2 akış durumu — yalnızca UI. Submit'e kadar Firestore'a hiçbir ara kayıt atılmaz.
+  FeedbackLink? _resolvedLink;
+  bool _resolving = false;
+  bool _resolveError = false; // getLinkByCode null → geçersiz/süresi dolmuş
+  bool _closedError = false; // submit anında link kapandıysa (yarış)
+  bool _forceManual = false; // hata sonrası manuel giriş ekranına düş
+  bool _entered = false; // giriş ekranından akışa geçildi
+  int _step = 0; // 0=reaction, 1=comment (yalnızca UI adımı)
+  bool _submitting = false;
+  bool _submitted = false;
+  bool _alreadySubmitted = false; // bu tarayıcı bu linke zaten yanıt verdi (UX)
+  // Same-browser anti-repeat mantığı [SubmittedMarker]'da (UX caydırıcı —
+  // GÜVENLİK DEĞİL; kaynak-doğruluk sunucu lifecycle'ı). Fingerprint/IP/login YOK.
+
+  bool get _needsManualCode =>
+      widget.linkCode == null || widget.linkCode!.trim().isEmpty;
 
   @override
   void initState() {
     super.initState();
-    if (widget.linkCode != null && widget.linkCode!.isNotEmpty) {
-      _linkController.text = widget.linkCode!;
+    final code = widget.linkCode;
+    if (code != null && code.trim().isNotEmpty) {
+      _linkController.text = code.trim();
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _resolve(code.trim()));
+    }
+  }
+
+  /// Kodu/URL'i mevcut `_parseLinkCode` + `getLinkByCode` ile çözer.
+  /// Backend davranışı değişmez; yalnızca sonucu UI durumuna bağlar.
+  Future<void> _resolve(String input) async {
+    final code = _parseLinkCode(input);
+    if (code == null || code.isEmpty) {
+      setState(() {
+        _resolving = false;
+        _resolveError = true;
+      });
+      return;
+    }
+    setState(() {
+      _resolving = true;
+      _resolveError = false;
+      _forceManual = false;
+    });
+    try {
+      final link = await appData.getLinkByCode(code);
+      if (!mounted) return;
+      if (link == null) {
+        setState(() {
+          _resolving = false;
+          _resolveError = true;
+        });
+        return;
+      }
+      final already = await SubmittedMarker.has(link.id);
+      if (!mounted) return;
+      setState(() {
+        _resolving = false;
+        _resolvedLink = link;
+        _linkController.text = code;
+        _alreadySubmitted = already;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _resolving = false;
+        _resolveError = true;
+      });
     }
   }
 
@@ -4469,68 +4710,63 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
   }
 
   Future<void> _submit() async {
+    if (_submitting) return; // çift-submit koruması
     if (_feedbackController.text.trim().length < 10) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(L10n.get(context, 'feedbackFormTooShort')),
-        ),
+        SnackBar(content: Text(L10n.get(context, 'feedbackFormTooShort'))),
       );
+      setState(() => _step = 1);
       return;
     }
     final code = _parseLinkCode(_linkController.text);
-    if (code == null || code.isEmpty) {
+    if (_resolvedLink == null && (code == null || code.isEmpty)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(L10n.get(context, 'feedbackFormInvalidLink')),
-        ),
+        SnackBar(content: Text(L10n.get(context, 'feedbackFormInvalidLink'))),
       );
       return;
     }
+    setState(() => _submitting = true);
     try {
-      final link = await appData.getLinkByCode(code);
-      if (link == null || !context.mounted) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(L10n.get(context, 'feedbackFormLinkNotFound'))),
-          );
-        }
+      final link = _resolvedLink ?? await appData.getLinkByCode(code!);
+      if (link == null) {
+        if (!mounted) return;
+        setState(() {
+          _submitting = false;
+          _resolveError = true;
+        });
         return;
       }
       await appData.addFeedback(
         linkId: link.id,
-        responderName: _nameController.text.trim().isEmpty ? null : _nameController.text.trim(),
-        relation: _relationController.text.trim().isEmpty ? null : _relationController.text.trim(),
+        responderName: _nameController.text.trim().isEmpty
+            ? null
+            : _nameController.text.trim(),
+        relation: _relationController.text.trim().isEmpty
+            ? null
+            : _relationController.text.trim(),
         mood: _selectedMood,
+        reaction: _selectedReaction,
         textRaw: _feedbackController.text.trim(),
         creatorSurvey: _creatorSurveyKey.currentState?.buildPayload(),
       );
-      if (!context.mounted) return;
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: Text(L10n.get(context, 'feedbackFormSuccessTitle')),
-            content: Text(L10n.get(context, 'feedbackFormSuccessBody')),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(dialogContext)
-                    ..pop()
-                    ..pop();
-                },
-                child: Text(L10n.get(context, 'close')),
-              ),
-            ],
-          );
-        },
-      );
+      // Marker YALNIZ server SUCCESS sonrası; hata olursa yazılmaz.
+      await SubmittedMarker.write(link.id);
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _submitted = true;
+      });
     } catch (e) {
-      if (!context.mounted) return;
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      if (e is StateError &&
+          (e.message == 'link_closed_or_expired' ||
+              e.message == 'link_expired')) {
+        setState(() => _closedError = true);
+        return;
+      }
       final msg = _feedbackSubmitErrorMessage(context, e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg)),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
@@ -4547,266 +4783,487 @@ class _FeedbackFormScreenState extends State<FeedbackFormScreen> {
     return '${L10n.get(context, 'feedbackFormSendFailed')} $e';
   }
 
-  Widget _feedbackHowStep(ThemeData theme, IconData icon, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: theme.colorScheme.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.white70,
-                height: 1.4,
+  @override
+  Widget build(BuildContext context) {
+    if (_submitted) return _buildSuccess(context);
+    if (_alreadySubmitted) return _buildAlreadySubmitted(context);
+    if (_resolveError) return _buildInvalid(context);
+    if (_closedError) return _buildClosed(context);
+    if (_resolving) {
+      return FeedbackScaffold(
+        maxWidth: AppSpacing.maxWidthForm,
+        appBar: feedbackAppBar(context),
+        body: FeedbackLoadingState(message: L10n.get(context, 'loading')),
+      );
+    }
+    if (_resolvedLink == null) {
+      if (_needsManualCode || _forceManual) return _buildManual(context);
+      // Deeplink kodu hâlâ çözülüyor.
+      return FeedbackScaffold(
+        maxWidth: AppSpacing.maxWidthForm,
+        appBar: feedbackAppBar(context),
+        body: FeedbackLoadingState(message: L10n.get(context, 'loading')),
+      );
+    }
+    if (!_entered) return _buildEntry(context);
+    return _buildStep(context);
+  }
+
+  /// Manuel giriş (fallback) — deeplink yoksa ya da hata sonrası kurtarma.
+  Widget _buildManual(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context, title: L10n.get(context, 'feedbackFormTitle')),
+      body: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'pfManualTitle'), style: AppType.pageTitle),
+            const SizedBox(height: AppSpacing.xs),
+            Text(L10n.get(context, 'pfManualSub'), style: AppType.secondary),
+            const SizedBox(height: AppSpacing.l),
+            TextField(
+              controller: _linkController,
+              decoration: InputDecoration(
+                labelText: L10n.get(context, 'feedbackFormLinkLabel'),
+                hintText: L10n.get(context, 'feedbackFormLinkHint'),
+                prefixIcon: const Icon(Icons.link_rounded),
+              ),
+              onSubmitted: _resolve,
+            ),
+            const SizedBox(height: AppSpacing.l),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'pfManualContinue'),
+              trailingArrow: true,
+              onPressed: () => _resolve(_linkController.text),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Public feedback girişi (hero + güven + başla).
+  Widget _buildEntry(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.h),
+            const Center(child: FeedbackBrandMark()),
+            const SizedBox(height: AppSpacing.xxl),
+            Center(
+              child: Container(
+                width: 76,
+                height: 76,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: AppRadius.rLarge,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.reviews_rounded,
+                    color: AppColors.onPrimary, size: 36),
               ),
             ),
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'pfEntryHeroGeneric'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'pfEntrySub'),
+                style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xl),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                FeedbackTrustChip(
+                    label: L10n.get(context, 'trustAnonymous'),
+                    icon: Icons.visibility_off_rounded),
+                FeedbackTrustChip(
+                    label: L10n.get(context, 'trustSecure'),
+                    icon: Icons.shield_rounded),
+                FeedbackTrustChip(
+                    label: L10n.get(context, 'trustFast'),
+                    icon: Icons.bolt_rounded),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            FeedbackPrimaryButton(
+              label: L10n.get(context, 'pfEntryStart'),
+              trailingArrow: true,
+              onPressed: () => setState(() => _entered = true),
+            ),
+            const SizedBox(height: AppSpacing.m),
+            Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock_outline_rounded,
+                      size: 14, color: AppColors.textSecondary),
+                  const SizedBox(width: 6),
+                  Text(L10n.get(context, 'pfPrivacyFooter'), style: AppType.caption),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Adımlı akış: 1/2 Tepki, 2/2 Yorum. Firestore'a submit'e kadar yazılmaz.
+  Widget _buildStep(BuildContext context) {
+    final en = L10n.languageCodeForApp(context) == 'en';
+    final stepLabel =
+        _step == 0 ? L10n.get(context, 'pfStepReaction') : L10n.get(context, 'pfStepComment');
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(
+        context,
+        actions: [
+          Center(
+            child: Text('${_step + 1} / 2  ·  $stepLabel',
+                style: AppType.secondary),
           ),
         ],
       ),
+      body: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.s),
+            Row(
+              children: [
+                const Expanded(child: _StepDot(active: true)),
+                const SizedBox(width: 6),
+                Expanded(child: _StepDot(active: _step >= 1)),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.l),
+            if (_step == 0)
+              ..._reactionStep(context, en)
+            else
+              ..._commentStep(context),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
     );
   }
 
-  Future<void> _openAppMarketingUrl() async {
-    final uri = Uri.parse(FeedbackLink.appMarketingBaseUrl);
-    try {
-      final opened = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(L10n.get(context, 'feedbackFormCouldNotOpenLink'))),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${L10n.get(context, 'feedbackFormCouldNotOpenLink')} $e'),
+  List<Widget> _reactionStep(BuildContext context, bool en) {
+    return [
+      Text(L10n.get(context, 'pfReactionTitle'), style: AppType.pageTitle),
+      const SizedBox(height: AppSpacing.xl),
+      Wrap(
+        spacing: AppSpacing.sm,
+        runSpacing: AppSpacing.sm,
+        children: [
+          for (final r in kDefaultReactions)
+            _ReactionChip(
+              emoji: r.emoji,
+              label: r.label(en),
+              selected: _selectedReaction == r.key,
+              onTap: () => setState(() {
+                if (_selectedReaction == r.key) {
+                  // Tekrar dokunma → seçimi kaldır (nötr).
+                  _selectedReaction = null;
+                  _selectedMood = 0;
+                } else {
+                  _selectedReaction = r.key;
+                  _selectedMood = r.sentiment;
+                }
+              }),
+            ),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.xl),
+      FeedbackPrimaryButton(
+        label: L10n.get(context, 'pfNext'),
+        trailingArrow: true,
+        onPressed: () => setState(() => _step = 1),
+      ),
+    ];
+  }
+
+  List<Widget> _commentStep(BuildContext context) {
+    final canSend = _feedbackController.text.trim().length >= 10;
+    return [
+      Text(L10n.get(context, 'pfCommentTitle'), style: AppType.pageTitle),
+      const SizedBox(height: AppSpacing.xs),
+      Text(L10n.get(context, 'pfCommentSub'), style: AppType.secondary),
+      const SizedBox(height: AppSpacing.m),
+      TextField(
+        controller: _feedbackController,
+        minLines: 4,
+        maxLines: 6,
+        decoration: InputDecoration(
+          hintText: L10n.get(context, 'pfCommentPlaceholder'),
+          helperText: L10n.get(context, 'pfMinCharsHint'),
+          alignLabelWithHint: true,
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+      const SizedBox(height: AppSpacing.m),
+      TextField(
+        controller: _nameController,
+        decoration: InputDecoration(
+          labelText: L10n.get(context, 'pfNameLabel'),
+          helperText: L10n.get(context, 'pfNameHelper'),
+        ),
+      ),
+      const SizedBox(height: AppSpacing.m),
+      TextField(
+        controller: _relationController,
+        decoration: InputDecoration(
+          labelText: L10n.get(context, 'feedbackFormRelationLabel'),
+        ),
+      ),
+      const SizedBox(height: AppSpacing.m),
+      // Creator anketi artık V2 light-token'lı → aydınlık formda doğrudan.
+      CreatorSurveySection(key: _creatorSurveyKey),
+      const SizedBox(height: AppSpacing.m),
+      Row(
+        children: [
+          const Icon(Icons.shield_outlined,
+              size: 16, color: AppColors.textSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(L10n.get(context, 'pfPrivacyFooter'), style: AppType.caption),
           ),
-        );
-      }
-    }
+        ],
+      ),
+      const SizedBox(height: AppSpacing.l),
+      FeedbackPrimaryButton(
+        label: L10n.get(context, 'send'),
+        busy: _submitting,
+        onPressed: canSend ? _submit : null,
+      ),
+      const SizedBox(height: AppSpacing.s),
+      Center(
+        child: FeedbackTextButton(
+          label: L10n.get(context, 'back'),
+          onPressed: () => setState(() => _step = 0),
+        ),
+      ),
+    ];
   }
 
-  void _openPremiumScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const PremiumScreen()),
+  Widget _buildSuccess(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context, showBack: false),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.huge),
+            Center(
+              child: Container(
+                width: 96,
+                height: 96,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  shape: BoxShape.circle,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.check_rounded,
+                    color: AppColors.onPrimary, size: 52),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'pfSuccessTitle'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'pfSuccessBody'),
+                style: AppType.body, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xs),
+            Text(L10n.get(context, 'pfSuccessSecondary'),
+                style: AppType.secondary, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            FeedbackSecondaryButton(
+              label: L10n.get(context, 'pfSuccessCreateOwn'),
+              icon: Icons.add_link_rounded,
+              onPressed: () => Navigator.of(context).pushReplacement(
+                MaterialPageRoute<void>(builder: (_) => const _AuthGate()),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s),
+            Center(
+              child: FeedbackTextButton(
+                label: L10n.get(context, 'close'),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
     );
   }
+
+  /// Bu tarayıcı bu linke zaten yanıt verdiyse (marker) gösterilir.
+  /// Server lifecycle'ı DEĞİL, yalnızca UX caydırıcı.
+  Widget _buildAlreadySubmitted(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context, showBack: false),
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const SizedBox(height: AppSpacing.huge),
+            Center(
+              child: Container(
+                width: 96,
+                height: 96,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  shape: BoxShape.circle,
+                  boxShadow: AppShadows.primaryGlow,
+                ),
+                child: const Icon(Icons.waving_hand_rounded,
+                    color: AppColors.onPrimary, size: 48),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.l),
+            Text(L10n.get(context, 'pfAlreadyTitle'),
+                style: AppType.display, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.s),
+            Text(L10n.get(context, 'pfAlreadyBody'),
+                style: AppType.body, textAlign: TextAlign.center),
+            const SizedBox(height: AppSpacing.xxl),
+            FeedbackSecondaryButton(
+              label: L10n.get(context, 'pfSuccessCreateOwn'),
+              icon: Icons.add_link_rounded,
+              onPressed: () => Navigator.of(context).pushReplacement(
+                MaterialPageRoute<void>(builder: (_) => const _AuthGate()),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s),
+            Center(
+              child: FeedbackTextButton(
+                label: L10n.get(context, 'close'),
+                onPressed: () => Navigator.of(context).maybePop(),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInvalid(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context),
+      body: FeedbackEmptyState(
+        icon: Icons.link_off_rounded,
+        title: L10n.get(context, 'pfInvalidTitle'),
+        message: L10n.get(context, 'pfInvalidBody'),
+        ctaLabel: L10n.get(context, 'pfManualContinue'),
+        onCta: () => setState(() {
+          _resolveError = false;
+          _resolvedLink = null;
+          _forceManual = true;
+        }),
+      ),
+    );
+  }
+
+  Widget _buildClosed(BuildContext context) {
+    return FeedbackScaffold(
+      maxWidth: AppSpacing.maxWidthForm,
+      appBar: feedbackAppBar(context),
+      body: FeedbackEmptyState(
+        icon: Icons.lock_clock_rounded,
+        title: L10n.get(context, 'pfClosedTitle'),
+        message: L10n.get(context, 'pfInvalidBody'),
+      ),
+    );
+  }
+}
+
+/// Adım ilerleme çubuğu noktası (public feedback akışı).
+class _StepDot extends StatelessWidget {
+  const _StepDot({required this.active});
+  final bool active;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(L10n.get(context, 'feedbackFormTitle')),
+    return Container(
+      height: 5,
+      decoration: BoxDecoration(
+        color: active ? AppColors.primary : AppColors.border,
+        borderRadius: BorderRadius.circular(999),
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: ListView(
-                children: [
-                  Text(
-                    L10n.get(context, 'feedbackFormIntroLead'),
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(color: Colors.white70, height: 1.45),
-                  ),
-                  const SizedBox(height: 20),
-                  Text(
-                    L10n.get(context, 'feedbackFormHowItWorksTitle'),
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  _feedbackHowStep(
-                    theme,
-                    Icons.add_link_rounded,
-                    L10n.get(context, 'feedbackFormHowStep1'),
-                  ),
-                  _feedbackHowStep(
-                    theme,
-                    Icons.chat_bubble_outline_rounded,
-                    L10n.get(context, 'feedbackFormHowStep2'),
-                  ),
-                  _feedbackHowStep(
-                    theme,
-                    Icons.auto_fix_high_rounded,
-                    L10n.get(context, 'feedbackFormHowStep3'),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _linkController,
-                    decoration: InputDecoration(
-                      labelText: L10n.get(context, 'feedbackFormLinkLabel'),
-                      hintText: L10n.get(context, 'feedbackFormLinkHint'),
-                      prefixIcon: const Icon(Icons.link),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      color: Colors.white.withValues(alpha: 0.04),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.06),
-                      ),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Icon(
-                              Icons.shield_moon_outlined,
-                              size: 22,
-                              color: theme.colorScheme.primary.withValues(alpha: 0.9),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                L10n.get(context, 'feedbackFormPrivacyTitle'),
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          L10n.get(context, 'feedbackFormPrivacyBody'),
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: Colors.white70, height: 1.45),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _nameController,
-                    decoration: InputDecoration(
-                      labelText: L10n.get(context, 'feedbackFormNameLabel'),
-                      hintText: L10n.get(context, 'feedbackFormNameHint'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: _relationController,
-                    decoration: InputDecoration(
-                      labelText: L10n.get(context, 'feedbackFormRelationLabel'),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    L10n.get(context, 'feedbackFormMoodQuestion'),
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    children: [
-                      ChoiceChip(
-                        label: Text(L10n.get(context, 'moodNegative')),
-                        selected: _selectedMood == -1,
-                        onSelected: (_) {
-                          setState(() {
-                            _selectedMood = -1;
-                          });
-                        },
-                      ),
-                      ChoiceChip(
-                        label: Text(L10n.get(context, 'moodNeutral')),
-                        selected: _selectedMood == 0,
-                        onSelected: (_) {
-                          setState(() {
-                            _selectedMood = 0;
-                          });
-                        },
-                      ),
-                      ChoiceChip(
-                        label: Text(L10n.get(context, 'moodPositive')),
-                        selected: _selectedMood == 1,
-                        onSelected: (_) {
-                          setState(() {
-                            _selectedMood = 1;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _feedbackController,
-                    maxLines: 6,
-                    decoration: InputDecoration(
-                      labelText: L10n.get(context, 'feedbackFormThoughtsLabel'),
-                      alignLabelWithHint: true,
-                      hintText: L10n.get(context, 'feedbackFormThoughtsHint'),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  CreatorSurveySection(key: _creatorSurveyKey),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    onPressed: _submit,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: Text(
-                      L10n.get(context, 'send'),
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                  Divider(color: Colors.white.withValues(alpha: 0.12)),
-                  const SizedBox(height: 16),
-                  Text(
-                    L10n.get(context, 'feedbackFormFooterDiscover'),
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.white60,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    alignment: WrapAlignment.center,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    spacing: 8,
-                    runSpacing: 4,
-                    children: [
-                      TextButton(
-                        onPressed: _openAppMarketingUrl,
-                        child: Text(L10n.get(context, 'feedbackFormOpenApp')),
-                      ),
-                      Text(
-                        '·',
-                        style: theme.textTheme.bodySmall?.copyWith(color: Colors.white38),
-                      ),
-                      TextButton(
-                        onPressed: _openPremiumScreen,
-                        child: Text(L10n.get(context, 'feedbackFormGoPremium')),
-                      ),
-                    ],
-                  ),
-                ],
+    );
+  }
+}
+
+/// Büyük dokunma alanlı reaction seçimi (V2).
+class _ReactionChip extends StatelessWidget {
+  const _ReactionChip({
+    required this.emoji,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String emoji;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Material(
+        color: selected ? AppColors.primarySoft : AppColors.surface,
+        borderRadius: AppRadius.rMedium,
+        child: InkWell(
+          borderRadius: AppRadius.rMedium,
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            constraints: const BoxConstraints(minHeight: 52),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: AppRadius.rMedium,
+              border: Border.all(
+                color: selected ? AppColors.primary : AppColors.border,
+                width: selected ? 1.6 : 1,
               ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(emoji, style: const TextStyle(fontSize: 22)),
+                const SizedBox(width: 8),
+                Text(label,
+                    style: selected
+                        ? AppType.bodyStrong.copyWith(color: AppColors.primary)
+                        : AppType.body),
+                if (selected) ...[
+                  const SizedBox(width: 6),
+                  const Icon(Icons.check_circle_rounded,
+                      size: 18, color: AppColors.primary),
+                ],
+              ],
             ),
           ),
         ),

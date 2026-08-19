@@ -12,11 +12,12 @@
     "serve": "npm run build && firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test": "npm run build && node --test test/ai-core.test.mjs"
+    "test": "npm run build && node --test test/ai-core.test.mjs test/iap-core.test.mjs test/iap-obs.test.mjs"
   },
   "dependencies": {
     "firebase-admin": "^12.6.0",
-    "firebase-functions": "^6.1.0"
+    "firebase-functions": "^6.1.0",
+    "google-auth-library": "^9.14.0"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

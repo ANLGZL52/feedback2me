@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+ import '../design_system/design_system.dart';
 import '../models/creator_survey.dart';
 
 /// İçerik üreticisi için isteğe bağlı anket; [buildPayload] ile gönderim öncesi okunur.
@@ -75,7 +76,7 @@ class CreatorSurveySectionState extends State<CreatorSurveySection> {
         children: [
           Text(
             _l10n(context, labelKey),
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 6),
           Wrap(
@@ -122,7 +123,7 @@ class CreatorSurveySectionState extends State<CreatorSurveySection> {
     final theme = Theme.of(context);
 
     return Material(
-      color: Colors.white.withValues(alpha: 0.04),
+      color: AppColors.surfaceSecondary,
       borderRadius: BorderRadius.circular(12),
       clipBehavior: Clip.antiAlias,
       child: ExpansionTile(
@@ -141,7 +142,7 @@ class CreatorSurveySectionState extends State<CreatorSurveySection> {
           child: Text(
             _l10n(context, 'creatorSurveySectionSubtitle'),
             style: theme.textTheme.bodySmall?.copyWith(
-              color: Colors.white60,
+              color: AppColors.textSecondary,
               height: 1.35,
             ),
           ),
@@ -149,7 +150,7 @@ class CreatorSurveySectionState extends State<CreatorSurveySection> {
         children: [
           Text(
             _l10n(context, 'creatorSurveyFamiliarityLabel'),
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -168,7 +169,7 @@ class CreatorSurveySectionState extends State<CreatorSurveySection> {
           const SizedBox(height: 18),
           Text(
             _l10n(context, 'creatorSurveyPlatformsLabel'),
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -194,7 +195,7 @@ class CreatorSurveySectionState extends State<CreatorSurveySection> {
           const SizedBox(height: 18),
           Text(
             _l10n(context, 'creatorSurveyFrequencyLabel'),
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           Wrap(
@@ -213,13 +214,13 @@ class CreatorSurveySectionState extends State<CreatorSurveySection> {
           const SizedBox(height: 18),
           Text(
             _l10n(context, 'creatorSurveyFocusLabel'),
-            style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
+            style: theme.textTheme.bodySmall?.copyWith(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 6),
           Text(
             _l10n(context, 'creatorSurveyFocusHint'),
             style: theme.textTheme.labelSmall?.copyWith(
-              color: Colors.white54,
+              color: AppColors.textSecondary,
               height: 1.35,
             ),
           ),
@@ -255,7 +256,7 @@ class CreatorSurveySectionState extends State<CreatorSurveySection> {
           const SizedBox(height: 4),
           Text(
             _l10n(context, 'creatorSurveyScoreScale'),
-            style: theme.textTheme.labelSmall?.copyWith(color: Colors.white38),
+            style: theme.textTheme.labelSmall?.copyWith(color: AppColors.textSecondary),
           ),
           const SizedBox(height: 12),
           _likertRow(

@@ -2,7 +2,7 @@
 // Run: node --test ops/monitor/checks/gcp-functions-logs.test.mjs
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { collect, normalizeLogEntry, classifyGcp, extractOpenAiMeta } from './gcp-functions-logs.mjs';
+import { collect, normalizeLogEntry, classifyGcp, extractOpenAiMeta, extractIapMeta } from './gcp-functions-logs.mjs';
 
 const ENV = 'GCP_ACCESS_TOKEN';
 afterEach(() => { delete process.env[ENV]; });
@@ -203,4 +203,97 @@ test('OAI guard: non-aiSummary jsonPayload is NOT treated as an OpenAI event', (
 
 test('OAI guard: unknown eventType from aiSummary is rejected', () => {
   assert.equal(extractOpenAiMeta(aiEntry({ source: 'functions', service: 'aiSummary', eventType: 'openai.mystery' })), null);
+});
+
+// --- iapVerify IAP structured-event normalization (safe allow-list) ---------
+// A cloud_run_revision entry whose jsonPayload is an iapVerify obs event.
+const iapEntry = (payload, o = {}) => ({
+  timestamp: '2026-08-18T15:40:00Z', severity: 'INFO',
+  resource: { type: 'cloud_run_revision', labels: { service_name: 'iapverify', location: 'us-central1', revision_name: 'iapverify-00003-xyz' } },
+  labels: { 'run.googleapis.com/execution_id': 'exec-iap-1' },
+  jsonPayload: payload, ...o,
+});
+// Real committed-grant shape (built by buildIapObsEvent; identifiers sanitized).
+const grantPayload = () => ({
+  source: 'functions', service: 'iapVerify', provider: 'apple',
+  eventType: 'iap.credit.granted', severity: 'INFO', platform: 'ios',
+  productId: 'premium_link_single_v2', resultClass: 'ok', latencyMs: 380,
+  creditDelta: 1, replay: false, errorCode: null,
+  clientRequestId: 'op-SANITIZED', txCorrelation: 't:abcdef0123456789',
+  message: 'iapVerify iap.credit.granted',
+});
+
+test('IAP grant: iap.credit.granted → allow-listed metadata preserved', () => {
+  const e = normalizeLogEntry(iapEntry(grantPayload()));
+  assert.equal(e.eventType, 'iap.credit.granted');
+  assert.equal(e.errorCode, null);
+  assert.equal(e.provider, 'apple');
+  assert.deepEqual(e.iap, {
+    platform: 'ios', productId: 'premium_link_single_v2', resultClass: 'ok',
+    latencyMs: 380, creditDelta: 1, replay: false,
+    clientRequestId: 'op-SANITIZED', txCorrelation: 't:abcdef0123456789',
+  });
+});
+
+test('IAP replay: creditDelta 0 + replay true preserved', () => {
+  const e = normalizeLogEntry(iapEntry({ ...grantPayload(), eventType: 'iap.credit.replay', creditDelta: 0, replay: true }));
+  assert.equal(e.eventType, 'iap.credit.replay');
+  assert.equal(e.iap.creditDelta, 0);
+  assert.equal(e.iap.replay, true);
+});
+
+test('IAP rejected: safe reason code surfaced, provider apple', () => {
+  const e = normalizeLogEntry(iapEntry({ ...grantPayload(), eventType: 'iap.verify.apple.rejected', errorCode: 'apple_status_21002', creditDelta: 0, resultClass: 'rejected', severity: 'WARNING' }, { severity: 'WARNING' }));
+  assert.equal(e.eventType, 'iap.verify.apple.rejected');
+  assert.equal(e.errorCode, 'apple_status_21002');
+  assert.equal(e.iap.resultClass, 'rejected');
+});
+
+test('IAP android_disabled: fail-closed event normalized', () => {
+  const e = normalizeLogEntry(iapEntry({ ...grantPayload(), eventType: 'iap.verify.android_disabled', provider: 'android', platform: 'android', errorCode: 'ANDROID_VERIFICATION_NOT_CONFIGURED', creditDelta: 0, resultClass: 'disabled' }));
+  assert.equal(e.eventType, 'iap.verify.android_disabled');
+  assert.equal(e.provider, 'android');
+  assert.equal(e.iap.creditDelta, 0);
+});
+
+test('IAP: a receipt/verificationData accidentally in payload is NEVER emitted', () => {
+  const e = normalizeLogEntry(iapEntry({
+    ...grantPayload(),
+    // simulate a buggy emitter that leaked sensitive fields into the log payload
+    verificationData: 'BASE64-RECEIPT-SECRET', transactionId: '1000000123456', uid: 'firebase-uid-xyz',
+    receipt: 'RCPT-SECRET', purchaseToken: 'PT-SECRET',
+  }));
+  const s = JSON.stringify(e);
+  for (const bad of ['BASE64-RECEIPT-SECRET', '1000000123456', 'firebase-uid-xyz', 'RCPT-SECRET', 'PT-SECRET']) {
+    assert.ok(!s.includes(bad), `normalizer leaked ${bad}`);
+  }
+  // The allow-listed iap object must not carry any of those keys.
+  assert.equal(e.iap.transactionId, undefined);
+  assert.equal(e.iap.verificationData, undefined);
+  assert.equal(e.iap.uid, undefined);
+});
+
+test('IAP oversized/ malformed fields are bounded & coerced', () => {
+  const e = normalizeLogEntry(iapEntry({ ...grantPayload(), clientRequestId: 'x'.repeat(500), latencyMs: 'not-a-number', creditDelta: 'nope' }));
+  assert.ok(e.iap.clientRequestId.length <= 64);
+  assert.equal(e.iap.latencyMs, null);
+  assert.equal(e.iap.creditDelta, null);
+});
+
+test('IAP guard: non-iapVerify jsonPayload is NOT treated as an IAP event', () => {
+  assert.equal(extractIapMeta(iapEntry({ ...grantPayload(), source: 'other', service: 'x' })), null);
+  const e = normalizeLogEntry(iapEntry({ message: 'hello', source: 'someservice' }, { severity: 'ERROR', textPayload: 'boom' }));
+  assert.equal(e.iap, undefined);
+  assert.ok(e.eventType.startsWith('gcp.function.'));
+});
+
+test('IAP guard: unknown eventType from iapVerify is rejected', () => {
+  assert.equal(extractIapMeta(iapEntry({ source: 'functions', service: 'iapVerify', eventType: 'iap.mystery' })), null);
+});
+
+test('IAP: extractIapMeta reads a JSON string in textPayload too', () => {
+  const meta = extractIapMeta({ textPayload: JSON.stringify(grantPayload()), resource: { type: 'cloud_run_revision', labels: {} } });
+  assert.equal(meta.eventType, 'iap.credit.granted');
+  assert.equal(meta.metrics.creditDelta, 1);
+  assert.equal(meta.provider, 'apple');
 });
