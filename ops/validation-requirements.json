@@ -1,0 +1,48 @@
+{
+  "description": "Central validation + platform-completeness registry (single source of truth — no logic duplicated across scripts). Separates OBSERVABILITY PLATFORM completeness (is the monitoring system built + operational?) from RUNTIME VALIDATION (has real external evidence been observed?). The evaluator (ops/monitor/evaluate-runtime.mjs) reads this to compute observabilityPlatformStatus, runtimeValidationStatus, and the product release gate.",
+  "version": "1.0.0",
+  "platformCriteria": [
+    { "id": "CONTROL_PLANE", "status": "MET", "note": "ops/monitor/run.mjs component/journey health + engine" },
+    { "id": "GCP_WIF", "status": "MET", "note": "WIF auth verified LIVE in CI run 32256397329 (read-only Cloud Logging, no static keys)" },
+    { "id": "COLLECTOR", "status": "MET", "note": "collect-runtime.mjs (Railway env/http + GCP functions)" },
+    { "id": "COLLECTOR_FRESHNESS", "status": "MET", "note": "evaluate-runtime.mjs COLLECTOR_STALE from write-time mtime" },
+    { "id": "IAP_STRUCTURED_LOGGING", "status": "MET", "note": "functions/src/iap-core.ts buildIapObsEvent — 9 events, deployed" },
+    { "id": "IAP_NORMALIZATION", "status": "MET", "note": "gcp-functions-logs.mjs extractIapMeta (strict allow-list)" },
+    { "id": "IAP_MONEY_SAFETY", "status": "MET", "note": "iap-invariants.mjs invariants A-F, CRITICAL + release-blocking" },
+    { "id": "OPENAI_OBS", "status": "MET", "note": "extractOpenAiMeta + evaluator OpenAI metrics/alerts" },
+    { "id": "RAILWAY_OBS", "status": "MET", "note": "railway-http-logs + evaluator 5xx/rate alerts" },
+    { "id": "POSTGRES_OBS", "status": "MET", "note": "postgres-direct probe + evaluator consecutive-failure alerts" },
+    { "id": "ALERT_ENGINE", "status": "MET", "note": "deterministic evaluator alerts" },
+    { "id": "ALERT_LIFECYCLE", "status": "MET", "note": "NEW/ONGOING/RESOLVED + startedAt/lastObservedAt/resolvedAt/duration" },
+    { "id": "RELEASE_GATE_ENGINE", "status": "MET", "note": "PASS/WARN/BLOCK product release gate" },
+    { "id": "DEPLOYMENT_CORRELATION", "status": "MET", "note": "git HEAD + pubspec build in deploymentContext" },
+    { "id": "RUNBOOK", "status": "MET", "note": "ops/RUNBOOK.md — 9 CRITICAL incidents + deferred-validation note" },
+    { "id": "SECRET_PII_PROTECTION", "status": "MET", "note": "allow-list-only emit/normalize; report asserts no PII keys" },
+    { "id": "DETERMINISTIC_TESTS", "status": "MET", "note": "evaluate-runtime.test.mjs fixtures incl. status-model + money-safety" },
+    { "id": "CI_INTEGRATION", "status": "MET", "note": "ops-health.yml collect->evaluate->artifact->report (continue-on-error)" },
+    { "id": "ARTIFACT_RETENTION", "status": "MET", "note": "14-day GitHub artifact retention; bounded 500 events/day" },
+    { "id": "PAGES_OFF", "status": "MET", "note": "GitHub Pages NOT enabled by this system" }
+  ],
+  "validations": [
+    {
+      "id": "SYNTHETIC_IAP_CONTRACT",
+      "status": "VERIFIED",
+      "evidenceType": "SYNTHETIC",
+      "evidence": "ops/monitor/evaluate-runtime.test.mjs + iap-core.test.mjs",
+      "requiredForObservabilityPlatform": true,
+      "requiredForProductRelease": false,
+      "note": "Deterministic fixtures prove the full expected chain (started -> apple.success -> credit.granted creditDelta=1; replay creditDelta=0; money-safety invariants). This is CONTRACT validation, NOT real StoreKit execution."
+    },
+    {
+      "id": "REAL_IAP_TESTFLIGHT_E2E",
+      "status": "DEFERRED",
+      "evidenceType": "REAL",
+      "evidence": null,
+      "requiredForObservabilityPlatform": false,
+      "requiredForProductRelease": true,
+      "deferredReason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE",
+      "note": "TestFlight 1.0.4(22) -> premium_link_single_v2 -> iapVerify -> Apple -> processedPurchases -> +1. When performed, drop ops-status/iap-e2e-evidence.json {\"verified\":true,\"source\":\"testflight-sandbox\",...}; the registry flips DEFERRED->VERIFIED and runtimeValidationStatus recomputes to FULL with NO evaluator redesign."
+    }
+  ],
+  "statusValues": ["VERIFIED", "FAILED", "DEFERRED", "NOT_RUN"]
+}

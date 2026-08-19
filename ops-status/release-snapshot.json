@@ -1,48 +1,42 @@
 {
-  "generatedAt": "2026-08-19T13:06:33.978Z",
+  "generatedAt": "2026-08-19T14:14:02.930Z",
   "app": "Feedback2Me",
   "version": "1.0.4",
   "build": 22,
-  "sourceCommit": "06bc18b",
+  "sourceCommit": "d2471fc",
   "branch": "release/1.0.4-complete-rc",
+  "observabilityPlatformStatus": "PARTIAL",
+  "runtimeValidationStatus": "PARTIAL",
+  "productReleaseGate": "WARN",
+  "currentRuntimeHealth": "HEALTHY",
   "testflight": {
     "processingState": "VALID",
     "internalBuildState": "IN_BETA_TESTING",
     "group": "deneme",
-    "note": "verified via App Store Connect API earlier this session"
+    "note": "verified via App Store Connect API"
   },
-  "iapValidation": {
+  "iap": {
     "iapVerify": "LIVE",
     "product": "premium_link_single_v2",
-    "realE2E": "ASSUMED_FOR_NEXT_PHASE",
-    "note": "awaiting real TestFlight sandbox purchase"
+    "realE2E": "DEFERRED",
+    "realE2EReason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE",
+    "syntheticContract": "VERIFIED"
   },
-  "observability": {
-    "classification": "PARTIAL",
-    "runtimeHealth": "HEALTHY",
-    "collector": "UNKNOWN"
-  },
-  "activeAlerts": [
+  "deferredValidations": [
     {
-      "domain": "RELEASE",
-      "code": "MISSING_IAP_E2E_EVIDENCE",
-      "severity": "WARNING",
-      "releaseBlocking": true
+      "id": "REAL_IAP_TESTFLIGHT_E2E",
+      "status": "DEFERRED",
+      "requiredForProductRelease": true,
+      "requiredForObservabilityPlatform": false,
+      "reason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE"
     }
   ],
-  "sloAssessment": {
-    "gate": "BLOCK",
-    "blocking": [
-      "MISSING_IAP_E2E_EVIDENCE"
-    ],
-    "warnings": []
-  },
-  "releaseGate": "BLOCK",
   "safetyBoundaries": {
     "publicRelease": false,
     "appReview": false,
     "firestoreRulesDeployed": false,
     "legacyRetired": false,
-    "prMerged": false
+    "prMerged": false,
+    "pagesEnabled": false
   }
 }

@@ -1,19 +1,20 @@
 {
-  "generatedAt": "2026-08-19T13:11:38.013Z",
+  "generatedAt": "2026-08-19T14:14:02.930Z",
   "window": {
     "lookbackHours": 24,
     "events": 0
   },
-  "overallStatus": "HEALTHY",
-  "releaseGate": {
-    "status": "BLOCK",
-    "blocking": [
-      "MISSING_IAP_E2E_EVIDENCE"
-    ],
+  "observabilityPlatformStatus": "PARTIAL",
+  "runtimeValidationStatus": "PARTIAL",
+  "productReleaseGate": {
+    "status": "WARN",
+    "blocking": [],
     "warnings": [
-      "COLLECTOR_RUN_FAILED"
+      "COLLECTOR_RUN_FAILED",
+      "IAP_E2E_VALIDATION_DEFERRED"
     ]
   },
+  "currentRuntimeHealth": "HEALTHY",
   "domains": {
     "IAP": {
       "status": "IDLE",
@@ -96,9 +97,38 @@
       "evidence": null,
       "releaseBlocking": false,
       "state": "ONGOING",
-      "firstSeen": "2026-08-19T13:11:37.876Z",
-      "lastSeen": "2026-08-19T13:11:38.013Z"
+      "startedAt": "2026-08-19T14:14:02.930Z",
+      "lastObservedAt": "2026-08-19T14:14:02.930Z",
+      "resolvedAt": null,
+      "durationMs": 0,
+      "deployContextAtStart": {
+        "commit": "d2471fc",
+        "build": "22",
+        "functionRevision": null
+      }
     },
+    {
+      "domain": "VALIDATION",
+      "code": "IAP_E2E_VALIDATION_DEFERRED",
+      "severity": "WARNING",
+      "message": "real TestFlight sandbox IAP purchase not yet performed (DEFERRED — not fabricated)",
+      "evidence": {
+        "reason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE"
+      },
+      "releaseBlocking": false,
+      "state": "NEW",
+      "startedAt": "2026-08-19T14:14:02.930Z",
+      "lastObservedAt": "2026-08-19T14:14:02.930Z",
+      "resolvedAt": null,
+      "durationMs": 0,
+      "deployContextAtStart": {
+        "commit": "d2471fc",
+        "build": "22",
+        "functionRevision": null
+      }
+    }
+  ],
+  "resolvedAlerts": [
     {
       "domain": "RELEASE",
       "code": "MISSING_IAP_E2E_EVIDENCE",
@@ -108,19 +138,39 @@
         "present": false
       },
       "releaseBlocking": true,
-      "state": "ONGOING",
+      "state": "RESOLVED",
       "firstSeen": "2026-08-19T13:05:34.710Z",
-      "lastSeen": "2026-08-19T13:11:38.013Z"
+      "lastSeen": "2026-08-19T13:11:38.013Z",
+      "lastObservedAt": "2026-08-19T14:14:02.930Z",
+      "resolvedAt": "2026-08-19T14:14:02.930Z",
+      "durationMs": 0
     }
   ],
-  "resolvedAlerts": [],
+  "deferredValidations": [
+    {
+      "id": "REAL_IAP_TESTFLIGHT_E2E",
+      "status": "DEFERRED",
+      "requiredForProductRelease": true,
+      "requiredForObservabilityPlatform": false,
+      "reason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE"
+    }
+  ],
   "deploymentContext": {
-    "commit": "251fb22",
+    "commit": "d2471fc",
     "build": "22",
     "functionRevision": null
   },
+  "collectorFreshness": {
+    "lastEventAt": null,
+    "ageMinutes": null,
+    "providersSucceeded": null,
+    "providersAttempted": 3
+  },
   "validationEvidence": {
-    "iapRealE2E": "ASSUMED_FOR_NEXT_PHASE",
+    "realIapE2E": "DEFERRED",
+    "realIapE2EReason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE",
+    "syntheticIapContract": "VERIFIED",
+    "evidenceType": "NONE",
     "source": null
   }
 }

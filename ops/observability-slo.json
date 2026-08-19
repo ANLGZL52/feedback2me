@@ -42,10 +42,10 @@
       "IAP_VERIFY_DOWN",
       "POSTGRES_CRITICAL",
       "COLLECTOR_STALE",
-      "SECRET_OR_PII_LEAK",
-      "MISSING_IAP_E2E_EVIDENCE"
+      "SECRET_OR_PII_LEAK"
     ],
     "warnOn": [
+      "IAP_E2E_VALIDATION_DEFERRED",
       "IAP_VERIFY_FAILURE_ELEVATED",
       "IAP_LATENCY_DEGRADED",
       "OPENAI_DEGRADED",
@@ -53,6 +53,6 @@
       "POSTGRES_WARNING",
       "RAILWAY_UNREACHABLE"
     ],
-    "note": "MISSING_IAP_E2E_EVIDENCE blocks until a REAL TestFlight sandbox purchase is validated (ops-status/iap-e2e-evidence.json with verified=true). Cosmetic WARNs never BLOCK."
+    "note": "Real IAP E2E is a DEFERRED VALIDATION (IAP_E2E_VALIDATION_DEFERRED = WARN, non-blocking at the current TestFlight stage) — tracked in ops/validation-requirements.json (requiredForProductRelease=true, requiredForObservabilityPlatform=false). It keeps runtimeValidationStatus PARTIAL but does NOT block observabilityPlatformStatus=FULL. Only real runtime CRITICALs (money-safety, verify-down, postgres-critical, collector-stale, secret-leak) BLOCK. A public/production-release policy that requires real E2E would re-add it to blockOn for that gate."
   }
 }

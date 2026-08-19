@@ -10,6 +10,7 @@ import { computeIapMetrics, detectMoneySafetyViolations } from './iap-invariants
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SLO = JSON.parse(readFileSync(join(REPO, 'ops', 'observability-slo.json'), 'utf8'));
+const REG = JSON.parse(readFileSync(join(REPO, 'ops', 'validation-requirements.json'), 'utf8'));
 const NOW = Date.parse('2026-08-19T12:00:00Z');
 const TS = new Date(NOW - 60000).toISOString(); // 1 min ago (fresh)
 
@@ -29,7 +30,7 @@ const oaiEv = (eventType, openai = {}) => ({ timestamp: TS, source: 'gcp-functio
 const httpEv = (statusClass) => ({ timestamp: TS, source: 'railway-http', method: 'POST', routeId: 'POST /feedbacks', statusClass, httpStatus: statusClass === '5xx' ? 500 : 200, latencyMs: 120 });
 
 const baseSignals = () => ({ collector: { lastEventAt: TS, ranOk: true, providersAttempted: 3, providersSucceeded: 3 }, observabilityOk: true, iapVerifyReachable: true, postgres: { status: 'HEALTHY', consecutiveFailures: 0 } });
-const run = (events, over = {}) => evaluate({ events, slo: SLO, now: NOW, prev: null, signals: { ...baseSignals(), ...(over.signals || {}) }, iapE2eEvidence: over.iapE2eEvidence, ...over.extra });
+const run = (events, over = {}) => evaluate({ events, slo: SLO, now: NOW, prev: over.prev ?? null, signals: { ...baseSignals(), ...(over.signals || {}) }, iapE2eEvidence: over.iapE2eEvidence, security: over.security, registry: over.registry || REG });
 
 describe('IAP metrics + money-safety invariants (pure)', () => {
   test('healthy purchases -> no violations, correct counts', () => {
@@ -72,9 +73,9 @@ describe('evaluate() — health + alerts + release gate', () => {
   test('healthy + verified E2E -> HEALTHY, gate PASS', () => {
     const a = run([...purchaseOp('a', 't:a'), oaiEv('openai.request.completed'), httpEv('2xx')], verified);
     assert.equal(a.domains.IAP.status, 'HEALTHY');
-    assert.equal(a.releaseGate.status, 'PASS');
-    assert.equal(a.overallStatus, 'HEALTHY');
-    assert.equal(a.validationEvidence.iapRealE2E, 'VERIFIED');
+    assert.equal(a.productReleaseGate.status, 'PASS');
+    assert.equal(a.currentRuntimeHealth, 'HEALTHY');
+    assert.equal(a.validationEvidence.realIapE2E, 'VERIFIED');
   });
 
   test('money-safety breach -> IAP UNHEALTHY + CRITICAL + gate BLOCK', () => {
@@ -82,20 +83,22 @@ describe('evaluate() — health + alerts + release gate', () => {
     const a = run(evs, verified);
     assert.equal(a.domains.IAP.status, 'UNHEALTHY');
     assert.ok(a.alerts.some((x) => x.code === 'IAP_MONEY_SAFETY_BREACH' && x.severity === 'CRITICAL' && x.releaseBlocking));
-    assert.equal(a.releaseGate.status, 'BLOCK');
+    assert.equal(a.productReleaseGate.status, 'BLOCK');
   });
 
   test('iapVerify unreachable -> IAP_VERIFY_DOWN CRITICAL + BLOCK', () => {
     const a = run([], { ...verified, signals: { iapVerifyReachable: false } });
     assert.ok(a.alerts.some((x) => x.code === 'IAP_VERIFY_DOWN' && x.releaseBlocking));
-    assert.equal(a.releaseGate.status, 'BLOCK');
+    assert.equal(a.productReleaseGate.status, 'BLOCK');
   });
 
-  test('missing real E2E evidence -> gate BLOCK (honest), even when healthy', () => {
+  test('real E2E DEFERRED (not fabricated) -> WARN not BLOCK; runtimeValidation PARTIAL', () => {
     const a = run([...purchaseOp('a', 't:a')]); // no iapE2eEvidence
-    assert.equal(a.validationEvidence.iapRealE2E, 'ASSUMED_FOR_NEXT_PHASE');
-    assert.ok(a.releaseGate.blocking.includes('MISSING_IAP_E2E_EVIDENCE'));
-    assert.equal(a.releaseGate.status, 'BLOCK');
+    assert.equal(a.validationEvidence.realIapE2E, 'DEFERRED');
+    assert.equal(a.runtimeValidationStatus, 'PARTIAL');
+    assert.ok(a.deferredValidations.some((v) => v.id === 'REAL_IAP_TESTFLIGHT_E2E'));
+    assert.ok(a.alerts.some((x) => x.code === 'IAP_E2E_VALIDATION_DEFERRED' && x.severity === 'WARNING' && x.releaseBlocking === false));
+    assert.equal(a.productReleaseGate.status, 'WARN'); // deferred E2E warns, does NOT block
   });
 
   test('OpenAI degraded (>=50% failures, min sample) -> OPENAI UNHEALTHY WARN/CRIT', () => {
@@ -117,14 +120,14 @@ describe('evaluate() — health + alerts + release gate', () => {
     const a = run([...purchaseOp('a', 't:a')], { ...verified, signals: { postgres: { status: 'DOWN', consecutiveFailures: 3 } } });
     assert.equal(a.domains.POSTGRES.status, 'UNHEALTHY');
     assert.ok(a.alerts.some((x) => x.code === 'POSTGRES_CRITICAL'));
-    assert.equal(a.releaseGate.status, 'BLOCK');
+    assert.equal(a.productReleaseGate.status, 'BLOCK');
   });
 
   test('collector stale -> COLLECTOR_STALE CRITICAL + BLOCK', () => {
     const stale = new Date(NOW - 200 * 60000).toISOString();
     const a = run([...purchaseOp('a', 't:a')], { ...verified, signals: { collector: { lastEventAt: stale, ranOk: true }, observabilityOk: true } });
     assert.ok(a.alerts.some((x) => x.code === 'COLLECTOR_STALE' && x.releaseBlocking));
-    assert.equal(a.releaseGate.status, 'BLOCK');
+    assert.equal(a.productReleaseGate.status, 'BLOCK');
   });
 
   test('no traffic (fresh collector) -> IDLE not failure, gate not blocked by traffic', () => {
@@ -132,7 +135,7 @@ describe('evaluate() — health + alerts + release gate', () => {
     assert.equal(a.domains.IAP.status, 'IDLE');
     assert.equal(a.domains.RAILWAY.status, 'IDLE');
     // gate PASS (no blocking alert; E2E verified in this fixture)
-    assert.equal(a.releaseGate.status, 'PASS');
+    assert.equal(a.productReleaseGate.status, 'PASS');
   });
 
   test('NO_OBSERVABILITY (collector failed) -> UNKNOWN, distinct from IDLE', () => {
@@ -144,7 +147,7 @@ describe('evaluate() — health + alerts + release gate', () => {
   test('security leak signal -> SECRET_OR_PII_LEAK CRITICAL + BLOCK', () => {
     const a = evaluate({ events: [], slo: SLO, now: NOW, signals: baseSignals(), iapE2eEvidence: { verified: true }, security: { leak: true, count: 1 } });
     assert.ok(a.alerts.some((x) => x.code === 'SECRET_OR_PII_LEAK' && x.releaseBlocking));
-    assert.equal(a.releaseGate.status, 'BLOCK');
+    assert.equal(a.productReleaseGate.status, 'BLOCK');
   });
 
   test('NEW -> ONGOING -> RESOLVED lifecycle', () => {
@@ -160,7 +163,62 @@ describe('evaluate() — health + alerts + release gate', () => {
   test('report renders without throwing and contains no obvious PII keys', () => {
     const a = run([...purchaseOp('a', 't:a')], verified);
     const r = renderReport(a);
-    assert.ok(r.includes('Runtime Health'));
+    assert.ok(r.includes('Operational Status'));
+    assert.ok(r.includes('Observability Platform:') && r.includes('Runtime Validation:'));
     for (const bad of ['receipt', 'verificationData', 'password', 'Bearer']) assert.ok(!r.toLowerCase().includes(bad.toLowerCase()));
+  });
+});
+
+describe('three-status model (platform vs runtime-validation vs release gate)', () => {
+  const V = { iapE2eEvidence: { verified: true, source: 'testflight-sandbox' } };
+  test('A: platform operational + real E2E deferred -> platform FULL, runtimeValidation PARTIAL, deferred listed', () => {
+    const a = run([...purchaseOp('a', 't:a')]); // no E2E evidence
+    assert.equal(a.observabilityPlatformStatus, 'FULL');
+    assert.equal(a.runtimeValidationStatus, 'PARTIAL');
+    assert.ok(a.deferredValidations.some((v) => v.id === 'REAL_IAP_TESTFLIGHT_E2E' && v.status === 'DEFERRED'));
+    assert.equal(a.validationEvidence.realIapE2E, 'DEFERRED');
+    assert.equal(a.validationEvidence.syntheticIapContract, 'VERIFIED');
+  });
+  test('B: platform operational + real E2E VERIFIED -> platform FULL, runtimeValidation FULL', () => {
+    const a = run([...purchaseOp('a', 't:a')], V);
+    assert.equal(a.observabilityPlatformStatus, 'FULL');
+    assert.equal(a.runtimeValidationStatus, 'FULL');
+    assert.equal(a.validationEvidence.realIapE2E, 'VERIFIED');
+    assert.equal(a.deferredValidations.length, 0);
+  });
+  test('C: collector failed -> platform NOT FULL (cannot verify operational)', () => {
+    const a = run([], { ...V, signals: { collector: { ranOk: false }, observabilityOk: false } });
+    assert.equal(a.observabilityPlatformStatus, 'PARTIAL');
+  });
+  test('C2: platformCriteria not all MET -> platform NOT FULL even if operational', () => {
+    const badReg = { platformCriteria: [{ id: 'X', status: 'UNMET' }], validations: REG.validations };
+    const a = run([...purchaseOp('a', 't:a')], { ...V, registry: badReg });
+    assert.equal(a.observabilityPlatformStatus, 'PARTIAL');
+  });
+  test('D: money-safety breach -> runtime UNHEALTHY + release BLOCK (platform can still be FULL)', () => {
+    const a = run([iapEv('iap.credit.granted', { clientRequestId: 'z', creditDelta: 3, txCorrelation: 't:z' })], V);
+    assert.equal(a.currentRuntimeHealth, 'UNHEALTHY');
+    assert.equal(a.productReleaseGate.status, 'BLOCK');
+    assert.equal(a.observabilityPlatformStatus, 'FULL'); // platform is built+operational; runtime is unhealthy
+  });
+  test('E: no traffic -> IDLE / not UNKNOWN', () => {
+    const a = run([], V);
+    assert.equal(a.domains.IAP.status, 'IDLE');
+    assert.notEqual(a.currentRuntimeHealth, 'UNKNOWN');
+  });
+  test('F: no observability -> UNKNOWN / not HEALTHY', () => {
+    const a = run([], { ...V, signals: { collector: { ranOk: false }, observabilityOk: false } });
+    assert.equal(a.domains.IAP.status, 'UNKNOWN');
+    assert.notEqual(a.domains.IAP.status, 'HEALTHY');
+  });
+  test('incident timeline: startedAt persists, resolvedAt + durationMs on resolve', () => {
+    const breach = [iapEv('iap.credit.granted', { clientRequestId: 'z', creditDelta: 9, txCorrelation: 't:z' })];
+    const a1 = run(breach, V);
+    const al1 = a1.alerts.find((x) => x.code === 'IAP_GRANT_DELTA_NOT_ONE');
+    assert.ok(al1.startedAt && al1.resolvedAt === null && typeof al1.durationMs === 'number');
+    const later = Date.parse('2026-08-19T12:10:00Z');
+    const a2 = evaluate({ events: [...purchaseOp('a', 't:a')], slo: SLO, now: later, prev: a1, signals: baseSignals(), iapE2eEvidence: { verified: true }, registry: REG });
+    const r = a2.resolvedAlerts.find((x) => x.code === 'IAP_GRANT_DELTA_NOT_ONE');
+    assert.ok(r && r.resolvedAt && r.durationMs >= 600000); // >= 10 min
   });
 });

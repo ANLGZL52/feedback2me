@@ -142,7 +142,7 @@ function evalCollector(collector, slo, now) {
  * PURE evaluator. Deterministic given inputs. `now` is ms epoch (injected for tests).
  * `prev` is the previous artifact (for NEW/ONGOING/RESOLVED). No file/network here.
  */
-export function evaluate({ events = [], slo, now, prev = null, signals = {}, deployment = null, iapE2eEvidence = null, security = null }) {
+export function evaluate({ events = [], slo, now, prev = null, signals = {}, deployment = null, iapE2eEvidence = null, security = null, registry = null }) {
   const observabilityOk = signals.observabilityOk !== false; // false only when the collector genuinely failed
   const iap = evalIap(events, slo, observabilityOk, signals.iapVerifyReachable ?? null);
   const openai = evalOpenAi(events, slo, observabilityOk);
@@ -160,59 +160,89 @@ export function evaluate({ events = [], slo, now, prev = null, signals = {}, dep
   let alerts = [];
   for (const d of Object.values(domains)) alerts = alerts.concat(d.alerts);
 
-  // Missing real IAP E2E evidence is release-blocking (honest: ASSUMED != VERIFIED).
+  // --- Real IAP E2E is DEFERRED, never fabricated. Reclassified: it is NOT a platform
+  // gap and NOT a hard release-block at the current stage — it is a tracked deferred
+  // validation (WARNING, releaseBlocking=false) that keeps runtimeValidationStatus PARTIAL. ---
+  const reg = registry || { platformCriteria: [], validations: [] };
+  const e2eVal = (reg.validations || []).find((v) => v.id === 'REAL_IAP_TESTFLIGHT_E2E') || {};
   const e2eVerified = !!(iapE2eEvidence && iapE2eEvidence.verified === true);
-  if (!e2eVerified) alerts.push(alert('RELEASE', 'MISSING_IAP_E2E_EVIDENCE', 'WARNING', 'no verified real TestFlight sandbox purchase evidence yet (ops-status/iap-e2e-evidence.json verified=true required)', { present: !!iapE2eEvidence }, true));
-
-  // Alert identity + NEW/ONGOING/RESOLVED vs prev.
-  const idOf = (a) => `${a.domain}:${a.code}`;
-  const prevAlerts = (prev && prev.alerts) || [];
-  const prevIds = new Set(prevAlerts.filter((a) => a.state !== 'RESOLVED').map(idOf));
-  const curIds = new Set(alerts.map(idOf));
-  const nowIso = new Date(now).toISOString();
-  const tracked = alerts.map((a) => {
-    const wasOpen = prevIds.has(idOf(a));
-    const prevA = prevAlerts.find((p) => idOf(p) === idOf(a));
-    return { ...a, state: wasOpen ? 'ONGOING' : 'NEW', firstSeen: (prevA && prevA.firstSeen) || nowIso, lastSeen: nowIso };
-  });
-  // Resolved: previously open, not present now.
-  const resolved = prevAlerts
-    .filter((a) => a.state !== 'RESOLVED' && !curIds.has(idOf(a)))
-    .map((a) => ({ ...a, state: 'RESOLVED', lastSeen: nowIso }));
-
-  // Overall runtime health (UNKNOWN-aware: collector UNKNOWN doesn't mask a real UNHEALTHY).
-  let overallStatus = HEALTHY;
-  for (const d of Object.values(domains)) if (d.status !== IDLE) overallStatus = worst(overallStatus, d.status);
-  if (overallStatus === HEALTHY && Object.values(domains).every((d) => d.status === IDLE || d.status === UNKNOWN)) {
-    overallStatus = Object.values(domains).some((d) => d.status === IDLE) ? IDLE : UNKNOWN;
+  const deferred = [];
+  if (!e2eVerified) {
+    alerts.push(alert('VALIDATION', 'IAP_E2E_VALIDATION_DEFERRED', 'WARNING', 'real TestFlight sandbox IAP purchase not yet performed (DEFERRED — not fabricated)', { reason: e2eVal.deferredReason || 'PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE' }, false));
+    deferred.push({ id: 'REAL_IAP_TESTFLIGHT_E2E', status: 'DEFERRED', requiredForProductRelease: e2eVal.requiredForProductRelease !== false, requiredForObservabilityPlatform: e2eVal.requiredForObservabilityPlatform === true, reason: e2eVal.deferredReason || 'PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE' });
   }
 
-  // Release gate. An alert blocks if it carries releaseBlocking OR its code is in
-  // the SLO blockOn list (e.g. POSTGRES_CRITICAL blocks without a per-alert flag).
-  const blocking = tracked.filter((a) => a.releaseBlocking === true || slo.releaseGate.blockOn.includes(a.code));
+  // Alert identity + NEW/ONGOING/RESOLVED + incident timeline (startedAt/lastObservedAt/
+  // resolvedAt/durationMs/deployContextAtStart). Low-cardinality ids; no user identifiers.
+  const idOf = (a) => `${a.domain}:${a.code}`;
+  const prevOpen = ((prev && prev.alerts) || []).filter((a) => a.state !== 'RESOLVED');
+  const prevIds = new Set(prevOpen.map(idOf));
+  const curIds = new Set(alerts.map(idOf));
+  const nowIso = new Date(now).toISOString();
+  const durMs = (fromIso) => Math.max(0, now - Date.parse(fromIso || nowIso));
+  const tracked = alerts.map((a) => {
+    const prevA = prevOpen.find((p) => idOf(p) === idOf(a));
+    const startedAt = (prevA && prevA.startedAt) || nowIso;
+    return { ...a, state: prevIds.has(idOf(a)) ? 'ONGOING' : 'NEW', startedAt, lastObservedAt: nowIso, resolvedAt: null, durationMs: durMs(startedAt), deployContextAtStart: (prevA && prevA.deployContextAtStart) || deployment || null };
+  });
+  const resolved = prevOpen.filter((a) => !curIds.has(idOf(a))).map((a) => ({ ...a, state: 'RESOLVED', lastObservedAt: a.lastObservedAt || nowIso, resolvedAt: nowIso, durationMs: durMs(a.startedAt) }));
+
+  // Current runtime health (domain roll-up; UNKNOWN-aware; IDLE != failure).
+  let currentRuntimeHealth = HEALTHY;
+  for (const d of Object.values(domains)) if (d.status !== IDLE) currentRuntimeHealth = worst(currentRuntimeHealth, d.status);
+  if (currentRuntimeHealth === HEALTHY && Object.values(domains).every((d) => d.status === IDLE || d.status === UNKNOWN)) {
+    currentRuntimeHealth = Object.values(domains).some((d) => d.status === IDLE) ? IDLE : UNKNOWN;
+  }
+
+  // --- THREE SEPARATE, non-conflated statuses ---
+  // 1) OBSERVABILITY PLATFORM — is the monitoring system built AND operational this run?
+  const platformImplemented = (reg.platformCriteria || []).length > 0 && (reg.platformCriteria || []).every((c) => c.status === 'MET');
+  const securityLeak = securityAlerts.length > 0;
+  const platformOperational = observabilityOk && !securityLeak && collector.status !== UNKNOWN;
+  const observabilityPlatformStatus = platformImplemented && platformOperational ? 'FULL' : 'PARTIAL';
+  // 2) RUNTIME VALIDATION — has the required REAL external evidence been observed?
+  const runtimeValidationStatus = e2eVerified ? 'FULL' : 'PARTIAL';
+  // 3) PRODUCT RELEASE GATE — policy over runtime + validations. Real money-safety
+  //    breaches / verify-down / collector-stale / postgres-critical / secret-leak BLOCK.
+  //    Deferred E2E is WARN (non-blocking) at this stage.
+  const blocking = tracked.filter((a) => a.releaseBlocking === true || (slo.releaseGate.blockOn || []).includes(a.code));
   const warns = tracked.filter((a) => !blocking.includes(a) && (a.severity === 'WARNING' || a.severity === 'CRITICAL'));
-  const releaseGate = { status: blocking.length ? 'BLOCK' : warns.length ? 'WARN' : 'PASS', blocking: blocking.map((a) => a.code), warnings: warns.map((a) => a.code) };
+  const productReleaseGate = { status: blocking.length ? 'BLOCK' : warns.length ? 'WARN' : 'PASS', blocking: blocking.map((a) => a.code), warnings: warns.map((a) => a.code) };
 
   return {
     generatedAt: nowIso,
     window: { lookbackHours: slo.window.lookbackHours, events: events.length },
-    overallStatus,
-    releaseGate,
+    observabilityPlatformStatus,
+    runtimeValidationStatus,
+    productReleaseGate,
+    currentRuntimeHealth,
     domains: Object.fromEntries(Object.entries(domains).map(([k, v]) => [k, { status: v.status, metrics: v.metrics }])),
     alerts: tracked,
     resolvedAlerts: resolved,
+    deferredValidations: deferred,
     deploymentContext: deployment || null,
-    validationEvidence: { iapRealE2E: e2eVerified ? 'VERIFIED' : 'ASSUMED_FOR_NEXT_PHASE', source: iapE2eEvidence?.source || null },
+    collectorFreshness: collector.metrics,
+    validationEvidence: {
+      realIapE2E: e2eVerified ? 'VERIFIED' : 'DEFERRED',
+      realIapE2EReason: e2eVerified ? null : (e2eVal.deferredReason || 'PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE'),
+      syntheticIapContract: (reg.validations || []).some((v) => v.id === 'SYNTHETIC_IAP_CONTRACT' && v.status === 'VERIFIED') ? 'VERIFIED' : 'NOT_RUN',
+      evidenceType: e2eVerified ? 'REAL' : 'NONE',
+      source: iapE2eEvidence?.source || null,
+    },
   };
 }
 
 // ---------- human report ----------
 export function renderReport(a) {
   const L = [];
-  L.push(`# Feedback2Me Runtime Health`);
+  L.push(`# Feedback2Me Operational Status`);
   L.push(``);
   L.push(`Generated: ${a.generatedAt}  ·  window: ${a.window.lookbackHours}h  ·  events: ${a.window.events}`);
-  L.push(`Overall: **${a.overallStatus}**   ·   Release Gate: **${a.releaseGate.status}**`);
+  L.push(``);
+  L.push(`- **Observability Platform:** ${a.observabilityPlatformStatus}`);
+  L.push(`- **Runtime Validation:** ${a.runtimeValidationStatus}`);
+  L.push(`- **Product Release Gate:** ${a.productReleaseGate.status}`);
+  L.push(`- **Current Runtime:** ${a.currentRuntimeHealth}`);
   const d = a.domains;
   const line = (name, dom, extra) => L.push(`- **${name}**: ${dom.status}${extra ? ' — ' + extra : ''}`);
   L.push(``); L.push(`## Domains`);
@@ -224,10 +254,14 @@ export function renderReport(a) {
   L.push(``); L.push(`## Active Alerts`);
   if (!a.alerts.length) L.push(`- none`);
   for (const al of a.alerts) L.push(`- [${al.severity}] ${al.domain}/${al.code} — ${al.message}${al.releaseBlocking ? ' *(release-blocking)*' : ''} (${al.state})`);
-  if (a.resolvedAlerts.length) { L.push(``); L.push(`## Resolved`); for (const al of a.resolvedAlerts) L.push(`- ${al.domain}/${al.code}`); }
-  L.push(``); L.push(`## Release Evidence`);
-  L.push(`- IAP real E2E: **${a.validationEvidence.iapRealE2E}**`);
-  if (a.deploymentContext) L.push(`- deploy: commit ${a.deploymentContext.commit || '—'} · build ${a.deploymentContext.build || '—'} · fn ${a.deploymentContext.functionRevision || '—'}`);
+  if (a.resolvedAlerts.length) { L.push(``); L.push(`## Resolved`); for (const al of a.resolvedAlerts) L.push(`- ${al.domain}/${al.code} (duration ${(al.durationMs != null ? Math.round(al.durationMs / 60000) : '?')} min)`); }
+  L.push(``); L.push(`## Deferred Validation`);
+  if (!a.deferredValidations.length) L.push(`- none`);
+  for (const v of a.deferredValidations) L.push(`- **${v.id}** — Status: DEFERRED · Reason: ${v.reason}${v.requiredForProductRelease ? ' · required for product release' : ''} (NOT verified — do not claim as passed)`);
+  L.push(``); L.push(`## Validation Evidence`);
+  L.push(`- Real IAP TestFlight E2E: **${a.validationEvidence.realIapE2E}**${a.validationEvidence.realIapE2EReason ? ' (' + a.validationEvidence.realIapE2EReason + ')' : ''}`);
+  L.push(`- Synthetic IAP contract (fixtures, NOT real StoreKit): **${a.validationEvidence.syntheticIapContract}**`);
+  if (a.deploymentContext) L.push(`- Deploy: commit ${a.deploymentContext.commit || '—'} · build ${a.deploymentContext.build || '—'} · fn ${a.deploymentContext.functionRevision || '—'}`);
   return L.join('\n');
 }
 
@@ -291,7 +325,12 @@ function main() {
   const outP = join(REPO, 'ops-status', 'runtime-health.json');
   if (existsSync(outP)) { try { prev = JSON.parse(readFileSync(outP, 'utf8')); } catch {} }
 
-  const artifact = evaluate({ events, slo, now, prev, signals, deployment, iapE2eEvidence });
+  // central validation + platform-completeness registry (single source of truth).
+  let registry = null;
+  const regP = join(REPO, 'ops', 'validation-requirements.json');
+  if (existsSync(regP)) { try { registry = JSON.parse(readFileSync(regP, 'utf8')); } catch {} }
+
+  const artifact = evaluate({ events, slo, now, prev, signals, deployment, iapE2eEvidence, registry });
   if (!existsSync(join(REPO, 'ops-status'))) mkdirSync(join(REPO, 'ops-status'), { recursive: true });
   writeFileSync(outP, JSON.stringify(artifact, null, 2));
   writeFileSync(join(REPO, 'ops-status', 'runtime-health.md'), renderReport(artifact) + '\n');

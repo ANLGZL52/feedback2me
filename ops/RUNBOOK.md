@@ -13,6 +13,30 @@ General rules:
 
 ---
 
+## IAP_E2E_VALIDATION_DEFERRED  (NOT an incident)
+**What it means:** the real physical-device TestFlight/Sandbox purchase of
+`premium_link_single_v2` has not yet been performed, so we have no REAL StoreKit
+end-to-end evidence. This is a **deferred validation**, not an outage or a defect.
+It is WARNING severity and **non-blocking** at the current TestFlight stage.
+**What IS still proven (do claim):** the observability *platform* is built and
+operational (`observabilityPlatformStatus=FULL` in CI); the IAP contract is proven
+by deterministic SYNTHETIC fixtures (started→apple.success→credit.granted +1;
+replay +0; all money-safety invariants); iapVerify is LIVE, server-authoritative,
+idempotent, Android fail-closed.
+**What is NOT proven (do NOT claim):** a real charged Apple sandbox transaction
+flowing through iapVerify→processedPurchases→`paidLinkCredits +1`. Do NOT state
+"IAP E2E PASS", and never fabricate `iap.verify.apple.success`, `iap.credit.granted`,
+`processedPurchases`, receipts, or a `+1` credit.
+**How to complete it later (no system redesign):** perform TestFlight 1.0.4(22) →
+Premium → one sandbox purchase; capture the real result into
+`ops-status/iap-e2e-evidence.json` `{ "verified": true, "source": "testflight-sandbox", ... }`.
+On the next evaluation the registry flips `REAL_IAP_TESTFLIGHT_E2E` DEFERRED→VERIFIED,
+`runtimeValidationStatus` recomputes to FULL, and the deferred WARN clears — with NO
+evaluator/architecture change.
+**Escalation:** none — this is tracked work, not an incident.
+
+---
+
 ## IAP_CREDIT_INVARIANT_BREACH  (IAP_MONEY_SAFETY_BREACH + IAP_GRANT_DELTA_NOT_ONE / IAP_REPLAY_DELTA_NOT_ZERO / IAP_CREDIT_UNKNOWN_PRODUCT / IAP_CREDIT_AFTER_FAILURE / IAP_DUPLICATE_GRANT / IAP_SUCCESS_WITHOUT_CREDIT)
 **What it means:** the money ledger is inconsistent — a credit was granted with the
 wrong amount, for an unknown product, after a failed verification, more than once
