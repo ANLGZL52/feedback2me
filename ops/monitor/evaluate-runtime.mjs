@@ -167,7 +167,7 @@ function evalCollector(collector, slo, now) {
  * PURE evaluator. Deterministic given inputs. `now` is ms epoch (injected for tests).
  * `prev` is the previous artifact (for NEW/ONGOING/RESOLVED). No file/network here.
  */
-export function evaluate({ events = [], slo, now, prev = null, signals = {}, deployment = null, iapE2eEvidence = null, security = null, registry = null }) {
+export function evaluate({ events = [], slo, now, prev = null, signals = {}, deployment = null, iapE2eEvidence = null, security = null, registry = null, componentHealth = null }) {
   const observabilityOk = signals.observabilityOk !== false; // false only when the collector genuinely failed
   const iap = evalIap(events, slo, observabilityOk, signals.iapVerifyReachable ?? null);
   const openai = evalOpenAi(events, slo, observabilityOk);
@@ -180,6 +180,18 @@ export function evaluate({ events = [], slo, now, prev = null, signals = {}, dep
   if (security && security.leak === true) securityAlerts.push(alert('SECURITY', 'SECRET_OR_PII_LEAK', 'CRITICAL', 'a secret/PII pattern was detected in collected events', { count: security.count ?? null }, true));
 
   const domains = { IAP: iap, OPENAI: openai, RAILWAY: railway, POSTGRES: postgres, COLLECTOR: collector, SECURITY: { status: securityAlerts.length ? UNHEALTHY : HEALTHY, metrics: {}, alerts: securityAlerts } };
+
+  // SERVICE reachability — ported from the RETIRED legacy alert.mjs Issue writer
+  // (V6). A live component DOWN is a real outage; it now flows through the SAME
+  // canonical incident pipeline (SERVICE_COMPONENT_DOWN CRITICAL) instead of a second
+  // independent GitHub-Issue writer. Only added when component data is supplied, so the
+  // pure evaluator's other callers/tests are unaffected. Mirrors decideAlert's trigger:
+  // status === 'DOWN' only (DEGRADED is dashboard-only and never pages).
+  if (componentHealth && componentHealth.length) {
+    const down = componentHealth.filter((c) => c && c.status === 'DOWN').map((c) => c.id).sort();
+    const serviceAlerts = down.length ? [alert('SERVICE', 'SERVICE_COMPONENT_DOWN', 'CRITICAL', `live component(s) DOWN: ${down.join(', ')}`, { down: down.length }, true)] : [];
+    domains.SERVICE = { status: down.length ? UNHEALTHY : HEALTHY, metrics: { componentsChecked: componentHealth.length, down: down.length }, alerts: serviceAlerts };
+  }
 
   // Flatten alerts.
   let alerts = [];
@@ -333,12 +345,15 @@ function main() {
 
   // postgres from the control-plane snapshot when present (it already probes it).
   let signals = { collector, observabilityOk: existsSync(evDir) };
+  let componentHealth = null;
   const latestP = join(REPO, 'ops-status', 'latest.json');
   if (existsSync(latestP)) {
     try {
       const snap = JSON.parse(readFileSync(latestP, 'utf8'));
       const pg = (snap.components && (snap.components['node-postgres'] || snap.components['postgres'])) || null;
       if (pg) signals.postgres = { status: pg.status, consecutiveFailures: pg.consecutiveFailures || 0 };
+      // Component reachability (ported from legacy alert.mjs) → SERVICE_COMPONENT_DOWN.
+      if (snap.components) componentHealth = Object.entries(snap.components).map(([id, c]) => ({ id, status: (c && c.status) || 'UNKNOWN' }));
     } catch {}
   }
   // real IAP E2E evidence (only counts when verified=true).
@@ -356,7 +371,7 @@ function main() {
   const regP = join(REPO, 'ops', 'validation-requirements.json');
   if (existsSync(regP)) { try { registry = JSON.parse(readFileSync(regP, 'utf8')); } catch {} }
 
-  const artifact = evaluate({ events, slo, now, prev, signals, deployment, iapE2eEvidence, registry });
+  const artifact = evaluate({ events, slo, now, prev, signals, deployment, iapE2eEvidence, registry, componentHealth });
   if (!existsSync(join(REPO, 'ops-status'))) mkdirSync(join(REPO, 'ops-status'), { recursive: true });
   writeFileSync(outP, JSON.stringify(artifact, null, 2));
   writeFileSync(join(REPO, 'ops-status', 'runtime-health.md'), renderReport(artifact) + '\n');

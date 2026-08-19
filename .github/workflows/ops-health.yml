@@ -42,19 +42,25 @@ jobs:
         run: |
           set +e
           mkdir -p ops-status _seed
+          seed_status=missing; source_run=
           rid=$(gh run list --workflow "Ops Health (read-only)" --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
           if [ -n "$rid" ]; then
+            source_run="$rid"
             gh run download "$rid" -n ops-status -D _seed >/dev/null 2>&1
             if [ -f _seed/incident-state.json ]; then
               cp _seed/incident-state.json ops-status/incident-state.json
+              seed_status=seeded
               echo "seeded incident-state.json from run $rid"
             else
+              seed_status=no_state_in_artifact
               echo "no incident-state.json in run $rid artifact (first live run or pruned) — GitHub lookup fallback will guard dedup"
             fi
           else
             echo "no prior successful run found — GitHub lookup fallback will guard dedup"
           fi
           rm -rf _seed
+          echo "seed_status=$seed_status" >> "$GITHUB_OUTPUT"
+          echo "source_run=$source_run" >> "$GITHUB_OUTPUT"
           exit 0
       - name: Install ops Postgres driver (only when the direct probe is configured)
         if: env.OPS_POSTGRES_DATABASE_URL != ''
@@ -135,10 +141,26 @@ jobs:
           OPS_ALERT_DRY_RUN: 'false'
           OPS_INCIDENT_DELIVERY_ENABLED: 'true'
           GH_TOKEN: ${{ github.token }} # issue create/comment/close + dedup lookup (issues:write)
+          OPS_STATE_SEED_STATUS: ${{ steps.seed_state.outputs.seed_status }}
+          OPS_STATE_SEED_SOURCE_RUN: ${{ steps.seed_state.outputs.source_run }}
         run: node ops/monitor/incident-delivery.mjs
+      # Daily digest — rolling 24h summary. EXTERNAL DELIVERY DISABLED in V6
+      # (OPS_DIGEST_DELIVERY_ENABLED=false, OPS_DIGEST_DRY_RUN=true): renders md/json +
+      # a preview of what WOULD be sent. Deterministic once-per-UTC-day eligibility.
+      - name: Daily digest (dry-run; artifact only, no external delivery)
+        id: digest
+        if: always()
+        continue-on-error: true
+        env:
+          OPS_DIGEST_DELIVERY_ENABLED: 'false'
+          OPS_DIGEST_DRY_RUN: 'true'
+        run: node ops/monitor/digest.mjs
       - name: Ops Console + actionable run summary (metadata only)
         id: ops_console
         if: always()
+        env:
+          OPS_DIGEST_DELIVERY_ENABLED: 'false'
+          OPS_DIGEST_DRY_RUN: 'true'
         run: node ops/monitor/ops-console.mjs
       - name: Release readiness (informational — NOT READY does NOT fail this workflow)
         id: readiness
@@ -159,15 +181,10 @@ jobs:
             echo "::error::Release preflight execution error (exit $code) — this IS an observability failure."
             exit "$code"
           fi
-      - name: Alert on live DOWN (best-effort; DOWN-only, never release/readiness blockers)
-        id: alert
-        if: always()
-        # continue-on-error: alert DELIVERY failure is best-effort (non-blocking) but
-        # its true outcome is preserved in steps.alert.outcome for honest reporting.
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node ops/monitor/alert.mjs
+      # NOTE (V6): the legacy alert.mjs GitHub-Issue writer has been RETIRED. There is
+      # now exactly ONE production operational Issue writer — the V5 incident pipeline
+      # above. The component-DOWN signal alert.mjs used to raise is delivered through it
+      # as SERVICE_COMPONENT_DOWN. No separate "Alert on live DOWN" step exists anymore.
       - name: Upload health snapshot + events (artifact, not committed)
         id: artifact
         if: always()
@@ -183,6 +200,9 @@ jobs:
             ops-status/incident-state.json
             ops-status/trend.json
             ops-status/daily-digest.md
+            ops-status/daily-digest.json
+            ops-status/daily-digest-preview.md
+            ops-status/digest-state.json
             ops-status/events/
             ops-status/runtime-events/
           retention-days: 14
@@ -194,23 +214,20 @@ jobs:
           OBS_OK: ${{ steps.checks.outcome == 'success' && steps.engine_tests.outcome == 'success' && steps.alert_tests.outcome == 'success' && steps.preflight_tests.outcome == 'success' && steps.postgres_tests.outcome == 'success' && steps.runtimelog_tests.outcome == 'success' && steps.evaluator_tests.outcome == 'success' && steps.incident_tests.outcome == 'success' && steps.readiness.outcome == 'success' && steps.artifact.outcome == 'success' }}
           READINESS: ${{ steps.readiness.outputs.readiness }}
           ART_OUTCOME: ${{ steps.artifact.outcome }}
-          ALERT_OUTCOME: ${{ steps.alert.outcome }}
           RTLOG_STATUS: ${{ steps.runtime_logs.outputs.status }}
           RTLOG_EVENTS: ${{ steps.runtime_logs.outputs.events }}
         run: |
           if [ "$OBS_OK" = "true" ]; then OBS="SUCCESS"; else OBS="FAILURE"; fi
-          # Alert delivery is best-effort; report its true outcome honestly.
-          alertDelivery="$ALERT_OUTCOME"
           {
             echo "## Feedback2Me Ops — run summary"
             echo ""
             echo "- **Observability execution:** $OBS  _(monitor=${{ steps.checks.outcome }}, engine-tests=${{ steps.engine_tests.outcome }}, alert-tests=${{ steps.alert_tests.outcome }}, preflight-tests=${{ steps.preflight_tests.outcome }}, evaluator-tests=${{ steps.evaluator_tests.outcome }}, incident-tests=${{ steps.incident_tests.outcome }}, readiness=${{ steps.readiness.outcome }}, artifact=$ART_OUTCOME)_"
-            echo "- **Incident delivery:** DRY-RUN (dry-run=${{ steps.incident_delivery.outcome }}, console=${{ steps.ops_console.outcome }}) — **0 GitHub issues written**; real delivery awaits owner approval (\`OPS_INCIDENT_DELIVERY_ENABLED=true\`)."
+            echo "- **Incident delivery:** LIVE (delivery=${{ steps.incident_delivery.outcome }}, console=${{ steps.ops_console.outcome }}) — single canonical writer; see the Ops Console section for mode/health and issue writes."
             echo "- **Release readiness:** ${READINESS:-UNKNOWN}  _(does not affect observability execution)_"
             echo "- **Artifact upload:** $ART_OUTCOME"
             echo "- **Runtime-log collector:** ${RTLOG_STATUS:-UNKNOWN} (Railway backend); runtime events collected this run: ${RTLOG_EVENTS:-0}. _Collector state is separate from backend health — a collector failure is NOT a backend outage._"
             if [ -f ops-status/latest.json ]; then
-              node -e "const s=require('./ops-status/latest.json');const down=Object.values(s.components||{}).filter(c=>c.status==='DOWN').length;const oi=(s.incidents||[]).filter(i=>i.status==='OPEN').length;const bl=(s.blockers||[]).filter(b=>b.releaseBlocking);const p0=bl.filter(b=>b.severity==='P0').length,p1=bl.filter(b=>b.severity==='P1').length;const ad=process.env.ALERT_OUTCOME==='failure'?'BEST-EFFORT FAILURE':(down===0&&oi===0?'NO ALERT REQUIRED':'ALERT DELIVERED/UPDATED');console.log('- **Live DOWN:** '+down+'  ·  **Open incidents:** '+oi+'  ·  **Overall:** '+s.overall);console.log('- **Alert delivery:** '+ad);console.log('- **Release blockers:** P0='+p0+' P1='+p1+'  (P0 in this lightweight runner are CI-evidence gaps, not runtime outages)');"
+              node -e "const s=require('./ops-status/latest.json');const down=Object.values(s.components||{}).filter(c=>c.status==='DOWN').length;const oi=(s.incidents||[]).filter(i=>i.status==='OPEN').length;console.log('- **Live component DOWN:** '+down+' _(delivered as SERVICE_COMPONENT_DOWN via the V5 pipeline)_  ·  **Snapshot open incidents:** '+oi+'  ·  **Overall:** '+s.overall);"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Observability execution: $OBS"

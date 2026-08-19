@@ -18,10 +18,13 @@ section here via `RUNBOOK_SECTIONS` in `ops/monitor/incident-delivery.mjs`):
 | `COLLECTOR_STALE` | COLLECTOR_STALE |
 | `COLLECTOR_RUN_FAILED` | GCP_WIF_AUTH_FAILED |
 | `SECRET_OR_PII_LEAK` | SECRET_OR_PII_LEAK_DETECTED |
+| `SERVICE_COMPONENT_DOWN` | SERVICE_COMPONENT_DOWN |
 
-Incident delivery is **dry-run by default** (`OPS_ALERT_DRY_RUN=true`) and writes zero
-GitHub Issues unless `OPS_INCIDENT_DELIVERY_ENABLED=true` is also set. WARNING alerts
-never create incidents (artifact/report only); only NEW CRITICAL alerts do.
+Incident delivery is **LIVE** since V6 (`OPS_INCIDENT_DELIVERY_ENABLED=true`,
+`OPS_ALERT_DRY_RUN=false`) — the V5 pipeline (`incident-delivery.mjs`) is the ONE
+canonical production GitHub-Issue writer (the legacy `alert.mjs` writer is retired).
+WARNING alerts never create incidents (artifact/report only); only NEW CRITICAL alerts
+do. See the V6 operational runbook at the end for delivery-subsystem failures.
 
 ---
 
@@ -163,3 +166,69 @@ normalizer that let it through (`ops/monitor/checks/*.mjs`).
 **What NOT to do:** do NOT paste the leaked value anywhere (issue, PR, chat, here).
 **Rollback/mitigation:** fix the emitter/normalizer allow-list; add a test proving the
 field is dropped. **Escalation:** owner immediately; rotate any exposed credential.
+
+---
+
+## SERVICE_COMPONENT_DOWN  (CRITICAL, release-blocking)
+**What it means:** a live monitored component reported status `DOWN` in the
+component snapshot (`ops-status/latest.json`). Ported from the retired legacy
+`alert.mjs` writer — this now flows through the canonical V5 incident pipeline.
+**How to verify:** open `ops-status/latest.json`, find components whose `status` is
+`DOWN` (the alert message lists the ids). Confirm it is a real reachability failure,
+not `UNKNOWN` (no evidence) or `DEGRADED` (dashboard-only, never pages).
+**First safe action:** check the named component's own health/runbook (Firebase
+reachability, backend, etc.). The incident issue is auto-managed (open/update/close).
+**What NOT to do:** do NOT hand-create a separate issue; the V5 pipeline owns it.
+**Rollback/mitigation:** restore the component; the incident auto-resolves after the
+stability window. **Escalation:** owner if a user-facing journey is affected.
+
+---
+
+## V6 operational / delivery-subsystem runbook
+
+These describe failures of the MONITORING system itself. Golden rule: a monitoring or
+delivery failure is NOT a product outage, and incident-delivery failures are NEVER
+re-delivered through the same broken transport (no recursive alerting).
+
+### INCIDENT_STATE_LOST  (state seed/persistence degraded)
+**Impact:** the run could not recover `incident-state.json` (artifact pruned / download
+failed / corrupt / future schema). Cross-run cooldown/flapping memory is reduced.
+**Verify:** Ops Console → Incident Delivery → State seed / State trust; delivery log
+line `incident-state trust=...`.
+**Safe remediation:** none required immediately — the GitHub-side lookup fallback
+(`findOpenIssueNumber`) prevents duplicate issues even with no local state. Continuity
+returns automatically on the next successful run's artifact.
+**Do NOT:** switch state into git (`contents:write`); disable the lookup fallback.
+
+### INCIDENT_DELIVERY_UNAVAILABLE / INCIDENT_DELIVERY_FAILED
+**Impact:** one or more Issue writes failed (transport/auth/rate-limit). Evidence
+artifacts are STILL produced. `deliveryHealth = DEGRADED|UNAVAILABLE`.
+**Verify:** Ops Console → Incident Delivery (failures, transport errors); Actions summary.
+**Safe remediation:** check `gh` auth / GitHub status / `issues:write` permission; the
+next run retries idempotently (dedup fallback prevents duplicates).
+**Do NOT:** open a GitHub issue describing the GitHub-issue failure (recursion). Surface
+it in the summary/console/digest only.
+
+### GITHUB_ISSUE_LOOKUP_FAILED
+**Impact:** the pre-CREATE dedup lookup failed; a genuinely-new incident might create a
+second issue if local state was also lost. Rare (needs both guards to fail same run).
+**Verify:** delivery log `issue lookup failed for <code>`.
+**Safe remediation:** if a duplicate `[OPS][CRITICAL] <CODE>` pair appears, manually
+close the newer; state reconciles next run. **Do NOT:** script bulk issue edits.
+
+### DIGEST_GENERATION_FAILED
+**Impact:** `daily-digest.md/.json` not produced this run. No user impact.
+**Verify:** `digest` step outcome; missing `ops-status/daily-digest.json`.
+**Safe remediation:** re-run ops-health; digest is best-effort + `continue-on-error`.
+
+### DIGEST_DELIVERY_FAILED
+**Impact:** none in the current milestone — external digest delivery is DISABLED
+(`OPS_DIGEST_DELIVERY_ENABLED=false`). A failure here can only occur once a real
+transport is later enabled by the owner.
+**Do NOT:** enable a digest transport without owner sign-off on the destination.
+
+### LEGACY_ALERT_PATH_DETECTED  (architecture regression)
+**Impact:** a second production GitHub-Issue writer exists (violates single-writer).
+**Verify:** `node --test ops/monitor/architecture-guard.test.mjs` fails, naming the file.
+**Safe remediation:** remove the Issue mutation from that file; route the signal through
+the V5 incident engine (as SERVICE_COMPONENT_DOWN did). **Do NOT:** add a parallel alerter.

@@ -42,7 +42,8 @@
       "IAP_VERIFY_DOWN",
       "POSTGRES_CRITICAL",
       "COLLECTOR_STALE",
-      "SECRET_OR_PII_LEAK"
+      "SECRET_OR_PII_LEAK",
+      "SERVICE_COMPONENT_DOWN"
     ],
     "warnOn": [
       "IAP_E2E_VALIDATION_DEFERRED",

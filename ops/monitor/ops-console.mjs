@@ -13,7 +13,7 @@ const STATUS_GLYPH = { HEALTHY: '🟢', IDLE: '🟢', UNKNOWN: '⚪', DEGRADED: 
 const g = (s) => (STATUS_GLYPH[s] || '⚪') + ' ' + s;
 
 /** The private Ops Console — the full operational picture for the owner. */
-export function renderConsole(health, incidents = [], plan = null) {
+export function renderConsole(health, incidents = [], plan = null, digest = null) {
   const L = [];
   const gate = health.productReleaseGate || {};
   L.push(`# 🛰️ Feedback2Me Ops Console`);
@@ -65,15 +65,27 @@ export function renderConsole(health, incidents = [], plan = null) {
 
   if (plan) {
     const live = plan.mode === 'LIVE';
+    const dh = plan.deliveryHealth || {};
     const lastEvent = (plan.deliveryEvents || []).slice(-1)[0];
-    L.push(`## Incident delivery — **${live ? 'LIVE' : plan.mode}**`);
-    L.push(`- **Dry run:** ${live ? 'OFF' : 'ON'}  ·  **Delivery status:** ${plan.deliveryStatus || plan.mode}  ·  **Delivery failures:** ${plan.deliveryFailures ?? 0}`);
-    L.push(`- **Last delivery action:** ${lastEvent ? `${lastEvent.event} \`${lastEvent.code}\`${lastEvent.issueNumber ? ' #' + lastEvent.issueNumber : ''} (${lastEvent.result || '—'})` : 'none this run'}`);
+    L.push(`## Incident Delivery`);
+    L.push(`- **Mode:** ${live ? 'LIVE' : plan.mode}  ·  **Health:** ${dh.deliveryHealth || (live ? 'IDLE' : 'n/a')}  ·  **Dry run:** ${live ? 'OFF' : 'ON'}`);
+    L.push(`- **State seed:** ${dh.stateSeedStatus || 'unknown'}${dh.stateSeedSourceRun ? ' (run ' + dh.stateSeedSourceRun + ')' : ''}  ·  **State trust:** ${dh.stateTrust || 'OK'}  ·  **Dedup fallback used:** ${dh.dedupFallbackUsed ? 'yes' : 'no'}`);
+    L.push(`- **Failures:** ${plan.deliveryFailures ?? 0} (transport ${dh.deliveryTransportErrors ?? 0}, payload-rejected ${dh.deliveryPayloadRejections ?? 0})  ·  **Delivery status:** ${plan.deliveryStatus || plan.mode}`);
+    L.push(`- **Last action:** ${lastEvent ? `${lastEvent.event} \`${lastEvent.code}\`${lastEvent.issueNumber ? ' #' + lastEvent.issueNumber : ''} (${lastEvent.result || '—'})` : 'none this run'}`);
     const acts = (plan.plan || []).filter((p) => p.action !== 'NONE');
     if (!acts.length) L.push('- _No delivery actions this run._');
     else { L.push('', '| Action | Incident | Wrote? | Reason |'); L.push('|---|---|---|---|'); for (const p of acts) L.push(`| **${p.action}** | \`${p.code}\` | ${p.willWrite ? 'yes' : 'no (suppressed)'} | ${p.reason || '—'} |`); }
     if (!live) L.push(`\n> Delivery is **${plan.mode}** — zero GitHub writes.`);
-    else if ((plan.deliveryFailures ?? 0) > 0) L.push(`\n> ⚠️ **INCIDENT_DELIVERY_FAILED** — ${plan.deliveryFailures} action(s) failed; monitoring evidence was still produced (delivery is best-effort).`);
+    else if ((plan.deliveryFailures ?? 0) > 0) L.push(`\n> ⚠️ **INCIDENT_DELIVERY_FAILED** — ${plan.deliveryFailures} action(s) failed; monitoring evidence was still produced (best-effort; NOT re-delivered through the broken transport).`);
+    L.push('');
+  }
+
+  if (digest) {
+    const dd = digest.data || {}, dst = digest.state || {}, sch = dd.schedule || {};
+    L.push(`## Daily Digest`);
+    L.push(`- **Generated:** ${dd.generatedAt || dst.lastDigestGeneratedAt || '—'}  ·  **Delivery:** ${digest.deliveryMode || 'DISABLED'}`);
+    L.push(`- **Current window:** ${sch.window || dst.lastDigestWindow || '—'}  ·  **Due this window:** ${sch.due ? 'yes' : 'no'} (${sch.reason || '—'})`);
+    L.push(`- **Last digest:** ${dst.digestId || '—'}  ·  **Next eligibility:** ${sch.nextEligibleAt || '—'}  ·  **External messages sent:** 0`);
     L.push('');
   }
 
@@ -105,9 +117,10 @@ export function renderConsole(health, incidents = [], plan = null) {
 }
 
 /** Actionable GitHub Actions run summary ($GITHUB_STEP_SUMMARY). Owner-scannable at a glance. */
-export function renderStepSummary(health, incidents = [], plan = null) {
+export function renderStepSummary(health, incidents = [], plan = null, digest = null) {
   const gate = health.productReleaseGate || {};
   const open = incidents.filter((i) => i.state === 'OPEN');
+  const critical = (gate.blocking || []).length;
   const L = [];
   L.push(`## 🛰️ Ops — ${g(health.currentRuntimeHealth)} · gate **${gate.status}** · platform **${health.observabilityPlatformStatus}**`);
   L.push('');
@@ -120,44 +133,38 @@ export function renderStepSummary(health, incidents = [], plan = null) {
   }
   if (plan) {
     const live = plan.mode === 'LIVE';
+    const dh = plan.deliveryHealth || {};
     const acts = (plan.plan || []).filter((p) => p.action !== 'NONE');
     const fails = plan.deliveryFailures ?? 0;
-    L.push(`### Incident delivery: **${live ? 'LIVE' : plan.mode}** (dry-run ${live ? 'OFF' : 'ON'}) — ${acts.length} action(s)${fails ? `, ${fails} failure(s)` : ''}`);
+    L.push(`### Incident Delivery: **${live ? 'LIVE' : plan.mode}** / **${dh.deliveryHealth || (live ? 'IDLE' : 'n/a')}** · Active Critical: **${critical}** · ${acts.length} action(s)${fails ? `, ${fails} failure(s)` : ''}`);
     if (acts.length) for (const p of acts) L.push(`- **${p.action}** \`${p.code}\` → ${p.willWrite ? 'WRITE' : 'no write (' + plan.mode + ')'}`);
     else L.push(`- none${live ? ' (armed; runtime healthy → 0 issues written)' : ''}`);
     if (!live) L.push(`\n> Dry-run/disabled — **0 GitHub issues written**.`);
     else if (fails > 0) L.push(`\n> ⚠️ **INCIDENT_DELIVERY_FAILED** — ${fails} failed; evidence still produced (best-effort).`);
   }
-  return L.join('\n');
-}
-
-/** Daily digest foundation — artifact only, never delivered. */
-export function renderDailyDigest(health, incidents = [], plan = null) {
-  const open = incidents.filter((i) => i.state === 'OPEN');
-  const resolvedToday = incidents.filter((i) => i.state === 'RESOLVED');
-  const opened = ((plan && plan.plan) || []).filter((p) => p.action === 'CREATE' || p.action === 'REOPEN');
-  const L = [`# Ops daily digest (foundation)`, '', `Snapshot ${health.generatedAt}`, '',
-    `- Runtime: **${health.currentRuntimeHealth}** · gate **${health.productReleaseGate?.status}** · platform **${health.observabilityPlatformStatus}**`,
-    `- Incidents opened this run: **${opened.length}**${opened.length ? ' — ' + opened.map((p) => '`' + p.code + '`').join(', ') : ''}`,
-    `- Incidents resolved (recent window): **${resolvedToday.length}**`,
-    `- Currently active incidents: **${open.length}**${open.length ? ' — ' + open.map((i) => '`' + i.code + '`').join(', ') : ''}`,
-    `- Delivery: ${plan ? (plan.mode === 'LIVE' ? 'LIVE' : plan.mode) : 'n/a'} · failures: **${(plan && plan.deliveryFailures) ?? 0}**`,
-    `- Deferred validations: ${(health.deferredValidations || []).map((v) => '`' + v.id + '`').join(', ') || 'none'}`,
-    '', '_Foundation artifact only — not delivered anywhere (no email/Slack). Scheduled digest delivery is a future phase, owner-gated._'];
+  if (digest) {
+    const sch = (digest.data && digest.data.schedule) || {};
+    const state = digest.deliveryMode === 'DRY_RUN' ? 'DRY_RUN' : (sch.due ? 'GENERATED' : 'NOT_DUE');
+    L.push(`### Daily Digest: **${state}** (delivery ${digest.deliveryMode || 'DISABLED'}) · window ${sch.window || '—'} · external messages sent: 0`);
+  }
   return L.join('\n');
 }
 
 function main() {
   const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-  const rd = (p) => (existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : null);
+  const rd = (p) => (existsSync(p) ? (() => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } })() : null);
   const health = rd(join(REPO, 'ops-status', 'runtime-health.json'));
   if (!health) { console.log('[console] no runtime-health.json'); return; }
   const incidents = (rd(join(REPO, 'ops-status', 'incident-state.json')) || {}).incidents || [];
   const plan = rd(join(REPO, 'ops-status', 'incident-actions.json'));
+  // Digest artifacts are produced by digest.mjs (runs before this step).
+  const digestData = rd(join(REPO, 'ops-status', 'daily-digest.json'));
+  const digestState = rd(join(REPO, 'ops-status', 'digest-state.json'));
+  const digest = digestData ? { data: digestData, state: digestState || {}, deliveryMode: String(process.env.OPS_DIGEST_DELIVERY_ENABLED || 'false') === 'true' && String(process.env.OPS_DIGEST_DRY_RUN || 'true') === 'false' ? 'LIVE' : (String(process.env.OPS_DIGEST_DELIVERY_ENABLED || 'false') === 'true' ? 'READY' : 'DISABLED') } : null;
+  if (digest && String(process.env.OPS_DIGEST_DRY_RUN || 'true') !== 'false' && String(process.env.OPS_DIGEST_DELIVERY_ENABLED || 'false') === 'true') digest.deliveryMode = 'DRY_RUN';
 
-  writeFileSync(join(REPO, 'ops-status', 'ops-console.md'), renderConsole(health, incidents, plan));
-  writeFileSync(join(REPO, 'ops-status', 'daily-digest.md'), renderDailyDigest(health, incidents, plan));
-  const summary = renderStepSummary(health, incidents, plan);
+  writeFileSync(join(REPO, 'ops-status', 'ops-console.md'), renderConsole(health, incidents, plan, digest));
+  const summary = renderStepSummary(health, incidents, plan, digest);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary + '\n');
   console.log(summary);
 }

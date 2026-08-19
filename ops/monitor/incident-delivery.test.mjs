@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { computeIncidentActions, deliveryMode, willWriteFor, renderIssueBody, issueTitle, issueLabels, validateIssuePayload, RUNBOOK_SECTIONS } from './incident-actions.mjs';
+import { computeIncidentActions, deliveryMode, willWriteFor, renderIssueBody, issueTitle, issueLabels, validateIssuePayload, RUNBOOK_SECTIONS, parseIncidentState, computeDeliveryHealth, INCIDENT_STATE_SCHEMA } from './incident-actions.mjs';
 import { githubIssueAdapter, findOpenIssueNumber, deliverLive } from './incident-delivery.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -299,6 +299,62 @@ describe('V5 durable dedup — GitHub lookup fallback + LIVE delivery', () => {
     const res = deliverLive({ actions, incidents, ctx, gh, adapter: githubIssueAdapter(gh) });
     assert.equal(res.events.length, 0);
     assert.equal(calls.length, 0);
+  });
+});
+
+describe('V6 incident-state durability (parseIncidentState)', () => {
+  const state = (o) => JSON.stringify(o);
+  test('current schema -> OK, incidents used', () => {
+    const r = parseIncidentState(state({ schemaVersion: INCIDENT_STATE_SCHEMA, incidents: [{ incidentId: 'IAP:IAP_VERIFY_DOWN' }] }));
+    assert.equal(r.stateTrust, 'OK'); assert.equal(r.incidents.length, 1);
+  });
+  test('legacy file with NO schemaVersion -> OK (back-compat)', () => {
+    const r = parseIncidentState(state({ incidents: [{ incidentId: 'x' }] }));
+    assert.equal(r.stateTrust, 'OK'); assert.equal(r.reason, 'legacy_no_version');
+  });
+  test('missing file (null) -> DEGRADED, empty (lean on lookup)', () => {
+    const r = parseIncidentState(null);
+    assert.equal(r.stateTrust, 'DEGRADED'); assert.deepEqual(r.incidents, []);
+  });
+  test('empty string -> DEGRADED', () => assert.equal(parseIncidentState('').stateTrust, 'DEGRADED'));
+  test('invalid JSON -> UNTRUSTED, empty', () => {
+    const r = parseIncidentState('{ not json');
+    assert.equal(r.stateTrust, 'UNTRUSTED'); assert.deepEqual(r.incidents, []);
+  });
+  test('wrong shape (incidents not array) -> UNTRUSTED', () => {
+    assert.equal(parseIncidentState(state({ schemaVersion: 1, incidents: 'nope' })).stateTrust, 'UNTRUSTED');
+  });
+  test('FUTURE unsupported schema -> UNTRUSTED, empty (fail safe, never blind-CREATE)', () => {
+    const r = parseIncidentState(state({ schemaVersion: 999, incidents: [{ incidentId: 'x' }] }));
+    assert.equal(r.stateTrust, 'UNTRUSTED'); assert.deepEqual(r.incidents, []); assert.equal(r.reason, 'future_schema');
+  });
+});
+
+describe('V6 delivery self-health (computeDeliveryHealth)', () => {
+  test('LIVE + no action -> IDLE', () => {
+    assert.equal(computeDeliveryHealth({ mode: 'LIVE', actionsNeeded: 0, events: [], failures: 0 }).deliveryHealth, 'IDLE');
+  });
+  test('DRY_RUN -> IDLE regardless', () => {
+    assert.equal(computeDeliveryHealth({ mode: 'DRY_RUN', actionsNeeded: 3 }).deliveryHealth, 'IDLE');
+  });
+  test('successful write -> HEALTHY', () => {
+    const events = [{ event: 'incident.delivery.created', result: 'ok', ts: 't' }];
+    assert.equal(computeDeliveryHealth({ mode: 'LIVE', actionsNeeded: 1, events, failures: 0 }).deliveryHealth, 'HEALTHY');
+  });
+  test('payload rejection -> DEGRADED', () => {
+    const events = [{ event: 'incident.delivery.rejected_payload', result: 'X', ts: 't' }];
+    assert.equal(computeDeliveryHealth({ mode: 'LIVE', actionsNeeded: 1, events, failures: 1 }).deliveryHealth, 'DEGRADED');
+  });
+  test('untrusted state -> DEGRADED', () => {
+    assert.equal(computeDeliveryHealth({ mode: 'LIVE', actionsNeeded: 0, stateTrust: 'UNTRUSTED' }).deliveryHealth, 'DEGRADED');
+  });
+  test('repeated transport errors -> UNAVAILABLE', () => {
+    const events = [{ event: 'incident.delivery.transport_error', ts: 't' }, { event: 'incident.delivery.transport_error', ts: 't' }];
+    assert.equal(computeDeliveryHealth({ mode: 'LIVE', actionsNeeded: 2, events, failures: 2 }).deliveryHealth, 'UNAVAILABLE');
+  });
+  test('state missing + a transport error -> UNAVAILABLE', () => {
+    const events = [{ event: 'incident.delivery.transport_error', ts: 't' }];
+    assert.equal(computeDeliveryHealth({ mode: 'LIVE', actionsNeeded: 1, events, failures: 1, seedStatus: 'missing' }).deliveryHealth, 'UNAVAILABLE');
   });
 });
 

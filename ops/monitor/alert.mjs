@@ -1,17 +1,17 @@
 #!/usr/bin/env node
-// Ops alerting (Phase 24 + live-only calibration) — free-tier, GitHub-native.
-// Reads ops-status/latest.json and opens/updates a SINGLE tracking GitHub issue
-// ONLY for real RUNTIME operational incidents:
-//   - a live monitored component is DOWN, OR
-//   - an OPEN incident exists (reconcileIncidents only opens these from live
-//     component DOWN/DEGRADED transitions — never from release blockers).
-// It DELIBERATELY ignores release-readiness signals (CI missing/stale P0s,
-// journey UNKNOWN/not-verified, version-config/build-number/isPremium/ownership
-// gates, static risks) — release readiness != a runtime outage. DEGRADED alone
-// does NOT alert (dashboard-only); only a DEGRADED incident already escalated to
-// severity P0 by a live check would. Emits NO PII/secret. Safe to run with `|| true`.
+// RETIRED WRITER (Observability V6) — this module NO LONGER writes GitHub Issues.
+//
+// Operational GitHub incidents are delivered EXCLUSIVELY through the canonical V5+
+// incident-delivery pipeline (ops/monitor/incident-delivery.mjs). There must be only
+// ONE production Issue writer. The live component-DOWN signal this module used to
+// surface has been PORTED into the canonical evaluator as SERVICE_COMPONENT_DOWN
+// (see ops/monitor/evaluate-runtime.mjs), so no coverage was lost.
+//
+// What remains here: the PURE decideAlert() decision (still imported by alert.test.mjs)
+// and a READ-ONLY main() that prints the legacy decision for local diagnostics. It
+// makes NO `gh` calls and performs NO Issue mutation. Do not re-add Issue writes here —
+// route any new operational alert through the incident engine instead.
 import { readFileSync, existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -55,54 +55,16 @@ export function decideAlert(snapshot) {
   };
 }
 
-// ---- side-effecting runner (skipped when imported for tests) ----
+// ---- READ-ONLY runner (no GitHub writes; skipped when imported for tests) ----
+// Prints the legacy decision for local diagnostics only. The component-DOWN signal is
+// now delivered through the canonical incident pipeline (SERVICE_COMPONENT_DOWN).
 function main() {
   const p = join(REPO, 'ops-status', 'latest.json');
-  if (!existsSync(p)) { console.log('[alert] no snapshot'); return; }
+  if (!existsSync(p)) { console.log('[alert] (retired writer) no snapshot'); return; }
   const s = JSON.parse(readFileSync(p, 'utf8'));
   const d = decideAlert(s);
-  const gh = (args) => execFileSync('gh', args, { cwd: REPO, encoding: 'utf8' });
-
-  // Find any existing open tracking issue (single, deduplicated).
-  let existing = [];
-  try {
-    existing = JSON.parse(gh(['issue', 'list', '--label', 'ops-alert', '--state', 'open', '--json', 'number', '--limit', '1']) || '[]');
-  } catch (e) { console.log('[alert] gh unavailable: ' + e.message); return; }
-
-  if (!d.alert) {
-    // No live runtime incident. RECOVERY: if a tracking issue is open, comment + close it.
-    if (existing.length) {
-      const n = String(existing[0].number);
-      try {
-        gh(['issue', 'comment', n, '--body', `Recovery: no live component is DOWN and no open runtime incident remains (overall **${s.overall}**, release ${s.release || '?'}). Auto-closing this ops-alert. Release-readiness blockers, if any, are tracked by the release gate, not here.`]);
-        gh(['issue', 'close', n]);
-        console.log('[alert] recovery — closed #' + n);
-      } catch (e) { console.log('[alert] recovery close failed: ' + e.message); }
-    } else {
-      console.log('[alert] no live DOWN / open incident — no alert (release-readiness blockers are NOT runtime incidents)');
-    }
-    return;
-  }
-
-  // Live incident present.
-  const title = `[ops-alert] live outage detected (${(s.generatedAt || '').slice(0, 10)})`;
-  const body = [
-    `RUNTIME incident — overall **${s.overall}**, release **${s.release || '?'}**, build **${s.build ?? '?'}**.`,
-    d.down.length ? `\n**DOWN components:** ${d.down.join(', ')}` : '',
-    d.alertableIncidentCount ? `\n**Alertable incidents (component DOWN):** ${d.alertableIncidentCount}` : '',
-    `\n\n_Live DOWN only (component DOWN / incident whose component is DOWN). DEGRADED and release-readiness blockers are excluded by design. No PII/secret._`,
-  ].filter(Boolean).join('');
-
-  try {
-    if (existing.length) {
-      gh(['issue', 'comment', String(existing[0].number), '--body', body]);
-      console.log('[alert] updated existing #' + existing[0].number);
-    } else {
-      try { gh(['label', 'create', 'ops-alert', '--color', 'B60205', '--description', 'Automated ops live-outage alert']); } catch {}
-      gh(['issue', 'create', '--title', title, '--label', 'ops-alert', '--body', body]);
-      console.log('[alert] opened new ops-alert issue');
-    }
-  } catch (e) { console.log('[alert] gh write failed: ' + e.message); }
+  console.log(`[alert] (retired writer — read-only) decision: alert=${d.alert} down=[${d.down.join(',')}] openIncidents=${d.openIncidentCount}`);
+  console.log('[alert] GitHub Issue delivery is handled EXCLUSIVELY by the V5 incident pipeline (SERVICE_COMPONENT_DOWN). This module makes NO gh calls.');
 }
 
 // Only run side effects when invoked directly, not when imported by tests.

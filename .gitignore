@@ -60,4 +60,7 @@ ops-status/incident-state.json
 ops-status/incident-actions.json
 ops-status/trend.json
 ops-status/daily-digest.md
+ops-status/daily-digest.json
+ops-status/daily-digest-preview.md
+ops-status/digest-state.json
 ops-status/incident-simulation.md

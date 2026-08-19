@@ -26,9 +26,69 @@ export const RUNBOOK_SECTIONS = {
   COLLECTOR_STALE: 'COLLECTOR_STALE',
   COLLECTOR_RUN_FAILED: 'GCP_WIF_AUTH_FAILED',
   SECRET_OR_PII_LEAK: 'SECRET_OR_PII_LEAK_DETECTED',
+  SERVICE_COMPONENT_DOWN: 'SERVICE_COMPONENT_DOWN',
 };
-export const DOMAIN_LABEL = { IAP: 'domain:iap', OPENAI: 'domain:openai', RAILWAY: 'domain:railway', POSTGRES: 'domain:postgres', COLLECTOR: 'domain:collector', SECURITY: 'domain:security', VALIDATION: 'domain:iap', RELEASE: 'domain:iap' };
+export const DOMAIN_LABEL = { IAP: 'domain:iap', OPENAI: 'domain:openai', RAILWAY: 'domain:railway', POSTGRES: 'domain:postgres', COLLECTOR: 'domain:collector', SECURITY: 'domain:security', SERVICE: 'domain:collector', VALIDATION: 'domain:iap', RELEASE: 'domain:iap' };
 export const CONTROLLED_LABELS = ['ops', 'severity:critical', 'severity:warning', 'domain:iap', 'domain:openai', 'domain:railway', 'domain:postgres', 'domain:collector', 'domain:security', 'status:ongoing', 'status:resolved'];
+
+// Persistent incident-state schema version (Phase 7). Bump only on a breaking change.
+export const INCIDENT_STATE_SCHEMA = 1;
+
+/**
+ * Fail-safe reader for persisted incident state (Phases 7/8). Given the RAW file text
+ * (or null when absent), returns { incidents, stateTrust, reason }:
+ *  - OK        — trusted current/legacy state; use it for dedup.
+ *  - DEGRADED  — usable but imperfect (missing file/seed) → lean on GitHub lookup.
+ *  - UNTRUSTED — corrupt/incompatible → DROP local incidents (empty) and rely entirely
+ *                on the GitHub-side lookup fallback so we never blindly CREATE duplicates.
+ * NEVER throws.
+ */
+export function parseIncidentState(raw) {
+  if (raw == null || raw === '') return { incidents: [], stateTrust: 'DEGRADED', reason: 'missing' };
+  let obj;
+  try { obj = JSON.parse(raw); } catch { return { incidents: [], stateTrust: 'UNTRUSTED', reason: 'invalid_json' }; }
+  if (!obj || typeof obj !== 'object' || !Array.isArray(obj.incidents)) return { incidents: [], stateTrust: 'UNTRUSTED', reason: 'wrong_shape' };
+  const v = obj.schemaVersion;
+  if (v == null) return { incidents: obj.incidents, stateTrust: 'OK', reason: 'legacy_no_version' }; // V4/V5 files pre-date the field
+  if (v > INCIDENT_STATE_SCHEMA) return { incidents: [], stateTrust: 'UNTRUSTED', reason: 'future_schema' }; // fail safe
+  if (v < INCIDENT_STATE_SCHEMA) return { incidents: obj.incidents, stateTrust: 'OK', reason: 'older_schema' };
+  return { incidents: obj.incidents, stateTrust: 'OK', reason: 'current' };
+}
+
+/**
+ * Incident-delivery subsystem self-health (Phase 9). Pure. No PII/payloads.
+ * States: IDLE (armed, nothing to do) · HEALTHY (a write succeeded) · DEGRADED
+ * (recoverable trouble — untrusted state, payload rejection, a single lookup/transport
+ * miss) · UNAVAILABLE (state missing AND lookup unavailable, or repeated transport loss).
+ */
+export function computeDeliveryHealth({ mode, actionsNeeded = 0, events = [], failures = 0, stateTrust = 'OK', seedStatus = 'unknown', dedupFallbackUsed = false, now = null }) {
+  const nowIso = now ? new Date(now).toISOString() : null;
+  const attempts = events.filter((e) => e.event === 'incident.delivery.attempted');
+  const successes = events.filter((e) => /created|updated|resolved|reopened/.test(e.event) && e.result === 'ok');
+  const transportErrors = events.filter((e) => e.event === 'incident.delivery.transport_error').length;
+  const payloadRejections = events.filter((e) => e.event === 'incident.delivery.rejected_payload').length;
+  const lookupUnavailable = seedStatus === 'missing' && transportErrors > 0;
+  let status;
+  if (mode !== 'LIVE') status = 'IDLE';
+  else if (transportErrors >= 2 || lookupUnavailable) status = 'UNAVAILABLE';
+  else if (failures > 0 || payloadRejections > 0 || stateTrust === 'UNTRUSTED') status = 'DEGRADED';
+  else if (successes.length > 0) status = 'HEALTHY';
+  else if (actionsNeeded === 0) status = 'IDLE';
+  else status = 'HEALTHY';
+  return {
+    deliveryMode: mode,
+    deliveryHealth: status,
+    lastDeliveryAttemptAt: attempts.length ? attempts[attempts.length - 1].ts : null,
+    lastDeliverySuccessAt: successes.length ? successes[successes.length - 1].ts : null,
+    deliveryFailuresWindow: failures,
+    deliveryTransportErrors: transportErrors,
+    deliveryPayloadRejections: payloadRejections,
+    dedupFallbackUsed: !!dedupFallbackUsed,
+    stateTrust,
+    stateSeedStatus: seedStatus,
+    evaluatedAt: nowIso,
+  };
+}
 
 const idOf = (a) => `${a.domain}:${a.code}`;
 const evidenceCount = (a) => { if (!a || !a.evidence) return 0; let s = 0; for (const v of Object.values(a.evidence)) if (typeof v === 'number') s += v; return Math.round(s); };
