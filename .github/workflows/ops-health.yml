@@ -28,6 +28,34 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
+      # V5 dedup continuity: incident state does NOT live in git (no contents:write).
+      # Seed ops-status/incident-state.json from the previous successful run's artifact
+      # so NEW/ONGOING/RESOLVED/REOPEN are tracked across scheduled runs without creating
+      # duplicate Issues. Best-effort: on any miss the GitHub-side lookup fallback in
+      # incident-delivery.mjs still prevents duplicates. Copies ONLY incident-state.json
+      # (fresh collect/evaluate overwrite everything else this run).
+      - name: Seed incident state from the last successful run (dedup continuity)
+        id: seed_state
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          mkdir -p ops-status _seed
+          rid=$(gh run list --workflow "Ops Health (read-only)" --branch main --status success --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)
+          if [ -n "$rid" ]; then
+            gh run download "$rid" -n ops-status -D _seed >/dev/null 2>&1
+            if [ -f _seed/incident-state.json ]; then
+              cp _seed/incident-state.json ops-status/incident-state.json
+              echo "seeded incident-state.json from run $rid"
+            else
+              echo "no incident-state.json in run $rid artifact (first live run or pruned) — GitHub lookup fallback will guard dedup"
+            fi
+          else
+            echo "no prior successful run found — GitHub lookup fallback will guard dedup"
+          fi
+          rm -rf _seed
+          exit 0
       - name: Install ops Postgres driver (only when the direct probe is configured)
         if: env.OPS_POSTGRES_DATABASE_URL != ''
         run: npm --prefix ops install --no-audit --no-fund
@@ -92,18 +120,21 @@ jobs:
       - name: Ops V4 incident-delivery tests (dedup/cooldown/flapping/stability/dry-run; fixtures, no network)
         id: incident_tests
         run: node --test ops/monitor/incident-delivery.test.mjs
-      # V4 incident delivery — DRY-RUN ONLY. Computes CREATE/UPDATE/RESOLVE/NONE from
-      # runtime-health.json and writes a plan artifact. It performs ZERO GitHub writes:
-      # OPS_ALERT_DRY_RUN=true and OPS_INCIDENT_DELIVERY_ENABLED unset (default false).
-      # Real issue creation stays OFF until the owner explicitly enables it.
-      - name: Incident delivery (DRY-RUN — no GitHub writes)
+      # V5 incident delivery — LIVE (owner-approved 2026-08-19). Computes
+      # CREATE/UPDATE/RESOLVE/NONE from runtime-health.json and delivers real GitHub
+      # Issues ONLY for NEW CRITICAL runtime alerts. Deduplicated (local state seeded
+      # above + GitHub-side title lookup fallback). Best-effort/fail-safe: a transport
+      # failure surfaces INCIDENT_DELIVERY_FAILED but never crashes the run or suppresses
+      # evidence. At a HEALTHY baseline there are no critical alerts => ZERO issue writes.
+      # To revert to dry-run: set OPS_ALERT_DRY_RUN 'true' (or OPS_INCIDENT_DELIVERY_ENABLED 'false').
+      - name: Incident delivery (LIVE — real GitHub Issues for NEW CRITICAL only)
         id: incident_delivery
         if: always()
         continue-on-error: true
         env:
-          OPS_ALERT_DRY_RUN: 'true'
-          # OPS_INCIDENT_DELIVERY_ENABLED intentionally UNSET (default false). Do NOT set
-          # to 'true' without owner approval — that would enable real GitHub Issue writes.
+          OPS_ALERT_DRY_RUN: 'false'
+          OPS_INCIDENT_DELIVERY_ENABLED: 'true'
+          GH_TOKEN: ${{ github.token }} # issue create/comment/close + dedup lookup (issues:write)
         run: node ops/monitor/incident-delivery.mjs
       - name: Ops Console + actionable run summary (metadata only)
         id: ops_console

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { computeIncidentActions, deliveryMode, willWriteFor, renderIssueBody, issueTitle, issueLabels, validateIssuePayload, RUNBOOK_SECTIONS } from './incident-actions.mjs';
-import { githubIssueAdapter } from './incident-delivery.mjs';
+import { githubIssueAdapter, findOpenIssueNumber, deliverLive } from './incident-delivery.mjs';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SLO = JSON.parse(readFileSync(join(REPO, 'ops', 'observability-slo.json'), 'utf8'));
@@ -223,6 +223,82 @@ describe('GitHub Issue adapter (stubbed transport — no real network)', () => {
     assert.equal(res.issueNumber, 55);
     assert.ok(calls.includes('reopen'));
     assert.ok(!calls.includes('create'));
+  });
+});
+
+describe('V5 durable dedup — GitHub lookup fallback + LIVE delivery', () => {
+  // Stub gh: dispatches by subcommand. `openIssues` seeds `issue list` results.
+  const stub = (openIssues = [], opts = {}) => {
+    const calls = [];
+    const gh = (args) => {
+      calls.push(args);
+      if (args[0] === 'issue' && args[1] === 'list') return JSON.stringify(openIssues);
+      if (args[0] === 'issue' && args[1] === 'create') { if (opts.createThrows) throw new Error('gh create failed'); return 'https://github.com/x/y/issues/501\n'; }
+      return '';
+    };
+    return { gh, calls };
+  };
+  const ctx = { currentRuntimeHealth: 'UNHEALTHY', productReleaseGate: 'BLOCK', runUrl: 'https://github.com/x/y/actions/runs/1' };
+
+  test('findOpenIssueNumber: exact-title match returns number; mismatch/none returns null', () => {
+    const { gh } = stub([{ number: 88, title: '[OPS][CRITICAL] POSTGRES_CRITICAL' }]);
+    assert.equal(findOpenIssueNumber(gh, 'POSTGRES_CRITICAL'), 88);
+    const { gh: gh2 } = stub([{ number: 9, title: '[OPS][CRITICAL] SOMETHING_ELSE' }]);
+    assert.equal(findOpenIssueNumber(gh2, 'POSTGRES_CRITICAL'), null);
+  });
+
+  test('findOpenIssueNumber: gh error is swallowed -> null', () => {
+    const gh = () => { throw new Error('rate limited'); };
+    assert.equal(findOpenIssueNumber(gh, 'IAP_VERIFY_DOWN'), null);
+  });
+
+  test('LIVE CREATE with NO existing issue -> creates once, records created, sets issue number', () => {
+    const { gh, calls } = stub([]);
+    const incidents = [openInc('POSTGRES', 'POSTGRES_CRITICAL', { issueNumber: null, message: 'unhealthy 3 probes' })];
+    const actions = [{ action: 'CREATE', incidentId: 'POSTGRES:POSTGRES_CRITICAL', code: 'POSTGRES_CRITICAL', domain: 'POSTGRES' }];
+    const res = deliverLive({ actions, incidents, ctx, gh, adapter: githubIssueAdapter(gh) });
+    assert.equal(res.failures, 0);
+    assert.ok(res.events.some((e) => e.event === 'incident.delivery.created'));
+    assert.equal(incidents[0].issueNumber, 501);
+    assert.equal(calls.filter((c) => c[1] === 'create').length, 1);
+  });
+
+  test('LIVE CREATE but an OPEN issue already exists -> REUSES it, NO create (dedup across lost state)', () => {
+    const { gh, calls } = stub([{ number: 77, title: '[OPS][CRITICAL] POSTGRES_CRITICAL' }]);
+    const incidents = [openInc('POSTGRES', 'POSTGRES_CRITICAL', { issueNumber: null, message: 'unhealthy 3 probes' })];
+    const actions = [{ action: 'CREATE', incidentId: 'POSTGRES:POSTGRES_CRITICAL', code: 'POSTGRES_CRITICAL', domain: 'POSTGRES' }];
+    const res = deliverLive({ actions, incidents, ctx, gh, adapter: githubIssueAdapter(gh) });
+    assert.equal(calls.filter((c) => c[1] === 'create').length, 0); // never created a duplicate
+    assert.equal(incidents[0].issueNumber, 77); // reused the existing issue
+    assert.ok(res.events.some((e) => e.event === 'incident.delivery.updated'));
+  });
+
+  test('LIVE transport error -> failures counted, transport_error event, never throws', () => {
+    const { gh } = stub([], { createThrows: true });
+    const incidents = [openInc('POSTGRES', 'POSTGRES_CRITICAL', { issueNumber: null })];
+    const actions = [{ action: 'CREATE', incidentId: 'POSTGRES:POSTGRES_CRITICAL', code: 'POSTGRES_CRITICAL', domain: 'POSTGRES' }];
+    const res = deliverLive({ actions, incidents, ctx, gh, adapter: githubIssueAdapter(gh) });
+    assert.equal(res.failures, 1);
+    assert.ok(res.events.some((e) => e.event === 'incident.delivery.transport_error'));
+  });
+
+  test('LIVE unsafe payload -> rejected event, failure, gh create never called', () => {
+    const { gh, calls } = stub([]);
+    const incidents = [openInc('IAP', 'IAP_VERIFY_DOWN', { issueNumber: null, message: 'leak a@b.com' })];
+    const actions = [{ action: 'CREATE', incidentId: 'IAP:IAP_VERIFY_DOWN', code: 'IAP_VERIFY_DOWN', domain: 'IAP' }];
+    const res = deliverLive({ actions, incidents, ctx, gh, adapter: githubIssueAdapter(gh) });
+    assert.equal(res.failures, 1);
+    assert.ok(res.events.some((e) => e.event === 'incident.delivery.rejected_payload'));
+    assert.equal(calls.filter((c) => c[1] === 'create').length, 0);
+  });
+
+  test('LIVE NONE actions are skipped -> no events, no calls', () => {
+    const { gh, calls } = stub([]);
+    const incidents = [openInc('IAP', 'IAP_VERIFY_DOWN')];
+    const actions = [{ action: 'NONE', incidentId: 'IAP:IAP_VERIFY_DOWN', code: 'IAP_VERIFY_DOWN', reason: 'no_material_change' }];
+    const res = deliverLive({ actions, incidents, ctx, gh, adapter: githubIssueAdapter(gh) });
+    assert.equal(res.events.length, 0);
+    assert.equal(calls.length, 0);
   });
 });
 
