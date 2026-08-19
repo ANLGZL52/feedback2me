@@ -81,11 +81,14 @@ export function renderConsole(health, incidents = [], plan = null, digest = null
   }
 
   if (digest) {
-    const dd = digest.data || {}, dst = digest.state || {}, sch = dd.schedule || {};
+    const dd = digest.data || {}, dst = digest.state || {}, sch = dd.schedule || {}, dv = digest.delivery || {};
+    const sent = dv.delivered ? 1 : 0;
     L.push(`## Daily Digest`);
-    L.push(`- **Generated:** ${dd.generatedAt || dst.lastDigestGeneratedAt || '—'}  ·  **Delivery:** ${digest.deliveryMode || 'DISABLED'}`);
-    L.push(`- **Current window:** ${sch.window || dst.lastDigestWindow || '—'}  ·  **Due this window:** ${sch.due ? 'yes' : 'no'} (${sch.reason || '—'})`);
-    L.push(`- **Last digest:** ${dst.digestId || '—'}  ·  **Next eligibility:** ${sch.nextEligibleAt || '—'}  ·  **External messages sent:** 0`);
+    L.push(`- **Generation:** ${dd.generatedAt ? 'HEALTHY' : 'UNKNOWN'} (${dd.generatedAt || dst.lastDigestGeneratedAt || '—'})`);
+    L.push(`- **Delivery channel:** ${dv.channel ? dv.channel.toUpperCase() : 'SLACK'}  ·  **Delivery mode:** ${dv.mode || digest.deliveryMode || 'DISABLED'}  ·  **Delivery health:** ${dv.health || 'IDLE'}`);
+    L.push(`- **Current window:** ${sch.window || dst.lastDigestWindow || '—'}  ·  **Due:** ${sch.due ? 'yes' : 'no'} (${sch.reason || '—'})`);
+    L.push(`- **Last delivery:** ${dst.lastDigestDeliveredAt || 'never'}  ·  **Last result:** ${(dv.event && dv.event.result) || dv.health || '—'}${dv.event && dv.event.statusCode ? ' (' + dv.event.statusCode + ')' : ''}  ·  **Messages sent this run:** ${sent}`);
+    L.push(`- **Next eligibility:** ${sch.nextEligibleAt || '—'}${dv.health === 'NOT_CONFIGURED' ? '  ·  ⚠️ **OPS_SLACK_WEBHOOK_URL not configured** (0 messages until set)' : ''}`);
     L.push('');
   }
 
@@ -144,8 +147,17 @@ export function renderStepSummary(health, incidents = [], plan = null, digest = 
   }
   if (digest) {
     const sch = (digest.data && digest.data.schedule) || {};
-    const state = digest.deliveryMode === 'DRY_RUN' ? 'DRY_RUN' : (sch.due ? 'GENERATED' : 'NOT_DUE');
-    L.push(`### Daily Digest: **${state}** (delivery ${digest.deliveryMode || 'DISABLED'}) · window ${sch.window || '—'} · external messages sent: 0`);
+    const dv = digest.delivery || {};
+    const channel = (dv.channel || 'slack').toUpperCase();
+    // Phase 18: SLACK / <state> — SENT | NOT_DUE | NOT_CONFIGURED | FAILED | DRY_RUN | DISABLED
+    let state;
+    if (dv.health === 'NOT_CONFIGURED') state = 'NOT_CONFIGURED';
+    else if (dv.delivered) state = 'SENT';
+    else if (dv.code === 'DIGEST_DELIVERY_FAILED' || dv.code === 'DIGEST_DELIVERY_PAYLOAD_REJECTED') state = 'FAILED';
+    else if (dv.mode === 'DRY_RUN') state = 'DRY_RUN';
+    else if (dv.mode === 'DISABLED') state = 'DISABLED';
+    else state = sch.due ? 'DUE' : 'NOT_DUE';
+    L.push(`### Daily Digest: **${channel} / ${state}** · window ${sch.window || '—'} · messages sent: ${dv.delivered ? 1 : 0}`);
   }
   return L.join('\n');
 }
@@ -160,8 +172,8 @@ function main() {
   // Digest artifacts are produced by digest.mjs (runs before this step).
   const digestData = rd(join(REPO, 'ops-status', 'daily-digest.json'));
   const digestState = rd(join(REPO, 'ops-status', 'digest-state.json'));
-  const digest = digestData ? { data: digestData, state: digestState || {}, deliveryMode: String(process.env.OPS_DIGEST_DELIVERY_ENABLED || 'false') === 'true' && String(process.env.OPS_DIGEST_DRY_RUN || 'true') === 'false' ? 'LIVE' : (String(process.env.OPS_DIGEST_DELIVERY_ENABLED || 'false') === 'true' ? 'READY' : 'DISABLED') } : null;
-  if (digest && String(process.env.OPS_DIGEST_DRY_RUN || 'true') !== 'false' && String(process.env.OPS_DIGEST_DELIVERY_ENABLED || 'false') === 'true') digest.deliveryMode = 'DRY_RUN';
+  const digestDelivery = rd(join(REPO, 'ops-status', 'digest-delivery.json'));
+  const digest = digestData ? { data: digestData, state: digestState || {}, delivery: digestDelivery || {}, deliveryMode: (digestDelivery && digestDelivery.mode) || 'DISABLED' } : null;
 
   writeFileSync(join(REPO, 'ops-status', 'ops-console.md'), renderConsole(health, incidents, plan, digest));
   const summary = renderStepSummary(health, incidents, plan, digest);

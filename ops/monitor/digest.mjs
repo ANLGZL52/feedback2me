@@ -7,6 +7,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
+import { validateIssuePayload } from './incident-actions.mjs';
 
 export const DIGEST_STATE_SCHEMA = 1;
 export const DIGEST_HOUR_UTC = 7; // one canonical delivery window per UTC day, at/after 07:00 UTC
@@ -89,18 +90,85 @@ export function renderDigest(d) {
   return L.join('\n');
 }
 
-// ---- delivery abstraction (Phase 16) — transport-independent, no provider implemented ----
-export function deliverDigest(adapter, data, { enabled = false, dryRun = true } = {}) {
-  const subject = `Feedback2Me Ops Digest ${data.digestId} — ${data.runtimeStatus}`;
-  const willSend = enabled && !dryRun;
-  if (!willSend) return { delivered: false, mode: dryRun ? 'DRY_RUN' : (enabled ? 'READY' : 'DISABLED'), subject };
-  try { const r = adapter && adapter.send ? adapter.send(subject, renderDigest(data)) : { ok: false }; return { delivered: !!(r && r.ok), mode: 'LIVE', subject }; }
-  catch (e) { return { delivered: false, mode: 'LIVE', error: e.message, subject }; }
+/** Concise, phone-readable digest body for chat transports (Slack/email). Plain text,
+ *  transport-neutral. No raw logs / no PII. Kept short by design (Phase 6). */
+export function renderDigestText(d) {
+  const t = d.trends || {}, ic = d.incidentCounts || {}, dh = d.domainHealth || {};
+  const tr = (k, label) => (t[k] ? `• ${label}: ${t[k]}` : null);
+  return [
+    `Feedback2Me — Daily Ops Digest`,
+    ``,
+    `Runtime: ${d.runtimeStatus}`,
+    `Observability: ${d.observabilityPlatform}`,
+    `Release Gate: ${d.releaseGate}`,
+    ``,
+    `Incidents`,
+    `• Active: ${ic.active} (flapping ${ic.flapping})`,
+    `• Opened 24h: ${ic.opened}`,
+    `• Resolved 24h: ${ic.resolved}`,
+    ``,
+    `Services`,
+    `• IAP: ${dh.iap}  • OpenAI: ${dh.openai}  • Railway: ${dh.railway}`,
+    `• Postgres: ${dh.postgres}  • Collector: ${dh.collector}  • Service: ${dh.service}`,
+    ``,
+    `Incident Delivery`,
+    `• ${d.deliveryHealth?.mode || 'n/a'} / ${d.deliveryHealth?.health || 'n/a'} (failures ${d.deliveryHealth?.failures ?? 0})`,
+    ``,
+    `Trends`,
+    ...([tr('openaiLatencyP95', 'OpenAI latency'), tr('railway5xx', 'Railway 5xx'), tr('iapVerifyFailures', 'IAP verify failures')].filter(Boolean)),
+    ``,
+    `Deferred`,
+    `• Real IAP E2E: ${d.realIapE2E}`,
+    ``,
+    `Commit: ${d.deploymentContext?.commit || '—'}`,
+    `Generated: ${d.generatedAt}`,
+  ].join('\n');
 }
-// Null adapter — records nothing external. Real email/Slack/Discord adapters plug in here.
-export const nullDigestAdapter = { name: 'null', send: () => ({ ok: false, note: 'no digest transport configured' }) };
 
-function main() {
+/**
+ * Dedup/eligibility decision (Phase 11). Pure. At most ONE digest per UTC-day window.
+ * `configured` = a real transport is available. Never sends when disabled/dry-run/
+ * not-configured/not-due/already-delivered-this-window.
+ */
+export function shouldDeliverDigest(schedule, state = {}, { enabled = false, dryRun = true, configured = false } = {}) {
+  if (!enabled) return { send: false, reason: 'disabled' };
+  if (dryRun) return { send: false, reason: 'dry_run' };
+  if (!configured) return { send: false, reason: 'not_configured' };
+  if (!schedule || !schedule.due) return { send: false, reason: (schedule && schedule.reason) || 'not_due' };
+  if (state.lastDigestDeliveredWindow === schedule.window) return { send: false, reason: 'already_delivered' };
+  return { send: true, reason: 'due' };
+}
+
+// ---- transport-independent delivery (Phases 7/9/12/13) ----
+// adapter contract: { name, configured:boolean, async send(text, meta) -> {ok, status, latencyMs} }
+export async function deliverDigest(adapter, data, { enabled = false, dryRun = true, schedule = null, state = {}, now = null } = {}) {
+  const channel = (adapter && adapter.name) || 'none';
+  const configured = !!(adapter && adapter.configured);
+  const base = { delivered: false, channel, digestId: data.digestId, window: (schedule && schedule.window) || data.digestId, generatedAt: data.generatedAt };
+  const mk = (o) => ({ ...base, ...o });
+  if (!enabled) return mk({ mode: 'DISABLED', health: 'IDLE', event: 'digest.delivery.skipped', reason: 'disabled' });
+  if (dryRun) return mk({ mode: 'DRY_RUN', health: 'IDLE', event: 'digest.delivery.skipped', reason: 'dry_run' });
+  if (!configured) return mk({ mode: 'LIVE', health: 'NOT_CONFIGURED', event: 'digest.delivery.not_configured', reason: 'not_configured' });
+  const decision = shouldDeliverDigest(schedule, state, { enabled, dryRun, configured });
+  if (!decision.send) return mk({ mode: 'LIVE', health: 'IDLE', event: 'digest.delivery.skipped', reason: decision.reason });
+  // Payload safety (Phase 7): nothing unsafe ever reaches the transport.
+  const text = renderDigestText(data);
+  const safe = validateIssuePayload('digest', text);
+  if (!safe.safe) return mk({ mode: 'LIVE', health: 'DEGRADED', event: 'digest.delivery.payload_rejected', reason: 'unsafe_payload', code: 'DIGEST_DELIVERY_PAYLOAD_REJECTED' });
+  const deliveredAt = now ? new Date(now).toISOString() : new Date().toISOString();
+  try {
+    const r = (await adapter.send(text, { digestId: data.digestId, generatedAt: data.generatedAt })) || {};
+    if (r.ok) return mk({ delivered: true, mode: 'LIVE', health: 'HEALTHY', event: 'digest.delivery.sent', reason: 'sent', statusCode: r.status ?? null, latencyMs: r.latencyMs ?? null, deliveredAt });
+    const health = (r.status >= 500 || r.status === 429) ? 'UNAVAILABLE' : 'DEGRADED';
+    return mk({ mode: 'LIVE', health, event: 'digest.delivery.failed', reason: 'transport_failed', statusCode: r.status ?? null, latencyMs: r.latencyMs ?? null, code: 'DIGEST_DELIVERY_FAILED' });
+  } catch (e) {
+    return mk({ mode: 'LIVE', health: 'UNAVAILABLE', event: 'digest.delivery.failed', reason: 'exception', code: 'DIGEST_DELIVERY_FAILED' });
+  }
+}
+// Null adapter — never configured; real Slack/email/Discord adapters plug in at this boundary.
+export const nullDigestAdapter = { name: 'null', configured: false, send: async () => ({ ok: false }) };
+
+async function main() {
   const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
   const dir = join(REPO, 'ops-status');
   const rd = (p) => (existsSync(p) ? (() => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } })() : null);
@@ -117,19 +185,28 @@ function main() {
 
   const enabled = String(process.env.OPS_DIGEST_DELIVERY_ENABLED || 'false') === 'true';
   const dryRun = String(process.env.OPS_DIGEST_DRY_RUN || 'true') !== 'false';
-  const delivery = deliverDigest(nullDigestAdapter, data, { enabled, dryRun });
+  // Slack is the first external transport. The webhook comes ONLY from a GitHub Actions
+  // secret (SLACK_WEBHOOK_URL) injected into this step — never from source/YAML literals.
+  // Absent secret => configured:false => NOT_CONFIGURED (0 messages, workflow stays green).
+  const { slackDigestAdapter } = await import('./slack-digest-adapter.mjs');
+  const adapter = slackDigestAdapter(process.env.SLACK_WEBHOOK_URL || '');
+  const delivery = await deliverDigest(adapter, data, { enabled, dryRun, schedule, state, now });
 
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'daily-digest.json'), JSON.stringify(data, null, 2));
   writeFileSync(join(dir, 'daily-digest.md'), md);
-  // Preview = the EXACT sanitized body that WOULD be delivered when eligible.
-  writeFileSync(join(dir, 'daily-digest-preview.md'), `> DELIVERY: ${delivery.mode} · due this window: ${schedule.due} (${schedule.reason}) · would-send subject: "${delivery.subject}"\n> External messages sent: 0\n\n---\n\n${md}`);
+  // Preview = the EXACT sanitized text that WOULD be delivered when eligible. No webhook.
+  writeFileSync(join(dir, 'daily-digest-preview.md'), `> DELIVERY: channel=${delivery.channel} mode=${delivery.mode} health=${delivery.health} · due=${schedule.due} (${schedule.reason}) · sent=${delivery.delivered ? 1 : 0}\n\n---\n\n${renderDigestText(data)}`);
 
-  // Dedup state: always record generation; record "delivered window" only when a real send
-  // happened (never in V6). This is what makes eligibility fire at most once per UTC day.
-  const newState = { schemaVersion: DIGEST_STATE_SCHEMA, lastDigestWindow: schedule.window, lastDigestGeneratedAt: data.generatedAt, digestId: data.digestId, lastDigestDeliveredAt: delivery.delivered ? data.generatedAt : (state.lastDigestDeliveredAt || null), lastDigestDeliveredWindow: delivery.delivered ? schedule.window : (state.lastDigestDeliveredWindow || null) };
+  // Delivery event (Phase 13) — safe, low-cardinality. NEVER the webhook or message body.
+  const event = { event: delivery.event, channel: delivery.channel, digestId: delivery.digestId, window: delivery.window, result: delivery.reason, statusCode: delivery.statusCode ?? null, latencyMs: delivery.latencyMs ?? null, timestamp: new Date(now).toISOString() };
+  writeFileSync(join(dir, 'digest-delivery.json'), JSON.stringify({ generatedAt: new Date(now).toISOString(), mode: delivery.mode, channel: delivery.channel, health: delivery.health, delivered: delivery.delivered, code: delivery.code || null, event }, null, 2));
+
+  // Dedup state (Phase 11): record the delivered window ONLY on a real successful send —
+  // that is what makes a second run in the same window skip (already_delivered).
+  const newState = { schemaVersion: DIGEST_STATE_SCHEMA, lastDigestWindow: schedule.window, lastDigestGeneratedAt: data.generatedAt, digestId: data.digestId, lastDigestDeliveredAt: delivery.delivered ? (delivery.deliveredAt || new Date(now).toISOString()) : (state.lastDigestDeliveredAt || null), lastDigestDeliveredWindow: delivery.delivered ? schedule.window : (state.lastDigestDeliveredWindow || null), deliveryChannel: delivery.delivered ? delivery.channel : (state.deliveryChannel || null) };
   writeFileSync(join(dir, 'digest-state.json'), JSON.stringify(newState, null, 2));
-  console.log(`[digest] window=${schedule.window} due=${schedule.due} (${schedule.reason}) delivery=${delivery.mode} sent=0`);
+  console.log(`[digest] window=${schedule.window} due=${schedule.due} (${schedule.reason}) channel=${delivery.channel} mode=${delivery.mode} health=${delivery.health} sent=${delivery.delivered ? 1 : 0}`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch((e) => console.log('[digest] fatal (contained): ' + e.message));

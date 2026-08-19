@@ -2,7 +2,7 @@
 // Run: node --test ops/monitor/digest.test.mjs
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeDigestSchedule, renderDigestData, renderDigest, deliverDigest, nullDigestAdapter, windowKey, DIGEST_HOUR_UTC } from './digest.mjs';
+import { computeDigestSchedule, renderDigestData, renderDigest, renderDigestText, deliverDigest, shouldDeliverDigest, nullDigestAdapter, windowKey, DIGEST_HOUR_UTC } from './digest.mjs';
 import { validateIssuePayload } from './incident-actions.mjs';
 
 const AT = (iso) => Date.parse(iso);
@@ -79,22 +79,60 @@ describe('digest rendering + safety', () => {
   test('digest body contains no PII/secret markers', () => assert.equal(validateIssuePayload('digest', md).safe, true));
 });
 
-describe('digest delivery abstraction (external delivery OFF in V6)', () => {
+describe('digest text renderer (Phase 6)', () => {
   const d = renderDigestData({ health: health(), incidents: [], actions: null, schedule: computeDigestSchedule(AFTER, {}), now: AFTER });
-  test('disabled -> not delivered', () => {
-    const r = deliverDigest(nullDigestAdapter, d, { enabled: false, dryRun: true });
-    assert.equal(r.delivered, false); assert.equal(r.mode, 'DRY_RUN');
+  const txt = renderDigestText(d);
+  test('concise + no PII + has key lines', () => {
+    assert.ok(txt.includes('Feedback2Me — Daily Ops Digest'));
+    assert.ok(txt.includes('Runtime: HEALTHY'));
+    assert.ok(txt.includes('Real IAP E2E: DEFERRED'));
+    assert.equal(validateIssuePayload('slack', txt).safe, true);
+    assert.ok(txt.length < 1200, 'digest text should be phone-readable');
   });
-  test('enabled but dry-run -> not delivered', () => {
-    assert.equal(deliverDigest(nullDigestAdapter, d, { enabled: true, dryRun: true }).delivered, false);
+});
+
+describe('digest delivery eligibility (shouldDeliverDigest, Phase 11)', () => {
+  const sched = computeDigestSchedule(AFTER, {});
+  test('disabled -> no send', () => assert.equal(shouldDeliverDigest(sched, {}, { enabled: false }).send, false));
+  test('dry-run -> no send', () => assert.equal(shouldDeliverDigest(sched, {}, { enabled: true, dryRun: true, configured: true }).send, false));
+  test('not configured -> no send', () => assert.equal(shouldDeliverDigest(sched, {}, { enabled: true, dryRun: false, configured: false }).reason, 'not_configured'));
+  test('due + enabled + configured -> send', () => assert.equal(shouldDeliverDigest(sched, {}, { enabled: true, dryRun: false, configured: true }).send, true));
+  test('already delivered this window -> no send', () => assert.equal(shouldDeliverDigest(sched, { lastDigestDeliveredWindow: '2026-08-19' }, { enabled: true, dryRun: false, configured: true }).reason, 'already_delivered'));
+});
+
+describe('digest delivery state machine (deliverDigest, async)', () => {
+  const d = renderDigestData({ health: health(), incidents: [], actions: null, schedule: computeDigestSchedule(AFTER, {}), now: AFTER });
+  const sched = computeDigestSchedule(AFTER, {});
+  const okAdapter = { name: 'slack', configured: true, send: async () => ({ ok: true, status: 200, latencyMs: 12 }) };
+  test('disabled -> DISABLED, not delivered', async () => {
+    const r = await deliverDigest(nullDigestAdapter, d, { enabled: false, dryRun: true, schedule: sched });
+    assert.equal(r.delivered, false); assert.equal(r.mode, 'DISABLED');
   });
-  test('enabled + not dry-run + null adapter -> attempts but nothing sent (no transport)', () => {
-    const r = deliverDigest(nullDigestAdapter, d, { enabled: true, dryRun: false });
-    assert.equal(r.mode, 'LIVE'); assert.equal(r.delivered, false); // null adapter returns ok:false
+  test('enabled + dry-run -> DRY_RUN, not delivered', async () => {
+    assert.equal((await deliverDigest(okAdapter, d, { enabled: true, dryRun: true, schedule: sched })).mode, 'DRY_RUN');
   });
-  test('enabled + not dry-run + working adapter -> delivered', () => {
-    const adapter = { name: 'test', send: () => ({ ok: true }) };
-    assert.equal(deliverDigest(adapter, d, { enabled: true, dryRun: false }).delivered, true);
+  test('enabled + live + NOT configured -> NOT_CONFIGURED, 0 sent', async () => {
+    const r = await deliverDigest(nullDigestAdapter, d, { enabled: true, dryRun: false, schedule: sched });
+    assert.equal(r.health, 'NOT_CONFIGURED'); assert.equal(r.delivered, false); assert.equal(r.event, 'digest.delivery.not_configured');
+  });
+  test('enabled + live + configured + due -> HEALTHY, delivered', async () => {
+    const r = await deliverDigest(okAdapter, d, { enabled: true, dryRun: false, schedule: sched, state: {}, now: AFTER });
+    assert.equal(r.delivered, true); assert.equal(r.health, 'HEALTHY'); assert.equal(r.event, 'digest.delivery.sent'); assert.equal(r.statusCode, 200);
+  });
+  test('already delivered this window -> IDLE skip, 0 sent', async () => {
+    const r = await deliverDigest(okAdapter, d, { enabled: true, dryRun: false, schedule: computeDigestSchedule(AFTER, { lastDigestDeliveredWindow: '2026-08-19' }), state: { lastDigestDeliveredWindow: '2026-08-19' } });
+    assert.equal(r.delivered, false); assert.equal(r.event, 'digest.delivery.skipped');
+  });
+  test('unsafe payload -> DIGEST_DELIVERY_PAYLOAD_REJECTED, not sent', async () => {
+    let sent = 0; const spy = { name: 'slack', configured: true, send: async () => { sent++; return { ok: true }; } };
+    const leaky = renderDigestData({ health: health({ deploymentContext: { commit: 'leak a@b.com', build: '22' } }), incidents: [], actions: null, schedule: sched, now: AFTER });
+    const r = await deliverDigest(spy, leaky, { enabled: true, dryRun: false, schedule: sched, state: {}, now: AFTER });
+    assert.equal(r.code, 'DIGEST_DELIVERY_PAYLOAD_REJECTED'); assert.equal(r.delivered, false); assert.equal(sent, 0);
+  });
+  test('transport 500 -> UNAVAILABLE, DIGEST_DELIVERY_FAILED', async () => {
+    const bad = { name: 'slack', configured: true, send: async () => ({ ok: false, status: 500, latencyMs: 5 }) };
+    const r = await deliverDigest(bad, d, { enabled: true, dryRun: false, schedule: sched, state: {}, now: AFTER });
+    assert.equal(r.health, 'UNAVAILABLE'); assert.equal(r.code, 'DIGEST_DELIVERY_FAILED'); assert.equal(r.delivered, false);
   });
   test('windowKey is a UTC date string', () => assert.equal(windowKey(AFTER), '2026-08-19'));
 });

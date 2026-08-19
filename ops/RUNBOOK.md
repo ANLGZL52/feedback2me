@@ -232,3 +232,47 @@ transport is later enabled by the owner.
 **Verify:** `node --test ops/monitor/architecture-guard.test.mjs` fails, naming the file.
 **Safe remediation:** remove the Issue mutation from that file; route the signal through
 the V5 incident engine (as SERVICE_COMPONENT_DOWN did). **Do NOT:** add a parallel alerter.
+
+---
+
+## V7 Slack daily-digest delivery runbook
+
+Slack carries the ONCE-PER-DAY operational digest only. CRITICAL incidents stay on
+GitHub Issues (`incident-delivery.mjs`). **A Slack digest failure is NEVER an
+application-runtime failure** — it does not change IAP/OpenAI/Railway/Postgres health
+or the release gate. Digest delivery health is surfaced separately
+(HEALTHY/DEGRADED/UNAVAILABLE/IDLE/NOT_CONFIGURED) in the Ops Console + Actions summary.
+
+### SLACK_DIGEST_NOT_CONFIGURED
+**Impact:** none to product. No digest reaches Slack; the digest artifacts
+(daily-digest.md/.json/preview) are still generated. Delivery health = NOT_CONFIGURED.
+**Verify:** digest step log `Slack webhook configured: NO`; Ops Console → Daily Digest.
+**Safe remediation (owner, one-time):** create a repo **Actions secret**
+`OPS_SLACK_WEBHOOK_URL` = a Slack Incoming Webhook URL. No code change needed — the next
+scheduled run auto-delivers one digest.
+**Do NOT expose:** the webhook URL in source/YAML/logs/issues/chat. It lives only in the
+GitHub secret and is injected only into the digest step.
+
+### SLACK_DIGEST_DELIVERY_FAILED
+**Impact:** the daily digest could not be posted (network/5xx/timeout after one retry).
+No product impact. Delivery health = DEGRADED/UNAVAILABLE; code `DIGEST_DELIVERY_FAILED`.
+**Verify:** `digest-delivery.json` event `digest.delivery.failed` + statusCode; console.
+**Safe remediation:** check Slack status / the webhook validity. It is best-effort — the
+next eligible window retries. Dedup state is only advanced on SUCCESS, so a failed day is
+retried, not skipped. **Do NOT:** loop-retry manually; do not open a GitHub Issue for it.
+
+### SLACK_DIGEST_RATE_LIMITED
+**Impact:** Slack returned 429. The adapter honors a small Retry-After and retries once;
+if still limited it reports failed (no product impact).
+**Verify:** `digest-delivery.json` statusCode 429.
+**Safe remediation:** none usually needed (once/day cadence rarely rate-limits). **Do
+NOT:** remove the retry cap or hammer the webhook.
+
+### SLACK_DIGEST_PAYLOAD_REJECTED
+**Impact:** the pre-send safety validator found a prohibited pattern (email/JWT/bearer/
+key/blob) in the rendered digest text, so NOTHING was sent. Code
+`DIGEST_DELIVERY_PAYLOAD_REJECTED`. This is a safety SUCCESS, not an outage.
+**Verify:** `digest-delivery.json` event `digest.delivery.payload_rejected`.
+**Safe remediation:** find which digest field introduced the pattern (it should only ever
+be operational metadata) and fix the renderer/source; add a test. **Do NOT:** disable the
+validator or send the unsafe payload.

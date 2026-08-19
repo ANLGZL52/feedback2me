@@ -126,9 +126,9 @@ jobs:
       - name: Ops V4/V5/V6 incident + durability tests (dedup/cooldown/flapping/state/dry-run; fixtures, no network)
         id: incident_tests
         run: node --test ops/monitor/incident-delivery.test.mjs
-      - name: Ops V6 digest + single-writer architecture guard tests (fixtures, no network)
+      - name: Ops V6/V7 digest + Slack adapter + single-writer architecture guard tests (mocked, no network)
         id: v6_tests
-        run: node --test ops/monitor/digest.test.mjs ops/monitor/architecture-guard.test.mjs
+        run: node --test ops/monitor/digest.test.mjs ops/monitor/slack-digest-adapter.test.mjs ops/monitor/architecture-guard.test.mjs
       # V5 incident delivery — LIVE (owner-approved 2026-08-19). Computes
       # CREATE/UPDATE/RESOLVE/NONE from runtime-health.json and delivers real GitHub
       # Issues ONLY for NEW CRITICAL runtime alerts. Deduplicated (local state seeded
@@ -147,23 +147,27 @@ jobs:
           OPS_STATE_SEED_STATUS: ${{ steps.seed_state.outputs.seed_status }}
           OPS_STATE_SEED_SOURCE_RUN: ${{ steps.seed_state.outputs.source_run }}
         run: node ops/monitor/incident-delivery.mjs
-      # Daily digest — rolling 24h summary. EXTERNAL DELIVERY DISABLED in V6
-      # (OPS_DIGEST_DELIVERY_ENABLED=false, OPS_DIGEST_DRY_RUN=true): renders md/json +
-      # a preview of what WOULD be sent. Deterministic once-per-UTC-day eligibility.
-      - name: Daily digest (dry-run; artifact only, no external delivery)
+      # Daily digest — rolling 24h summary, delivered to Slack (V7). ARMED:
+      # OPS_DIGEST_DELIVERY_ENABLED=true, OPS_DIGEST_DRY_RUN=false. The webhook comes ONLY
+      # from the OPS_SLACK_WEBHOOK_URL secret, injected ONLY into this step (never job-wide,
+      # never a YAML literal, never logged). If the secret is ABSENT the adapter reports
+      # NOT_CONFIGURED → 0 messages and the workflow stays GREEN (no per-run failure).
+      # Deterministic once-per-UTC-day eligibility guarantees at most ONE Slack message/day.
+      # Slack is the DAILY DIGEST channel ONLY — CRITICAL incidents stay on GitHub Issues.
+      - name: Daily digest (Slack delivery; NOT_CONFIGURED-safe)
         id: digest
         if: always()
         continue-on-error: true
         env:
-          OPS_DIGEST_DELIVERY_ENABLED: 'false'
-          OPS_DIGEST_DRY_RUN: 'true'
-        run: node ops/monitor/digest.mjs
+          OPS_DIGEST_DELIVERY_ENABLED: 'true'
+          OPS_DIGEST_DRY_RUN: 'false'
+          SLACK_WEBHOOK_URL: ${{ secrets.OPS_SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then echo "Slack webhook configured: YES"; else echo "Slack webhook configured: NO"; fi
+          node ops/monitor/digest.mjs
       - name: Ops Console + actionable run summary (metadata only)
         id: ops_console
         if: always()
-        env:
-          OPS_DIGEST_DELIVERY_ENABLED: 'false'
-          OPS_DIGEST_DRY_RUN: 'true'
         run: node ops/monitor/ops-console.mjs
       - name: Release readiness (informational — NOT READY does NOT fail this workflow)
         id: readiness
@@ -206,6 +210,7 @@ jobs:
             ops-status/daily-digest.json
             ops-status/daily-digest-preview.md
             ops-status/digest-state.json
+            ops-status/digest-delivery.json
             ops-status/events/
             ops-status/runtime-events/
           retention-days: 14
