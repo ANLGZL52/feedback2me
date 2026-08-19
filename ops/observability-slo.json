@@ -54,5 +54,27 @@
       "RAILWAY_UNREACHABLE"
     ],
     "note": "Real IAP E2E is a DEFERRED VALIDATION (IAP_E2E_VALIDATION_DEFERRED = WARN, non-blocking at the current TestFlight stage) — tracked in ops/validation-requirements.json (requiredForProductRelease=true, requiredForObservabilityPlatform=false). It keeps runtimeValidationStatus PARTIAL but does NOT block observabilityPlatformStatus=FULL. Only real runtime CRITICALs (money-safety, verify-down, postgres-critical, collector-stale, secret-leak) BLOCK. A public/production-release policy that requires real E2E would re-add it to blockOn for that gate."
+  },
+  "notification": {
+    "info": "none",
+    "warning": "artifact_only",
+    "critical": "proactive",
+    "note": "Only NEW CRITICAL alerts warrant a proactive incident notification. WARNING = artifact/report only. INFO = nothing. ONGOING never re-notifies except per criticalRenotifyMinutes; RESOLVED emits exactly one resolution update."
+  },
+  "incidentDelivery": {
+    "channel": "github_issue",
+    "criticalRenotifyMinutes": 120,
+    "incidentUpdateCooldownMinutes": 30,
+    "resolvedStabilityMinutes": 15,
+    "flappingWindowMinutes": 60,
+    "flappingMinTransitions": 4,
+    "maxIncidentUpdatesPerHour": 4,
+    "note": "Cooldown/flapping guards so a service alternating HEALTHY/UNHEALTHY never spams. criticalRenotifyMinutes: force a keep-alive comment on an ONGOING critical at most this often. incidentUpdateCooldownMinutes: minimum spacing between material-change updates (matches the 30-min monitoring cadence — at most one update per cycle). resolvedStabilityMinutes: an incident must be clear this long before it is RESOLVED (auto-close). flappingWindowMinutes/flappingMinTransitions: >= this many NEW+RESOLVE transitions within the window marks the incident FLAPPING (one held-open incident, no per-cycle spam). maxIncidentUpdatesPerHour: hard cap on issue comments per incident. Real writes require OPS_INCIDENT_DELIVERY_ENABLED=true (default false); OPS_ALERT_DRY_RUN=true computes actions without any GitHub write."
+  },
+  "trend": {
+    "minSampleForTrend": 5,
+    "degradeDeltaPct": 0.25,
+    "improveDeltaPct": 0.25,
+    "note": "Low-traffic-safe: a metric needs >= minSampleForTrend on BOTH sides to trend; deltas smaller than the pct thresholds are STABLE; missing baseline = INSUFFICIENT_DATA. Never trend on 1-2 sample noise."
   }
 }

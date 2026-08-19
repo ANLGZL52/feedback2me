@@ -89,6 +89,26 @@ jobs:
       - name: Ops V3 evaluator tests (SLO/alerts/release-gate/money-safety; fixtures, no network)
         id: evaluator_tests
         run: node --test ops/monitor/evaluate-runtime.test.mjs
+      - name: Ops V4 incident-delivery tests (dedup/cooldown/flapping/stability/dry-run; fixtures, no network)
+        id: incident_tests
+        run: node --test ops/monitor/incident-delivery.test.mjs
+      # V4 incident delivery — DRY-RUN ONLY. Computes CREATE/UPDATE/RESOLVE/NONE from
+      # runtime-health.json and writes a plan artifact. It performs ZERO GitHub writes:
+      # OPS_ALERT_DRY_RUN=true and OPS_INCIDENT_DELIVERY_ENABLED unset (default false).
+      # Real issue creation stays OFF until the owner explicitly enables it.
+      - name: Incident delivery (DRY-RUN — no GitHub writes)
+        id: incident_delivery
+        if: always()
+        continue-on-error: true
+        env:
+          OPS_ALERT_DRY_RUN: 'true'
+          # OPS_INCIDENT_DELIVERY_ENABLED intentionally UNSET (default false). Do NOT set
+          # to 'true' without owner approval — that would enable real GitHub Issue writes.
+        run: node ops/monitor/incident-delivery.mjs
+      - name: Ops Console + actionable run summary (metadata only)
+        id: ops_console
+        if: always()
+        run: node ops/monitor/ops-console.mjs
       - name: Release readiness (informational — NOT READY does NOT fail this workflow)
         id: readiness
         # Observability health != product release readiness. exit 0=READY, 1=NOT READY
@@ -127,6 +147,11 @@ jobs:
             ops-status/latest.json
             ops-status/runtime-health.json
             ops-status/runtime-health.md
+            ops-status/ops-console.md
+            ops-status/incident-actions.json
+            ops-status/incident-state.json
+            ops-status/trend.json
+            ops-status/daily-digest.md
             ops-status/events/
             ops-status/runtime-events/
           retention-days: 14
@@ -135,7 +160,7 @@ jobs:
       - name: Ops run summary (observability execution vs release readiness — no PII)
         if: always()
         env:
-          OBS_OK: ${{ steps.checks.outcome == 'success' && steps.engine_tests.outcome == 'success' && steps.alert_tests.outcome == 'success' && steps.preflight_tests.outcome == 'success' && steps.postgres_tests.outcome == 'success' && steps.runtimelog_tests.outcome == 'success' && steps.evaluator_tests.outcome == 'success' && steps.readiness.outcome == 'success' && steps.artifact.outcome == 'success' }}
+          OBS_OK: ${{ steps.checks.outcome == 'success' && steps.engine_tests.outcome == 'success' && steps.alert_tests.outcome == 'success' && steps.preflight_tests.outcome == 'success' && steps.postgres_tests.outcome == 'success' && steps.runtimelog_tests.outcome == 'success' && steps.evaluator_tests.outcome == 'success' && steps.incident_tests.outcome == 'success' && steps.readiness.outcome == 'success' && steps.artifact.outcome == 'success' }}
           READINESS: ${{ steps.readiness.outputs.readiness }}
           ART_OUTCOME: ${{ steps.artifact.outcome }}
           ALERT_OUTCOME: ${{ steps.alert.outcome }}
@@ -148,7 +173,8 @@ jobs:
           {
             echo "## Feedback2Me Ops — run summary"
             echo ""
-            echo "- **Observability execution:** $OBS  _(monitor=${{ steps.checks.outcome }}, engine-tests=${{ steps.engine_tests.outcome }}, alert-tests=${{ steps.alert_tests.outcome }}, preflight-tests=${{ steps.preflight_tests.outcome }}, readiness=${{ steps.readiness.outcome }}, artifact=$ART_OUTCOME)_"
+            echo "- **Observability execution:** $OBS  _(monitor=${{ steps.checks.outcome }}, engine-tests=${{ steps.engine_tests.outcome }}, alert-tests=${{ steps.alert_tests.outcome }}, preflight-tests=${{ steps.preflight_tests.outcome }}, evaluator-tests=${{ steps.evaluator_tests.outcome }}, incident-tests=${{ steps.incident_tests.outcome }}, readiness=${{ steps.readiness.outcome }}, artifact=$ART_OUTCOME)_"
+            echo "- **Incident delivery:** DRY-RUN (dry-run=${{ steps.incident_delivery.outcome }}, console=${{ steps.ops_console.outcome }}) — **0 GitHub issues written**; real delivery awaits owner approval (\`OPS_INCIDENT_DELIVERY_ENABLED=true\`)."
             echo "- **Release readiness:** ${READINESS:-UNKNOWN}  _(does not affect observability execution)_"
             echo "- **Artifact upload:** $ART_OUTCOME"
             echo "- **Runtime-log collector:** ${RTLOG_STATUS:-UNKNOWN} (Railway backend); runtime events collected this run: ${RTLOG_EVENTS:-0}. _Collector state is separate from backend health — a collector failure is NOT a backend outage._"

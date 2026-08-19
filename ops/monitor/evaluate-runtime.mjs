@@ -21,6 +21,31 @@ function alert(domain, code, severity, message, evidence, releaseBlocking = fals
   return { domain, code, severity, message, evidence: evidence || null, releaseBlocking };
 }
 
+// --- trend engine (Phase 12): current metric vs the previous run's metric. ---
+function trendLabel(cur, prev, slo, higherIsWorse = true) {
+  if (cur == null || prev == null) return 'INSUFFICIENT_DATA';
+  if (cur === 0 && prev === 0) return 'STABLE';
+  const d = (cur - prev) / (Math.abs(prev) || 1);
+  const dg = slo.trend.degradeDeltaPct, im = slo.trend.improveDeltaPct;
+  const worse = higherIsWorse ? d >= dg : d <= -im;
+  const better = higherIsWorse ? d <= -im : d >= dg;
+  return worse ? 'DEGRADING' : better ? 'IMPROVING' : 'STABLE'; // low-traffic-safe: small deltas = STABLE
+}
+function computeTrends(domains, prev, slo) {
+  const pd = (prev && prev.domains) || {};
+  const num = (o) => (typeof o === 'number' ? o : null);
+  const iapFail = (m) => (m && m.counts ? m.counts.rejected + m.counts.transientFailure + m.counts.error : null);
+  const gm = (d) => (d && d.metrics) || {};
+  return {
+    iapVerifyFailures: trendLabel(iapFail(domains.IAP.metrics), iapFail(gm(pd.IAP)), slo),
+    openaiFailures: trendLabel(num(gm(domains.OPENAI).failed), num(gm(pd.OPENAI).failed), slo),
+    openaiLatencyP95: trendLabel(num(gm(domains.OPENAI).latencyP95Ms), num(gm(pd.OPENAI).latencyP95Ms), slo),
+    openaiTokens: trendLabel(num(gm(domains.OPENAI).avgTotalTokens), num(gm(pd.OPENAI).avgTotalTokens), slo),
+    railway5xx: trendLabel(num(gm(domains.RAILWAY)['5xx']), num(gm(pd.RAILWAY)['5xx']), slo),
+    collectorAgeMin: trendLabel(num(gm(domains.COLLECTOR).ageMinutes), num(gm(pd.COLLECTOR).ageMinutes), slo),
+  };
+}
+
 // ---------- domain evaluators (pure) ----------
 
 function evalIap(events, slo, observabilityOk, iapVerifyReachable) {
@@ -219,6 +244,7 @@ export function evaluate({ events = [], slo, now, prev = null, signals = {}, dep
     domains: Object.fromEntries(Object.entries(domains).map(([k, v]) => [k, { status: v.status, metrics: v.metrics }])),
     alerts: tracked,
     resolvedAlerts: resolved,
+    trends: computeTrends(domains, prev, slo),
     deferredValidations: deferred,
     deploymentContext: deployment || null,
     collectorFreshness: collector.metrics,

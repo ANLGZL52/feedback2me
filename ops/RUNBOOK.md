@@ -4,6 +4,27 @@ Action-oriented response for each CRITICAL alert emitted by
 `ops/monitor/evaluate-runtime.mjs` (artifact: `ops-status/runtime-health.json`).
 Thresholds live in `ops/observability-slo.json`. **No secrets/PII in logs or here.**
 
+**Incident code → runbook section** (V4 incident delivery links every CRITICAL to a
+section here via `RUNBOOK_SECTIONS` in `ops/monitor/incident-delivery.mjs`):
+
+| Alert code(s) | Section |
+|---|---|
+| `IAP_VERIFY_DOWN` | IAP_VERIFY_DOWN |
+| `IAP_MONEY_SAFETY_BREACH`, `IAP_GRANT_DELTA_NOT_ONE`, `IAP_REPLAY_DELTA_NOT_ZERO`, `IAP_CREDIT_UNKNOWN_PRODUCT`, `IAP_CREDIT_AFTER_FAILURE`, `IAP_DUPLICATE_GRANT`, `IAP_SUCCESS_WITHOUT_CREDIT` | IAP_CREDIT_INVARIANT_BREACH |
+| `IAP_VERIFY_FAILURE_ELEVATED`, `IAP_TRANSIENT_FAILURE_SUSTAINED`, `IAP_REJECTED_SPIKE` | APPLE_VERIFICATION_FAILURE_SPIKE |
+| `OPENAI_DEGRADED`, `OPENAI_LATENCY_DEGRADED` | OPENAI_PROVIDER_FAILURE |
+| `POSTGRES_CRITICAL` | POSTGRES_UNAVAILABLE |
+| `RAILWAY_5XX_ELEVATED`, `RAILWAY_UNREACHABLE` | RAILWAY_UNAVAILABLE |
+| `COLLECTOR_STALE` | COLLECTOR_STALE |
+| `COLLECTOR_RUN_FAILED` | GCP_WIF_AUTH_FAILED |
+| `SECRET_OR_PII_LEAK` | SECRET_OR_PII_LEAK_DETECTED |
+
+Incident delivery is **dry-run by default** (`OPS_ALERT_DRY_RUN=true`) and writes zero
+GitHub Issues unless `OPS_INCIDENT_DELIVERY_ENABLED=true` is also set. WARNING alerts
+never create incidents (artifact/report only); only NEW CRITICAL alerts do.
+
+---
+
 General rules:
 - The evaluator is READ-ONLY. It never mutates Firestore, credits, or production.
 - `NO_TRAFFIC` (IDLE) is healthy. `NO_OBSERVABILITY` (UNKNOWN) means the collector

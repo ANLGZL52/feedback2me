@@ -53,3 +53,11 @@ app.*.map.json
 # Ops generated event streams — uploaded as CI artifacts, never committed
 ops-status/events/
 ops-status/runtime-events/
+# V4 incident/console/trend runtime outputs — regenerated each run, CI-artifact only
+ops-status/latest.json
+ops-status/ops-console.md
+ops-status/incident-state.json
+ops-status/incident-actions.json
+ops-status/trend.json
+ops-status/daily-digest.md
+ops-status/incident-simulation.md
