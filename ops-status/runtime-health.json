@@ -1,0 +1,113 @@
+{
+  "generatedAt": "2026-08-19T13:06:33.978Z",
+  "window": {
+    "lookbackHours": 24,
+    "events": 0
+  },
+  "overallStatus": "HEALTHY",
+  "releaseGate": {
+    "status": "BLOCK",
+    "blocking": [
+      "MISSING_IAP_E2E_EVIDENCE"
+    ],
+    "warnings": []
+  },
+  "domains": {
+    "IAP": {
+      "status": "IDLE",
+      "metrics": {
+        "counts": {
+          "started": 0,
+          "success": 0,
+          "rejected": 0,
+          "transientFailure": 0,
+          "error": 0,
+          "creditGranted": 0,
+          "creditReplay": 0,
+          "androidDisabled": 0,
+          "invalidProduct": 0,
+          "verifyAttempts": 0,
+          "terminal": 0
+        },
+        "rates": {
+          "verifySuccess": null,
+          "verifyFailure": null,
+          "transientFailure": null,
+          "creditGrant": null,
+          "replay": null
+        },
+        "latencyMs": {
+          "p50": null,
+          "p95": null,
+          "samples": 0
+        },
+        "sampleSize": 0
+      }
+    },
+    "OPENAI": {
+      "status": "IDLE",
+      "metrics": {
+        "requests": 0,
+        "completed": 0,
+        "failed": 0,
+        "latencyP95Ms": null,
+        "avgTotalTokens": null
+      }
+    },
+    "RAILWAY": {
+      "status": "IDLE",
+      "metrics": {
+        "requests": 0,
+        "2xx": 0,
+        "3xx": 0,
+        "4xx": 0,
+        "5xx": 0
+      }
+    },
+    "POSTGRES": {
+      "status": "HEALTHY",
+      "metrics": {
+        "probe": "HEALTHY",
+        "consecutiveFailures": 0
+      }
+    },
+    "COLLECTOR": {
+      "status": "UNKNOWN",
+      "metrics": {
+        "lastEventAt": null,
+        "ageMinutes": null,
+        "providersSucceeded": null,
+        "providersAttempted": 3
+      }
+    },
+    "SECURITY": {
+      "status": "HEALTHY",
+      "metrics": {}
+    }
+  },
+  "alerts": [
+    {
+      "domain": "RELEASE",
+      "code": "MISSING_IAP_E2E_EVIDENCE",
+      "severity": "WARNING",
+      "message": "no verified real TestFlight sandbox purchase evidence yet (ops-status/iap-e2e-evidence.json verified=true required)",
+      "evidence": {
+        "present": false
+      },
+      "releaseBlocking": true,
+      "state": "ONGOING",
+      "firstSeen": "2026-08-19T13:05:34.710Z",
+      "lastSeen": "2026-08-19T13:06:33.978Z"
+    }
+  ],
+  "resolvedAlerts": [],
+  "deploymentContext": {
+    "commit": "06bc18b",
+    "build": "22",
+    "functionRevision": null
+  },
+  "validationEvidence": {
+    "iapRealE2E": "ASSUMED_FOR_NEXT_PHASE",
+    "source": null
+  }
+}
