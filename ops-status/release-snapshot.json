@@ -1,42 +1,40 @@
 {
-  "generatedAt": "2026-08-19T14:14:02.930Z",
+  "generatedAt": "2025-08-19T14:40:00Z",
   "app": "Feedback2Me",
   "version": "1.0.4",
   "build": 22,
-  "sourceCommit": "d2471fc",
-  "branch": "release/1.0.4-complete-rc",
-  "observabilityPlatformStatus": "PARTIAL",
+  "mainCommit": "39ac889",
+  "mergeSha": "39ac889",
+  "sourceRcHead": "2756276",
+  "branch": "main",
+  "observabilityPlatformStatus": "FULL",
+  "observabilityPlatformVerifiedBy": "main CI run 32265781724",
   "runtimeValidationStatus": "PARTIAL",
   "productReleaseGate": "WARN",
   "currentRuntimeHealth": "HEALTHY",
   "testflight": {
+    "version": "1.0.4",
+    "build": 22,
     "processingState": "VALID",
     "internalBuildState": "IN_BETA_TESTING",
-    "group": "deneme",
-    "note": "verified via App Store Connect API"
+    "group": "deneme"
   },
   "iap": {
     "iapVerify": "LIVE",
-    "product": "premium_link_single_v2",
+    "newPurchase": "premium_link_single_v2",
+    "legacy": "premium_link_single (recovery-only)",
     "realE2E": "DEFERRED",
     "realE2EReason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE",
-    "syntheticContract": "VERIFIED"
+    "syntheticContract": "VERIFIED",
+    "androidVerification": "FAIL_CLOSED"
   },
-  "deferredValidations": [
-    {
-      "id": "REAL_IAP_TESTFLIGHT_E2E",
-      "status": "DEFERRED",
-      "requiredForProductRelease": true,
-      "requiredForObservabilityPlatform": false,
-      "reason": "PHYSICAL_DEVICE_TEST_CURRENTLY_UNAVAILABLE"
-    }
-  ],
   "safetyBoundaries": {
     "publicRelease": false,
     "appReview": false,
-    "firestoreRulesDeployed": false,
+    "firestoreLockedRulesDeployed": false,
     "legacyRetired": false,
-    "prMerged": false,
+    "prMerged_pr15": false,
     "pagesEnabled": false
-  }
+  },
+  "note": "Canonical release baseline established via RC->main merge. CODE ONLY — no production cutover."
 }
