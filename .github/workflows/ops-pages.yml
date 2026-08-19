@@ -28,6 +28,12 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    # Pages is intentionally OFF. GitHub's Pages "Source = GitHub Actions" setting
+    # injects a push trigger that auto-runs this dispatch-only workflow on every
+    # default-branch push, which then fails at deploy-pages (Pages not enabled).
+    # Guard: run ONLY on an explicit manual dispatch; on push this job is SKIPPED
+    # (clean, non-failing). Manual workflow_dispatch capability is preserved.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
