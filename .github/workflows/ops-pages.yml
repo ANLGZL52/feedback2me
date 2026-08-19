@@ -50,7 +50,8 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - name: Refresh the live snapshot (read-only)
-        env: { GH_TOKEN: ${{ github.token }} }
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: node ops/monitor/run.mjs || true
       - name: Assemble the static ops site (preserve the dashboard's relative paths)
         run: |
