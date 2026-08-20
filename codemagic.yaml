@@ -123,6 +123,13 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
+        # App Store Review submission (owner-approved). release_type MANUAL => Apple may
+        # review/approve, but the app is NOT auto-released publicly after approval (owner
+        # releases manually). Requires the ASC version 1.0.4 metadata + IAP v2 review
+        # assets to be complete; if incomplete, this step reports the missing field and the
+        # TestFlight upload above still succeeds.
+        submit_to_app_store: true
+        release_type: MANUAL
         # Auto-distribute the processed build to the existing INTERNAL group.
         # Internal testing needs NO App Review. Do NOT add external groups here.
         beta_groups:
