@@ -7,6 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, extname, normalize } from 'node:path';
 import { readArtifacts } from './artifact-reader.mjs';
 import { buildTopology, buildMeta, buildNodeDetail } from './topology-model.mjs';
+import { buildSystem, resolveNode } from './health-model.mjs';
+import { runCanaries } from './canary.mjs';
+
+// In-memory cache of the last on-demand canary run (never auto-run on the poll loop).
+let canaryCache = {};
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');            // ops/topology-dashboard
@@ -41,7 +46,16 @@ const server = createServer((req, res) => {
   try {
     if (p === '/api/health') return json(res, 200, { ok: true, service: 'ops-topology', ts: nowIso() });
     if (p === '/api/topology') { const art = readArtifacts(); return json(res, 200, buildTopology(art)); }
-    if (p === '/api/status') { const art = readArtifacts(); return json(res, 200, { meta: buildMeta(art), nodes: buildTopology(art).nodes.map((n) => ({ id: n.id, status: n.status, severity: n.severity, metric: n.metric })) }); }
+    if (p === '/api/status') {
+      const art = readArtifacts();
+      const nodes = buildTopology(art).nodes.map((n) => { const h = resolveNode(n.id, art, canaryCache); return { id: n.id, status: n.status, severity: n.severity, metric: n.metric, serviceHealth: h.serviceHealth, serviceSeverity: h.severity, trafficState: h.trafficState, business: h.business, observable: h.observable, probe: h.probe }; });
+      return json(res, 200, { meta: buildMeta(art), system: buildSystem(art, canaryCache), nodes });
+    }
+    if (p === '/api/system') { const art = readArtifacts(); return json(res, 200, buildSystem(art, canaryCache)); }
+    if (p === '/api/canary') { // on-demand: run the safe read-only canaries once, cache, return system
+      const art = readArtifacts();
+      return runCanaries().then((r) => { canaryCache = r; return json(res, 200, { ran: true, system: buildSystem(art, canaryCache) }); }).catch((e) => json(res, 200, { ran: false, error: String(e && e.message || e), system: buildSystem(art, canaryCache) }));
+    }
     if (p === '/api/events') {
       const art = readArtifacts();
       const dm = (url.searchParams.get('domain') || 'ALL').toUpperCase();
@@ -55,7 +69,9 @@ const server = createServer((req, res) => {
       const id = decodeURIComponent(p.slice('/api/node/'.length));
       const art = readArtifacts();
       const detail = buildNodeDetail(id, art);
-      return detail ? json(res, 200, detail) : json(res, 404, { error: 'unknown node' });
+      if (!detail) return json(res, 404, { error: 'unknown node' });
+      const h = resolveNode(id, art, canaryCache);
+      return json(res, 200, { ...detail, health: h });
     }
     if (p.startsWith('/api/')) return json(res, 404, { error: 'unknown endpoint' });
     return serveStatic(res, p);

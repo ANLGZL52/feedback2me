@@ -39,8 +39,8 @@ async function init() {
 async function refreshStatus() {
   try {
     const s = await api('/api/status');
-    S.meta = s.meta; S.statusById = new Map(s.nodes.map((n) => [n.id, n]));
-    renderStatusBar(); updateNodeStatuses();
+    S.meta = s.meta; S.system = s.system; S.statusById = new Map(s.nodes.map((n) => [n.id, n]));
+    renderStatusBar(); renderSysHealth(); updateNodeStatuses();
     $('#refreshed').textContent = 'refreshed ' + new Date().toLocaleTimeString();
     if (!s.meta.present) showBanner('No ops-status artifact found locally — run `npm run ops:fetch` for live data. Showing structure with UNKNOWN status.'); else hideBanner();
     if (S.tab !== 'map' && S.tab !== 'logs') renderInfoPanel();
@@ -60,6 +60,31 @@ function renderStatusBar() {
     col('Branch / Commit', (m.branch || '—') + ' · ' + (m.commit || '—')) +
     col('Last refresh', m.artifactTimestamp ? new Date(m.artifactTimestamp).toLocaleTimeString() : '—');
 }
+
+// ---------- system health strip ----------
+function renderSysHealth() {
+  const sys = S.system; const host = $('#syshealth'); if (!sys) { host.innerHTML = ''; return; }
+  const ov = sevOf(sys.overall);
+  const paths = (sys.paths || []).map((p) => `<div class="pathchip" data-path="${esc(p.weakest || '')}" title="${esc(p.gaps && p.gaps.length ? 'coverage gaps: ' + p.gaps.join(', ') : '')}"><span class="pn">${esc(p.name.toUpperCase())}</span><span class="ps ${sevOf(p.status)}">${esc(p.status)}</span></div>`).join('');
+  const cov = sys.coverage || {};
+  const why = (sys.overall !== 'HEALTHY' && (sys.reasons || []).length)
+    ? `<div class="syswhy ${ov}"><span class="wtag">WHY?</span>${sys.reasons.map((r) => `<span>${esc(r.label)} <b>${esc(r.status)}</b>${r.alert ? ' · ' + esc(r.alert) : ''}${r.incident && r.incident.issueNumber ? ' · incident #' + r.incident.issueNumber : ''}${r.paths && r.paths.length ? ' · affects ' + esc(r.paths.join(', ')) : ''} <span class="wnode" data-goto="${esc(r.node)}">inspect</span></span>`).join('')}</div>` : '';
+  host.innerHTML = `
+    <div class="sysoverall ${ov}"><span class="bulb" style="background:${colorFor(ov)};box-shadow:0 0 10px ${colorFor(ov)}"></span><div><div class="lab">Overall System Health</div><div class="big">${esc(sys.overall)}</div></div></div>
+    <div class="syspaths">${paths}</div>
+    <div class="syscov">
+      <div class="covitem"><span class="cn">Money-safety</span><span class="cv ${sevOf(sys.moneySafety)}" style="color:${colorFor(sevOf(sys.moneySafety))}">${esc(sys.moneySafety)}</span></div>
+      <div class="covitem"><span class="cn">Real IAP E2E</span><span class="cv" style="color:${colorFor('amber')}">${esc(sys.realIapE2E)}</span></div>
+      <div class="covitem"><span class="cn">Observable</span><span class="cv">${cov.observable}/${cov.total}</span></div>
+      <div class="covitem"><span class="cn">Direct probes</span><span class="cv">${cov.probed}/${cov.total}</span></div>
+      <div class="covitem"><span class="cn">Critical paths</span><span class="cv">${cov.criticalPaths ? cov.criticalPaths.covered + '/' + cov.criticalPaths.total : '—'}</span></div>
+      ${sys.canaryRunAt ? `<div class="covitem"><span class="cn">Canaries</span><span class="cv" style="font-size:11px">ran ${new Date(sys.canaryRunAt).toLocaleTimeString()}</span></div>` : ''}
+    </div>
+    ${why}`;
+  host.querySelectorAll('[data-path]').forEach((c) => c.addEventListener('click', () => { if (c.dataset.path) centerNode(c.dataset.path); }));
+  host.querySelectorAll('[data-goto]').forEach((c) => c.addEventListener('click', () => centerNode(c.dataset.goto)));
+}
+function svc(st, n) { return { status: (st && st.serviceHealth) || (n && n.status) || '—', severity: (st && st.serviceSeverity) || (n && n.severity) || 'grey', traffic: st && st.trafficState }; }
 
 // ---------- render ----------
 function renderAll() { renderCanvas(); renderLegend(); renderMinimap(); }
@@ -107,31 +132,34 @@ function nodeEl(n, hi) {
   const p = S.pos.get(n.id); const w = NW(n), h = NH(n);
   const faded = (hi && !hi.has(n.id)) || (S.tabSubset && !S.tabSubset.has(n.id));
   const g = el('g', { class: 'node' + (S.sel === n.id ? ' sel' : '') + (hi && hi.has(n.id) ? ' hl' : '') + (faded ? ' faded' : ''), transform: `translate(${p.x},${p.y})`, 'data-id': n.id });
-  const st = S.statusById.get(n.id) || { status: n.status, severity: n.severity };
+  const st = S.statusById.get(n.id); const sv = svc(st, n);
   const col = CAT_COLOR[n.category] || '#888';
   g.appendChild(el('rect', { class: 'glow', x: -3, y: -3, width: w + 6, height: h + 6, rx: 14, ry: 14, stroke: col }));
   g.appendChild(el('rect', { class: 'box', x: 0, y: 0, width: w, height: h, rx: 12, ry: 12 }));
   g.appendChild(el('rect', { class: 'accent', x: 0, y: 0, width: 6, height: h, rx: 3, ry: 3, fill: col }));
-  g.appendChild(el('circle', { class: 'dot ' + (st.severity || 'grey'), cx: w - 18, cy: 18, r: 6.5 }));
+  g.appendChild(el('circle', { class: 'dot ' + sv.severity, cx: w - 18, cy: 18, r: 6.5 }));
   const cat = el('text', { class: 'cat', x: 16, y: 19, fill: col }); cat.textContent = n.category; g.appendChild(cat);
   const title = el('text', { class: 'title', x: 16, y: 42 }); title.textContent = clip(n.label, 22); g.appendChild(title);
-  const role = el('text', { class: 'role', x: 16, y: 59 }); role.textContent = clip(n.role, 30); g.appendChild(role);
-  // status badge + metric
-  const status = (st.status || '—'); const bw = measure(status, 11) + 16;
-  g.appendChild(el('rect', { class: 'badge-bg ' + (st.severity || 'grey'), x: 14, y: h - 24, width: bw, height: 18, rx: 6, ry: 6, 'stroke-width': 1 }));
-  const bt = el('text', { class: 'badge ' + (st.severity || 'grey'), x: 14 + bw / 2, y: h - 11, 'text-anchor': 'middle' }); bt.textContent = status; g.appendChild(bt);
-  const m = (S.statusById.get(n.id) || {}).metric || n.metric;
-  if (m && m.value !== 'N/A' && m.value != null) { const mt = el('text', { class: 'metricline', x: 14 + bw + 10, y: h - 11 }); mt.textContent = `${m.label} ${m.value}${m.unit || ''}`; g.appendChild(mt); }
+  const role = el('text', { class: 'role', x: 16, y: 58 }); role.textContent = clip(n.role, 30); g.appendChild(role);
+  // SERVICE health badge (bottom-left) + TRAFFIC state (distinct) + key metric
+  const status = sv.status; const bw = measure(status, 11) + 16;
+  g.appendChild(el('rect', { class: 'badge-bg ' + sv.severity, x: 14, y: h - 24, width: bw, height: 18, rx: 6, ry: 6, 'stroke-width': 1, 'data-badge-bg': 1 }));
+  const bt = el('text', { class: 'badge ' + sv.severity, x: 14 + bw / 2, y: h - 11, 'text-anchor': 'middle', 'data-badge': 1 }); bt.textContent = status; g.appendChild(bt);
+  let tx = 14 + bw + 10;
+  if (sv.traffic && sv.traffic !== 'ACTIVE') { const tt = el('text', { class: 'traffic', x: tx, y: h - 11, 'data-traffic': 1 }); tt.textContent = 'Traffic: ' + sv.traffic.replace(' (no traffic)', ''); g.appendChild(tt); tx += measure(tt.textContent, 9.5) + 12; }
+  const m = (st && st.metric) || n.metric;
+  if (m && m.value !== 'N/A' && m.value != null) { const mt = el('text', { class: 'metricline', x: tx, y: h - 11 }); mt.textContent = `${m.label} ${m.value}${m.unit || ''}`; g.appendChild(mt); }
   attachNodeInteract(g, n.id);
   return g;
 }
 function updateNodeStatuses() {
+  if (S.drag) return; // never re-patch mid-drag
   for (const n of S.topo.nodes) {
     const g = document.querySelector(`.node[data-id="${cssq(n.id)}"]`); if (!g) continue;
-    const st = S.statusById.get(n.id); if (!st) continue;
-    const dot = g.querySelector('.dot'); if (dot) dot.setAttribute('class', 'dot ' + (st.severity || 'grey'));
-    const bb = g.querySelector('.badge-bg'), bt = g.querySelector('.badge');
-    if (bb && bt) { const bw = measure(st.status || '—', 11) + 16; bb.setAttribute('class', 'badge-bg ' + (st.severity || 'grey')); bb.setAttribute('width', bw); bt.setAttribute('class', 'badge ' + (st.severity || 'grey')); bt.setAttribute('x', 14 + bw / 2); bt.textContent = st.status || '—'; }
+    const sv = svc(S.statusById.get(n.id), n);
+    const dot = g.querySelector('.dot'); if (dot) dot.setAttribute('class', 'dot ' + sv.severity);
+    const bb = g.querySelector('[data-badge-bg]'), bt = g.querySelector('[data-badge]');
+    if (bb && bt) { const bw = measure(sv.status, 11) + 16; bb.setAttribute('class', 'badge-bg ' + sv.severity); bb.setAttribute('width', bw); bt.setAttribute('class', 'badge ' + sv.severity); bt.setAttribute('x', 14 + bw / 2); bt.textContent = sv.status; const tt = g.querySelector('[data-traffic]'); if (tt) tt.textContent = (sv.traffic && sv.traffic !== 'ACTIVE') ? 'Traffic: ' + sv.traffic.replace(' (no traffic)', '') : ''; }
   }
   renderEdges();
   renderMinimap();
@@ -201,6 +229,12 @@ function wireGlobal() {
   $('#btn-zoomin').addEventListener('click', () => zoomBy(1.2));
   $('#btn-zoomout').addEventListener('click', () => zoomBy(1 / 1.2));
   $('#btn-fs').addEventListener('click', toggleFullscreen);
+  $('#btn-canary').addEventListener('click', async () => {
+    const b = $('#btn-canary'); b.textContent = 'RUNNING…'; b.classList.add('on');
+    try { const r = await api('/api/canary'); if (r.system) { S.system = r.system; renderSysHealth(); } await refreshStatus(); if (S.sel) selectNode(S.sel); }
+    catch (e) { showBanner('canary run failed: ' + e.message); }
+    b.textContent = 'RUN CANARIES'; b.classList.remove('on');
+  });
   $('#search').addEventListener('input', (e) => onSearch(e.target.value));
   $('#search').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const f = matchNodes(e.target.value)[0]; if (f) centerNode(f.id); } });
   window.addEventListener('resize', () => renderMinimap());
@@ -248,11 +282,20 @@ function openDrawer(d) {
   const rbs = (arr) => arr && arr.length ? `<div class="chiprow">${arr.map((c) => `<span class="chip rb">${esc(c)}</span>`).join('')}</div>` : '<span class="hint">none</span>';
   const srcs = (arr) => arr && arr.length ? `<div class="chiprow">${arr.map((c) => `<span class="chip src">${esc(c)}</span>`).join('')}</div>` : '<span class="hint">none</span>';
   const ev = (d.recentEvents || []).slice(0, 25).map((e) => `<div class="evrow"><span class="sev ${e.severity}">${e.severity[0]}</span><span>${esc(e.event)}</span><span class="hint">${e.time ? new Date(e.time).toLocaleTimeString() : ''}</span></div>`).join('') || '<span class="hint">no recent events for this domain</span>';
+  const H = d.health || {};
+  const svcPill = pill(H.serviceHealth || d.status, H.severity || d.severity);
+  const healthBody = `
+    <div class="kvline"><span class="hint">Service</span> ${svcPill}${H.canary ? `<span class="hint" style="margin-left:8px">canary ${esc(H.canary)}${H.canaryStatus ? ': ' + esc(H.canaryStatus) : ' — not run'}</span>` : ''}</div>
+    ${H.trafficState ? `<div class="kvline"><span class="hint">Traffic</span> <b>${esc(H.trafficState)}</b></div>` : ''}
+    ${H.business ? `<div class="kvline"><span class="hint">Money-safety</span> ${pill(H.business, sevOf(H.business))}</div>` : ''}
+    <div class="kvline"><span class="hint">Direct probe</span> <b>${H.probe ? 'yes' : 'no'}</b> · <span class="hint">On critical path</span> <b>${H.e2e ? (H.paths || []).join(', ') : 'no'}</b></div>
+    ${(H.naReason) ? `<div class="nabox"><b>Health signal:</b> ${esc(H.naReason)}${H.recommend ? `<br><b>Recommended monitoring:</b> ${esc(H.recommend)}` : ''}</div>` : ''}`;
   dr.innerHTML = `<div class="d-inner">
-    <h2>${esc(d.label)} ${pill(d.status, d.severity)}<button class="close" data-close>×</button></h2>
+    <h2>${esc(d.label)} ${svcPill}<button class="close" data-close>×</button></h2>
     <div class="sub">${esc(d.category)} · ${esc(d.role)}</div>
     <div class="desc">${esc(d.description)}</div>
-    ${section('metrics', 'Current metrics', d.metric ? `<div class="metricbig">${esc(String(d.metric.value))}${esc(d.metric.unit || '')}</div><span class="hint">${esc(d.metric.label)}</span>` : '<span class="hint">no key metric — N/A</span>')}
+    ${section('health', 'Health', healthBody)}
+    ${section('metrics', 'Current metrics', d.metric ? `<div class="metricbig">${esc(String(d.metric.value))}${esc(d.metric.unit || '')}</div><span class="hint">${esc(d.metric.label)}</span>` : '<span class="hint">no key metric — N/A</span>', true)}
     ${section('conn', 'Connections', `<b class="hint">Depends On</b>${list(d.dependsOn)}<div style="height:8px"></div><b class="hint">Used By</b>${list(d.usedBy)}<div style="height:8px"></div><b class="hint">Observed By</b>${list(d.observedBy)}`)}
     ${section('impact', 'Failure impact', list(d.downstreamImpact))}
     ${section('obs', 'Observability — alert codes', codes(d.alertCodes))}
