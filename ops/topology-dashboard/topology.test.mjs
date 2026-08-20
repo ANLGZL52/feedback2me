@@ -2,12 +2,12 @@
 // Run: node --test topology.test.mjs
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { NODES } from './topology/nodes.js';
+import { NODES, GROUPS, NODE_SIZE } from './topology/nodes.js';
 import { EDGES } from './topology/edges.js';
 import { CATEGORIES } from './topology/nodes.js';
 import {
   normalizeStatus, statusForNode, dependsOn, usedBy, downstreamClosure, upstreamClosure,
-  pathTrace, buildTopology, buildNodeDetail, buildMeta,
+  pathTrace, buildTopology, buildNodeDetail, buildMeta, computeGroups,
 } from './server/topology-model.mjs';
 import { redact, deepRedact, sanitizeEvent } from './server/sanitizer.mjs';
 
@@ -64,6 +64,31 @@ describe('topology integrity', () => {
   test('no fully-disconnected node (every node has at least one edge)', () => {
     const connected = new Set(EDGES.flatMap((e) => [e.source, e.target]));
     for (const n of NODES) assert.ok(connected.has(n.id), `${n.id} is disconnected`);
+  });
+});
+
+describe('layout + swimlane groups', () => {
+  const GROUP_IDS = new Set(GROUPS.map((g) => g.id));
+  test('every node belongs to a declared group and has a node size', () => {
+    assert.ok(NODE_SIZE.w > 0 && NODE_SIZE.h > 0);
+    for (const n of NODES) assert.ok(GROUP_IDS.has(n.group), `${n.id} has unknown group ${n.group}`);
+  });
+  test('no two node rectangles overlap (readable layout)', () => {
+    const W = NODE_SIZE.w, H = NODE_SIZE.h;
+    for (let i = 0; i < NODES.length; i++) for (let j = i + 1; j < NODES.length; j++) {
+      const a = NODES[i], b = NODES[j];
+      const overlap = a.x < b.x + W && a.x + W > b.x && a.y < b.y + H && a.y + H > b.y;
+      assert.ok(!overlap, `nodes ${a.id} and ${b.id} overlap`);
+    }
+  });
+  test('computeGroups returns one padded box per non-empty group wrapping its members', () => {
+    const t = buildTopology({ health: null, incidentState: null, incidentActions: null, digestDelivery: null, events: [] });
+    assert.equal(t.groups.length, GROUPS.length);
+    for (const g of t.groups) {
+      assert.ok(g.members > 0 && g.w > 0 && g.h > 0);
+      const mem = t.nodes.filter((n) => n.group === g.id);
+      for (const n of mem) { assert.ok(n.x >= g.x && n.x + n.w <= g.x + g.w && n.y >= g.y && n.y + n.h <= g.y + g.h, `${n.id} outside its group box`); }
+    }
   });
 });
 

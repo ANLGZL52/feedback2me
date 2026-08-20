@@ -3,19 +3,29 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Feedback2Me — Ops Topology</title>
+  <title>Feedback2Me Control Center</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
-  <div id="statusbar" class="statusbar"></div>
+  <header id="statusbar" class="statusbar"></header>
 
   <nav id="tabs" class="tabs">
-    <button class="tab active" data-tab="map">SYSTEM MAP</button>
-    <button class="tab" data-tab="runtime">RUNTIME</button>
-    <button class="tab" data-tab="incidents">INCIDENTS</button>
-    <button class="tab" data-tab="iap">IAP</button>
-    <button class="tab" data-tab="logs">LOGS</button>
-    <button class="tab" data-tab="release">RELEASE</button>
+    <div class="tabgroup">
+      <button class="tab active" data-tab="map">SYSTEM MAP</button>
+      <button class="tab" data-tab="runtime">RUNTIME</button>
+      <button class="tab" data-tab="incidents">INCIDENTS</button>
+      <button class="tab" data-tab="iap">IAP</button>
+      <button class="tab" data-tab="logs">LOGS</button>
+      <button class="tab" data-tab="release">RELEASE</button>
+    </div>
+    <div class="tabgroup right">
+      <button id="btn-fit" class="btn ghost" title="Fit all">FIT ALL</button>
+      <button id="btn-fitsel" class="btn ghost" title="Fit selection">FIT SELECTION</button>
+      <button id="btn-reset" class="btn ghost" title="Reset view">RESET</button>
+      <button id="btn-zoomout" class="btn ghost" title="Zoom out">−</button>
+      <button id="btn-zoomin" class="btn ghost" title="Zoom in">+</button>
+      <button id="btn-fs" class="btn ghost" title="Fullscreen">⛶ FULLSCREEN</button>
+    </div>
   </nav>
 
   <div class="toolbar" id="toolbar">
@@ -24,6 +34,7 @@
     <button id="btn-impact" class="btn">SHOW FAILURE IMPACT</button>
     <button id="btn-trace" class="btn">TRACE PATH</button>
     <button id="btn-clear" class="btn ghost">CLEAR</button>
+    <button id="btn-legend" class="btn ghost">LEGEND</button>
     <span class="spacer"></span>
     <span id="trace-hint" class="hint"></span>
     <span id="refreshed" class="hint"></span>
@@ -34,8 +45,8 @@
     <div id="canvas-wrap" class="canvas-wrap">
       <svg id="canvas" class="canvas"></svg>
       <svg id="minimap" class="minimap"></svg>
-      <div id="legend" class="legend"></div>
-      <div id="panel" class="panel-info"></div>
+      <div id="legend" class="legend hidden"></div>
+      <div id="panel" class="panel-info hidden"></div>
     </div>
     <aside id="drawer" class="drawer"></aside>
   </main>

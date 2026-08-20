@@ -1,7 +1,7 @@
 // Read-only topology dashboard — MODEL. Joins the static topology (nodes/edges) with the
 // live status derived from ops-status artifacts, and provides the graph traversals the UI
 // needs (dependencies, downstream impact, path trace). Pure functions; unit-tested.
-import { NODES } from '../topology/nodes.js';
+import { NODES, GROUPS, NODE_SIZE } from '../topology/nodes.js';
 import { EDGES } from '../topology/edges.js';
 import { deepRedact } from './sanitizer.mjs';
 
@@ -109,7 +109,7 @@ export function buildTopology(art) {
   const nodes = NODES.map((n) => {
     const raw = statusForNode(n, art);
     const { status, severity } = normalizeStatus(raw);
-    return { id: n.id, label: n.label, category: n.category, role: n.role, x: n.x, y: n.y, status, severity, metric: metricForNode(n, art) };
+    return { id: n.id, label: n.label, category: n.category, group: n.group, role: n.role, x: n.x, y: n.y, w: NODE_SIZE.w, h: NODE_SIZE.h, status, severity, metric: metricForNode(n, art) };
   });
   // edge severity inherits from its SOURCE node status (amber/red paths light up).
   const nodeSev = Object.fromEntries(nodes.map((n) => [n.id, n.severity]));
@@ -119,7 +119,19 @@ export function buildTopology(art) {
     purpose: e.purpose || '', input: e.input || '', output: e.output || '',
     security: e.security || '', failure: e.failure || '', observability: e.observability || '',
   }));
-  return deepRedact({ nodes, edges });
+  return deepRedact({ nodes, edges, groups: computeGroups(nodes) });
+}
+
+// Swimlane rectangles = bounding box of each group's member nodes, padded. Purely visual.
+export function computeGroups(nodes) {
+  const PAD = 34, TITLE = 30;
+  return GROUPS.map((g) => {
+    const mem = nodes.filter((n) => n.group === g.id);
+    if (!mem.length) return null;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of mem) { x0 = Math.min(x0, n.x); y0 = Math.min(y0, n.y); x1 = Math.max(x1, n.x + n.w); y1 = Math.max(y1, n.y + n.h); }
+    return { id: g.id, title: g.title, subtitle: g.subtitle, x: x0 - PAD, y: y0 - PAD - TITLE, w: (x1 - x0) + PAD * 2, h: (y1 - y0) + PAD * 2 + TITLE, members: mem.length };
+  }).filter(Boolean);
 }
 
 export function buildMeta(art) {
