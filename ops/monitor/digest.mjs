@@ -1,9 +1,11 @@
 #!/usr/bin/env node
-// Observability V6 — daily digest. Rolling-24h operational summary as a markdown +
-// JSON artifact, with a transport-independent delivery abstraction. EXTERNAL DELIVERY
-// IS DISABLED in V6 (OPS_DIGEST_DELIVERY_ENABLED=false, OPS_DIGEST_DRY_RUN=true): this
-// only renders exactly what WOULD be sent. Deterministic once-per-UTC-day eligibility so
-// repeated 30-min runs never duplicate a send. No PII / no raw logs / no user content.
+// Observability V6/V7 — daily digest. Rolling-24h operational summary as a markdown +
+// JSON artifact, with a transport-independent delivery abstraction. EXTERNAL DELIVERY IS
+// LIVE via Slack (V7): armed by OPS_DIGEST_DELIVERY_ENABLED=true + OPS_DIGEST_DRY_RUN=false
+// with the OPS_SLACK_WEBHOOK_URL secret. Absent secret => adapter NOT_CONFIGURED (0 sends,
+// still green). Deterministic once-per-UTC-day eligibility so repeated 30-min runs never
+// duplicate a send. Slack = daily digest ONLY (CRITICAL incidents stay on GitHub Issues).
+// No PII / no raw logs / no user content.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -86,7 +88,7 @@ export function renderDigest(d) {
     ...(Object.keys(t).length ? Object.entries(t).map(([k, v]) => `- ${k}: ${v}`) : ['- _no trend data_']),
     '', `## Deferred validations`,
     ...(d.deferredValidations.length ? d.deferredValidations.map((v) => `- \`${v.id}\` — ${v.status}`) : ['- none']),
-    '', `_Artifact only — no raw logs, no user data. External delivery is DISABLED in this milestone._`];
+    '', `_Operational metadata only — no raw logs, no user data. Delivered to Slack once per UTC day (V7); CRITICAL incidents stay on GitHub Issues._`];
   return L.join('\n');
 }
 

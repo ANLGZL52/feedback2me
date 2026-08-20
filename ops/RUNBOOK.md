@@ -61,7 +61,7 @@ evaluator/architecture change.
 
 ---
 
-## IAP_CREDIT_INVARIANT_BREACH  (IAP_MONEY_SAFETY_BREACH + IAP_GRANT_DELTA_NOT_ONE / IAP_REPLAY_DELTA_NOT_ZERO / IAP_CREDIT_UNKNOWN_PRODUCT / IAP_CREDIT_AFTER_FAILURE / IAP_DUPLICATE_GRANT / IAP_SUCCESS_WITHOUT_CREDIT)
+## IAP_CREDIT_INVARIANT_BREACH  (IAP_MONEY_SAFETY_BREACH + IAP_GRANT_DELTA_NOT_ONE / IAP_REPLAY_DELTA_NOT_ZERO / IAP_CREDIT_UNKNOWN_PRODUCT / IAP_INVALID_PRODUCT_CREDITED / IAP_CREDIT_AFTER_FAILURE / IAP_DUPLICATE_GRANT / IAP_SUCCESS_WITHOUT_CREDIT)
 **What it means:** the money ledger is inconsistent — a credit was granted with the
 wrong amount, for an unknown product, after a failed verification, more than once
 for one store transaction, or a verified purchase did not result in a committed credit.
@@ -85,7 +85,7 @@ release-blocking and money-affecting.
 > collected (window truncation / 500-line cap), re-run the collector and re-evaluate
 > before declaring an incident.
 
-## IAP_VERIFY_DOWN
+## IAP_VERIFY_DOWN  (IAP_VERIFY_DOWN / IAP_LATENCY_DEGRADED)
 **What it means:** the `iapVerify` callable is unreachable — new purchases cannot be
 verified, so credits are not granted (users may be charged with no credit).
 **How to verify:** `curl -s -XPOST https://us-central1-feedbacktome-79655.cloudfunctions.net/iapVerify -H 'Content-Type: application/json' -d '{"data":{}}'` should return `401 UNAUTHENTICATED`. Anything else (timeout / 5xx) = down.

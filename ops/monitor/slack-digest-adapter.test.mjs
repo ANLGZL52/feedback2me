@@ -53,6 +53,17 @@ describe('slack adapter HTTP semantics (mocked)', () => {
     const r = await slackDigestAdapter(FAKE, { fetchImpl: f, clock: clock(), timeoutMs: 50 }).send('d');
     assert.equal(r.ok, false); assert.equal(r.status, 'timeout'); assert.equal(f.calls.length, 2);
   });
+  test('network error (non-abort throw) -> ONE retry, status network_error', async () => {
+    const f = mockFetch([{ throw: 'ECONNRESET', name: 'Error' }, { throw: 'ECONNRESET', name: 'Error' }]);
+    const r = await slackDigestAdapter(FAKE, { fetchImpl: f, clock: clock() }).send('d');
+    assert.equal(r.ok, false); assert.equal(r.status, 'network_error'); assert.equal(f.calls.length, 2);
+    assert.ok(!JSON.stringify(r).includes('secret-token-xyz'), 'network-error result must not leak the webhook');
+  });
+  test('transient network error then 200 -> recovers within the retry budget', async () => {
+    const f = mockFetch([{ throw: 'ECONNRESET', name: 'Error' }, { status: 200 }]);
+    const r = await slackDigestAdapter(FAKE, { fetchImpl: f, clock: clock() }).send('d');
+    assert.equal(r.ok, true); assert.equal(r.status, 200); assert.equal(f.calls.length, 2);
+  });
   test('400 -> NO retry (1 call)', async () => {
     const f = mockFetch([{ status: 400 }, { status: 200 }]);
     const r = await slackDigestAdapter(FAKE, { fetchImpl: f }).send('d');

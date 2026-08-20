@@ -135,4 +135,78 @@ describe('digest delivery state machine (deliverDigest, async)', () => {
     assert.equal(r.health, 'UNAVAILABLE'); assert.equal(r.code, 'DIGEST_DELIVERY_FAILED'); assert.equal(r.delivered, false);
   });
   test('windowKey is a UTC date string', () => assert.equal(windowKey(AFTER), '2026-08-19'));
+  // V8 Phase 10 — recursion / blast-radius containment: a Slack digest failure must NOT
+  // emit an incident action and must NOT mutate the runtime health it read.
+  test('failed Slack delivery emits NO incident action and does not mutate runtime health', async () => {
+    const bad = { name: 'slack', configured: true, send: async () => ({ ok: false, status: 500, latencyMs: 5 }) };
+    const h = health();
+    const domainsBefore = JSON.stringify(h.domains);
+    const data = renderDigestData({ health: h, incidents: [], actions: null, schedule: sched, now: AFTER });
+    const r = await deliverDigest(bad, data, { enabled: true, dryRun: false, schedule: sched, state: {}, now: AFTER });
+    assert.equal(r.code, 'DIGEST_DELIVERY_FAILED');
+    assert.ok(!('action' in r) && !('incidentId' in r) && !('incident' in r), 'digest delivery must never carry an incident action');
+    assert.ok(String(r.event).startsWith('digest.delivery.'), 'only digest.delivery.* events emitted');
+    assert.equal(JSON.stringify(h.domains), domainsBefore, 'runtime health domains must be untouched by a digest send failure');
+  });
+});
+
+// V8 Mission A — accelerated day-rollover acceptance. Proves the 2026-08-20 -> 2026-08-21
+// -> 2026-08-22 UTC-day rollover deterministically, against the SAME production functions
+// digest.mjs uses (computeDigestSchedule + shouldDeliverDigest). No test mode, no early real
+// send. Fixed epochs; no Date.now. Baseline: 2026-08-20 already delivered live (run 32377108018).
+describe('V8 day-rollover acceptance (deterministic; production functions)', () => {
+  const DELIVERED_2020 = { lastDigestDeliveredWindow: '2026-08-20', schemaVersion: 1 };
+  const cfg = { enabled: true, dryRun: false, configured: true };
+  const end2020 = AT('2026-08-20T23:59:59Z');
+  const pre2021 = AT('2026-08-21T06:59:59Z');
+  const at2021  = AT('2026-08-21T07:00:00Z');
+  const post2021 = AT('2026-08-21T07:30:00Z');
+  const at2022  = AT('2026-08-22T07:00:00Z');
+
+  test('(1) baseline state: last delivered window is 2026-08-20', () => {
+    assert.equal(DELIVERED_2020.lastDigestDeliveredWindow, '2026-08-20');
+  });
+  test('(2) 2026-08-20T23:59:59Z same window -> not due / already_delivered', () => {
+    const s = computeDigestSchedule(end2020, DELIVERED_2020);
+    assert.equal(s.window, '2026-08-20');
+    assert.equal(s.due, false);
+    assert.equal(s.reason, 'already_delivered_this_window');
+    assert.equal(shouldDeliverDigest(s, DELIVERED_2020, cfg).send, false);
+  });
+  test('(3) 2026-08-21T06:59:59Z new date but before delivery hour -> not due', () => {
+    const s = computeDigestSchedule(pre2021, DELIVERED_2020);
+    assert.equal(s.window, '2026-08-21');
+    assert.equal(s.due, false);
+    assert.equal(s.reason, 'before_delivery_window');
+    assert.equal(shouldDeliverDigest(s, DELIVERED_2020, cfg).send, false);
+  });
+  test('(4) 2026-08-21T07:00:00Z new UTC-day window -> due + send', () => {
+    const s = computeDigestSchedule(at2021, DELIVERED_2020);
+    assert.equal(s.window, '2026-08-21');
+    assert.equal(s.due, true);
+    assert.equal(s.reason, 'eligible');
+    const d = shouldDeliverDigest(s, DELIVERED_2020, cfg);
+    assert.equal(d.send, true);
+    assert.equal(d.reason, 'due');
+  });
+  test('(5) after successful 2026-08-21 delivery, 07:30Z same window -> already_delivered', () => {
+    const delivered2021 = { lastDigestDeliveredWindow: '2026-08-21', schemaVersion: 1 };
+    const s = computeDigestSchedule(post2021, delivered2021);
+    assert.equal(s.window, '2026-08-21');
+    assert.equal(s.due, false);
+    assert.equal(s.reason, 'already_delivered_this_window');
+    const d = shouldDeliverDigest(s, delivered2021, cfg);
+    assert.equal(d.send, false);
+    // schedule already computed due=false, so shouldDeliverDigest passes the schedule reason
+    // through ('already_delivered_this_window') rather than its redundant state-level
+    // 'already_delivered' guard. Either way the dedup verdict is send=false.
+    assert.ok(d.reason.startsWith('already_delivered'), `reason indicates already delivered: ${d.reason}`);
+  });
+  test('(6) 2026-08-22T07:00:00Z next new window -> eligible again', () => {
+    const s = computeDigestSchedule(at2022, { lastDigestDeliveredWindow: '2026-08-21', schemaVersion: 1 });
+    assert.equal(s.window, '2026-08-22');
+    assert.equal(s.due, true);
+    assert.equal(s.reason, 'eligible');
+    assert.equal(shouldDeliverDigest(s, { lastDigestDeliveredWindow: '2026-08-21' }, cfg).send, true);
+  });
 });

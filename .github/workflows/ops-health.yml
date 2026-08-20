@@ -13,7 +13,7 @@ on:
 permissions:
   contents: read
   actions: read
-  issues: write # for the spam-safe P0/DOWN alert (ops/monitor/alert.mjs)
+  issues: write # canonical incident delivery — ops/monitor/incident-delivery.mjs (V5+; legacy alert.mjs retired)
   id-token: write # OIDC token for GCP Workload Identity Federation (read-only Cloud Logging); no static keys
 
 jobs:
