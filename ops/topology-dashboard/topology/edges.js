@@ -1,0 +1,122 @@
+// Feedback2Me — system topology EDGES (single source of truth). PURE DATA, no secrets.
+// Every edge is a REAL relation grounded in the repository — no decorative connections.
+// type ∈ DATA_FLOW | AUTH | OBSERVES | VERIFIES | PERSISTS | EVALUATES | TRIGGERS | DELIVERS | DEPENDS_ON | SECURES | VALIDATION
+// failure = what happens downstream when the source fails. observability = the alert code(s)
+// that make this relation observable. `animated` marks a normally-operational data flow.
+
+export const EDGES = [
+  // application + auth + data
+  { id: 'e_app_auth', source: 'flutter_app', target: 'firebase_auth', type: 'AUTH', animated: false,
+    purpose: 'Authenticate the user (Email/Google/Apple).', input: 'Credentials', output: 'Signed-in identity',
+    security: 'Client → Firebase Auth; no secrets in app.', failure: 'Sign-in unavailable; app degraded, money path unaffected.', observability: 'N/A (client-side)' },
+  { id: 'e_app_firestore', source: 'flutter_app', target: 'firestore', type: 'DATA_FLOW', animated: true,
+    purpose: 'Read/write content, feedback, notifications.', input: 'User actions', output: 'Persisted documents',
+    security: 'Guarded by Firestore rules + auth identity.', failure: 'Content/feedback unavailable.', observability: 'N/A (client/DB)' },
+
+  // IAP money path
+  { id: 'e_app_store', source: 'flutter_app', target: 'app_store', type: 'TRIGGERS', animated: false,
+    purpose: 'Initiate the in-app purchase (StoreKit).', input: 'Buy intent', output: 'Store transaction',
+    security: 'Apple StoreKit; no credentials handled by the app.', failure: 'Purchase cannot start.', observability: 'N/A (store)' },
+  { id: 'e_store_product', source: 'app_store', target: 'premium_product', type: 'DATA_FLOW', animated: false,
+    purpose: 'Purchase resolves to the allow-listed product id.', input: 'Store transaction', output: 'Product = premium_link_single_v2',
+    security: 'Only allow-listed product ids may be credited.', failure: 'Unknown product must NOT be credited.', observability: 'IAP_CREDIT_UNKNOWN_PRODUCT / IAP_INVALID_PRODUCT_CREDITED' },
+  { id: 'e_store_verify', source: 'app_store', target: 'iap_verify', type: 'DATA_FLOW', animated: true,
+    purpose: 'Send the store transaction to the verifier callable.', input: 'Signed store transaction', output: 'Verification request',
+    security: 'Callable requires an authenticated caller.', failure: 'FAIL CLOSED — no verification, no credit.', observability: 'IAP_VERIFY_DOWN' },
+  { id: 'e_product_verify', source: 'premium_product', target: 'iap_verify', type: 'DEPENDS_ON', animated: false,
+    purpose: 'Verifier enforces the product allow-list.', input: 'Product id', output: 'Accept / reject',
+    security: 'Non-allow-listed product ⇒ rejected, never credited.', failure: 'Invalid product credited = money-safety breach.', observability: 'IAP_CREDIT_UNKNOWN_PRODUCT' },
+  { id: 'e_verify_apple', source: 'iap_verify', target: 'apple_verification', type: 'VERIFIES', animated: true,
+    purpose: 'Server-to-server transaction/receipt verification with Apple.', input: 'Store transaction', output: 'Verified purchase',
+    security: 'Server-side only; receipt never trusted from client.', failure: 'FAIL CLOSED — reject on any verification failure.', observability: 'APPLE_VERIFICATION_FAILURE_SPIKE' },
+  { id: 'e_verify_dedup', source: 'iap_verify', target: 'processed_purchases', type: 'PERSISTS', animated: false,
+    purpose: 'Record the transaction id as processed (replay guard).', input: 'Transaction id', output: 'Dedup ledger entry',
+    security: 'Idempotent; a replay must credit 0.', failure: 'Missing dedup ⇒ duplicate grant risk.', observability: 'IAP_DUPLICATE_GRANT / IAP_REPLAY_DELTA_NOT_ZERO' },
+  { id: 'e_verify_credit', source: 'iap_verify', target: 'paid_link_credits', type: 'PERSISTS', animated: true,
+    purpose: 'Grant exactly one link credit for a verified new purchase.', input: 'Verified purchase', output: 'creditDelta = 1',
+    security: 'Grant only after successful verification.', failure: 'Grant≠1 / grant-after-failure = money-safety breach.', observability: 'IAP_GRANT_DELTA_NOT_ONE / IAP_SUCCESS_WITHOUT_CREDIT / IAP_CREDIT_AFTER_FAILURE' },
+  { id: 'e_dedup_fs', source: 'processed_purchases', target: 'firestore', type: 'PERSISTS', animated: false,
+    purpose: 'Dedup ledger lives in Firestore.', input: 'Ledger entry', output: 'Firestore document',
+    security: 'Locked-down rules; server-written.', failure: 'DB unavailable ⇒ verify degraded.', observability: 'N/A (DB)' },
+  { id: 'e_credit_fs', source: 'paid_link_credits', target: 'firestore', type: 'PERSISTS', animated: false,
+    purpose: 'Entitlement ledger lives in Firestore.', input: 'Credit record', output: 'Firestore document',
+    security: 'Locked-down rules; server-written.', failure: 'DB unavailable ⇒ entitlement degraded.', observability: 'N/A (DB)' },
+
+  // AI proxy
+  { id: 'e_app_ai', source: 'flutter_app', target: 'ai_summary', type: 'TRIGGERS', animated: false,
+    purpose: 'Request a server-side summary of real community feedback.', input: 'Feedback set', output: 'Grouped summary',
+    security: 'OpenAI key stays server-side (proxy).', failure: 'Summary unavailable; app degrades gracefully.', observability: 'via OPENAI domain' },
+  { id: 'e_ai_openai', source: 'ai_summary', target: 'openai', type: 'DATA_FLOW', animated: false,
+    purpose: 'Call OpenAI (gpt-4o-mini) server-side.', input: 'Prompt', output: 'Completion',
+    security: 'Key never exposed to client.', failure: 'Provider failure ⇒ OPENAI degraded, summaries only.', observability: 'OPENAI_DEGRADED / OPENAI_LATENCY_DEGRADED' },
+
+  // runtime sources → collector (observed)
+  { id: 'e_verify_collector', source: 'iap_verify', target: 'collector', type: 'OBSERVES', animated: true,
+    purpose: 'iapVerify emits PII-safe iap.* events collected from Functions logs.', input: 'iap.* events', output: 'Normalized IAP metrics',
+    security: 'Allow-listed fields only; no receipts/UIDs/emails.', failure: 'No events ⇒ IAP IDLE (no traffic) or UNKNOWN (blind).', observability: 'COLLECTOR_STALE' },
+  { id: 'e_openai_collector', source: 'openai', target: 'collector', type: 'OBSERVES', animated: false,
+    purpose: 'OpenAI request events collected from Functions logs.', input: 'openai.* events', output: 'OpenAI metrics',
+    security: 'Metadata only.', failure: 'No traffic ⇒ IDLE, not an outage.', observability: 'COLLECTOR_STALE' },
+  { id: 'e_railway_collector', source: 'railway', target: 'collector', type: 'OBSERVES', animated: false,
+    purpose: 'Railway HTTP/runtime logs collected read-only.', input: 'HTTP/runtime logs', output: 'Railway metrics (5xx, reachability)',
+    security: 'Read-only token; masked.', failure: 'Missing token ⇒ NOT_CONFIGURED (not an outage).', observability: 'RAILWAY_5XX_ELEVATED' },
+  { id: 'e_wif_collector', source: 'wif', target: 'collector', type: 'AUTH', animated: false,
+    purpose: 'Keyless OIDC token authorizes read of GCP Cloud Logging.', input: 'OIDC token (300s)', output: 'Log read access',
+    security: 'No static key; least-privilege logging.read.', failure: 'WIF unauthorized ⇒ collector NOT_CONFIGURED for GCP.', observability: 'COLLECTOR_RUN_FAILED' },
+  { id: 'e_pg_evaluator', source: 'postgres', target: 'evaluator', type: 'DATA_FLOW', animated: false,
+    purpose: 'Direct read-only Postgres probe result feeds the evaluator.', input: 'Probe (connect+SELECT 1)', output: 'Postgres health',
+    security: 'Dedicated ops credential; never the app DB URL.', failure: 'Consecutive failures ⇒ CRITICAL + BLOCK.', observability: 'POSTGRES_CRITICAL' },
+
+  // observability pipeline
+  { id: 'e_collector_evaluator', source: 'collector', target: 'evaluator', type: 'EVALUATES', animated: true,
+    purpose: 'Collected metrics feed the pure evaluator.', input: 'Normalized events', output: 'Per-domain health + alerts',
+    security: 'No PII crosses the boundary.', failure: 'Stale/blind collector ⇒ UNKNOWN (NO_OBSERVABILITY).', observability: 'COLLECTOR_STALE' },
+  { id: 'e_eval_health', source: 'evaluator', target: 'runtime_health', type: 'DATA_FLOW', animated: true,
+    purpose: 'Produce the runtime-health snapshot.', input: 'Metrics + SLO', output: 'runtime-health.json',
+    security: 'Metadata only.', failure: 'Evaluation still runs when UNHEALTHY (evidence preserved).', observability: 'observabilityPlatformStatus' },
+  { id: 'e_eval_service', source: 'evaluator', target: 'service_domain', type: 'EVALUATES', animated: false,
+    purpose: 'Aggregate live component health.', input: 'latest.json components', output: 'SERVICE status',
+    security: 'Metadata only.', failure: 'Any component DOWN ⇒ SERVICE_COMPONENT_DOWN (blocking).', observability: 'SERVICE_COMPONENT_DOWN' },
+  { id: 'e_eval_trend', source: 'evaluator', target: 'trend', type: 'DATA_FLOW', animated: false,
+    purpose: 'Compute rolling trends.', input: 'Metric history', output: 'trend.json',
+    security: 'Metadata only.', failure: 'Insufficient data ⇒ INSUFFICIENT_DATA (not an alert).', observability: 'N/A' },
+  { id: 'e_eval_console', source: 'evaluator', target: 'ops_console', type: 'DATA_FLOW', animated: false,
+    purpose: 'Render console + Actions run summary.', input: 'Health + incidents + digest', output: 'ops-console.md / step summary',
+    security: 'No PII / no secrets.', failure: 'Console render failure is surfaced, non-fatal.', observability: 'N/A' },
+
+  // release chain
+  { id: 'e_health_gate', source: 'runtime_health', target: 'release_gate', type: 'VALIDATION', animated: true,
+    purpose: 'Derive release readiness from health + money-safety.', input: 'runtime-health', output: 'PASS / WARN / BLOCK',
+    security: 'Money-safety breach ⇒ BLOCK regardless of sample.', failure: 'Observability health ≠ release readiness.', observability: 'productReleaseGate' },
+  { id: 'e_e2e_gate', source: 'real_iap_e2e', target: 'release_gate', type: 'VALIDATION', animated: false,
+    purpose: 'Deferred real-device E2E keeps validation PARTIAL.', input: 'DEFERRED status', output: 'Gate stays WARN',
+    security: 'No synthetic/forged E2E evidence.', failure: 'Blocks full product-release validation, NOT observability.', observability: 'IAP_E2E_VALIDATION_DEFERRED' },
+
+  // incident chain
+  { id: 'e_eval_incident', source: 'evaluator', target: 'incident_engine', type: 'TRIGGERS', animated: true,
+    purpose: 'CRITICAL alerts become incident actions.', input: 'CRITICAL alerts', output: 'CREATE/UPDATE/RESOLVE/NONE',
+    security: 'Only CRITICAL alerts create incidents.', failure: 'Lost local state ⇒ GitHub lookup fallback guards dedup.', observability: 'INCIDENT_STATE_LOST' },
+  { id: 'e_incident_github', source: 'incident_engine', target: 'github_issues', type: 'DELIVERS', animated: true,
+    purpose: 'Deliver CRITICAL incidents as GitHub Issues (LIVE).', input: 'Incident actions', output: 'GitHub Issue create/update/close',
+    security: 'Payload validated; least-privilege issues:write.', failure: 'Transport failure ⇒ INCIDENT_DELIVERY_FAILED (no recursion).', observability: 'INCIDENT_DELIVERY_UNAVAILABLE' },
+  { id: 'e_sec_github', source: 'security_domain', target: 'github_issues', type: 'SECURES', animated: false,
+    purpose: 'Block any secret/PII before an Issue is written.', input: 'Issue payload', output: 'Allowed / rejected',
+    security: 'Rejects email/JWT/bearer/private-key/webhook.', failure: 'Unsafe payload ⇒ REJECTED, not delivered.', observability: 'INCIDENT_DELIVERY_PAYLOAD_REJECTED' },
+
+  // digest chain
+  { id: 'e_health_digest', source: 'runtime_health', target: 'daily_digest', type: 'DATA_FLOW', animated: false,
+    purpose: 'Digest reads the health snapshot.', input: 'runtime-health', output: 'Digest data',
+    security: 'Operational metadata only.', failure: 'Missing health ⇒ digest skipped, non-fatal.', observability: 'DIGEST_GENERATION_FAILED' },
+  { id: 'e_incident_digest', source: 'incident_engine', target: 'daily_digest', type: 'DATA_FLOW', animated: false,
+    purpose: 'Digest reports incident counts.', input: 'incident state/actions', output: 'Incident summary',
+    security: 'Counts + codes only.', failure: 'No incidents ⇒ zero counts.', observability: 'N/A' },
+  { id: 'e_trend_digest', source: 'trend', target: 'daily_digest', type: 'DATA_FLOW', animated: false,
+    purpose: 'Digest includes 24h trends.', input: 'trend.json', output: 'Trend lines',
+    security: 'Metadata only.', failure: 'Insufficient data tolerated.', observability: 'N/A' },
+  { id: 'e_digest_slack', source: 'daily_digest', target: 'slack', type: 'DELIVERS', animated: true,
+    purpose: 'Deliver the digest to Slack once per UTC day.', input: 'Digest text', output: 'One Slack message/day',
+    security: 'Payload validated; webhook from secret only, never logged.', failure: 'Send failure ⇒ recorded, retried next window; no incident.', observability: 'SLACK_DIGEST_DELIVERY_FAILED' },
+  { id: 'e_sec_slack', source: 'security_domain', target: 'slack', type: 'SECURES', animated: false,
+    purpose: 'Block any secret/PII before a digest is sent.', input: 'Digest payload', output: 'Allowed / rejected',
+    security: 'Same validator as the incident path.', failure: 'Unsafe digest ⇒ REJECTED, not sent.', observability: 'SLACK_DIGEST_PAYLOAD_REJECTED' },
+];

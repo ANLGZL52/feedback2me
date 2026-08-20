@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Feedback2Me — Ops Topology</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="statusbar" class="statusbar"></div>
+
+  <nav id="tabs" class="tabs">
+    <button class="tab active" data-tab="map">SYSTEM MAP</button>
+    <button class="tab" data-tab="runtime">RUNTIME</button>
+    <button class="tab" data-tab="incidents">INCIDENTS</button>
+    <button class="tab" data-tab="iap">IAP</button>
+    <button class="tab" data-tab="logs">LOGS</button>
+    <button class="tab" data-tab="release">RELEASE</button>
+  </nav>
+
+  <div class="toolbar" id="toolbar">
+    <input id="search" class="search" placeholder="Search node… (Postgres, iapVerify, Slack, Collector)" autocomplete="off" />
+    <button id="btn-deps" class="btn">SHOW DEPENDENCIES</button>
+    <button id="btn-impact" class="btn">SHOW FAILURE IMPACT</button>
+    <button id="btn-trace" class="btn">TRACE PATH</button>
+    <button id="btn-clear" class="btn ghost">CLEAR</button>
+    <span class="spacer"></span>
+    <span id="trace-hint" class="hint"></span>
+    <span id="refreshed" class="hint"></span>
+    <button id="btn-refresh" class="btn ghost">REFRESH NOW</button>
+  </div>
+
+  <main class="stage">
+    <div id="canvas-wrap" class="canvas-wrap">
+      <svg id="canvas" class="canvas"></svg>
+      <svg id="minimap" class="minimap"></svg>
+      <div id="legend" class="legend"></div>
+      <div id="panel" class="panel-info"></div>
+    </div>
+    <aside id="drawer" class="drawer"></aside>
+  </main>
+
+  <div id="banner" class="banner hidden"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

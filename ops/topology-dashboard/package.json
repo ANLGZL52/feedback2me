@@ -1,0 +1,12 @@
+{
+  "name": "feedback2me-ops-topology",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local read-only interactive system-topology / observability map for Feedback2Me. Zero runtime dependencies.",
+  "scripts": {
+    "ops:topology": "node server/server.mjs",
+    "ops:fetch": "node server/artifact-fetch.mjs",
+    "test": "node --test topology.test.mjs"
+  }
+}
