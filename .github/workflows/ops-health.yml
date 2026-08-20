@@ -55,6 +55,17 @@ jobs:
               seed_status=no_state_in_artifact
               echo "no incident-state.json in run $rid artifact (first live run or pruned) — GitHub lookup fallback will guard dedup"
             fi
+            # V7 digest dedup continuity: the daily-digest same-window guard lives ONLY in
+            # digest-state.json (Slack has no idempotency, unlike the incident title-lookup
+            # fallback). Restore it from the previous run so a second run in the same UTC-day
+            # window sees already_delivered and sends ZERO duplicate digests. Independent of
+            # incident-state presence; on any miss digest.mjs reads {} (treated as first run).
+            if [ -f _seed/digest-state.json ]; then
+              cp _seed/digest-state.json ops-status/digest-state.json
+              echo "seeded digest-state.json from run $rid"
+            else
+              echo "no digest-state.json in run $rid artifact (first live digest run or pruned)"
+            fi
           else
             echo "no prior successful run found — GitHub lookup fallback will guard dedup"
           fi
