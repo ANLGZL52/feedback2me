@@ -130,6 +130,9 @@ workflows:
         # TestFlight upload above still succeeds.
         submit_to_app_store: true
         release_type: MANUAL
+        # Build 23 (buggy buy-button) was already submitted for review; we want the FIXED
+        # build (1.0.4+25) reviewed instead. Cancel the in-flight submission and resubmit.
+        cancel_previous_submissions: true
         # Auto-distribute the processed build to the existing INTERNAL group.
         # Internal testing needs NO App Review. Do NOT add external groups here.
         beta_groups:
