@@ -51,11 +51,13 @@ import {
 if (!getApps().length) initializeApp();
 
 const OPENAI_API_KEY = defineSecret('OPENAI_API_KEY');
-// IAP verification. iOS milestone: iapVerify binds ONLY APPLE_SHARED_SECRET.
-// Google Play verification is NOT configured yet — PLAY_SERVICE_ACCOUNT_JSON is
-// intentionally NOT declared/bound so the Android path fails closed (see below).
-// ANDROID_PACKAGE_NAME stays (non-secret) for the future Android milestone.
+// IAP verification. Apple + Google Play (Android milestone ACTIVATED). iapVerify binds
+// APPLE_SHARED_SECRET + PLAY_SERVICE_ACCOUNT_JSON. If the Play service account is
+// missing/invalid at runtime, verifyGoogle returns play_bad_service_account (transient)
+// so the Android path still FAILS CLOSED — no credit, no processedPurchases.
+// ANDROID_PACKAGE_NAME (non-secret) binds the androidpublisher URL path.
 const APPLE_SHARED_SECRET = defineSecret('APPLE_SHARED_SECRET');
+const PLAY_SERVICE_ACCOUNT_JSON = defineSecret('PLAY_SERVICE_ACCOUNT_JSON');
 const ANDROID_PACKAGE_NAME = defineString('ANDROID_PACKAGE_NAME');
 
 /**
@@ -193,7 +195,7 @@ async function verifyGoogle(productId: string, purchaseToken: string, serviceAcc
 export const iapVerify = onCall(
   {
     region: 'us-central1',
-    secrets: [APPLE_SHARED_SECRET], // iOS milestone: Apple only (Android fails closed)
+    secrets: [APPLE_SHARED_SECRET, PLAY_SERVICE_ACCOUNT_JSON], // Apple + Google Play verification
     enforceAppCheck: false, // client not App Check-ready yet; Firebase Auth still required
   },
   async (request: CallableRequest) => {
@@ -242,15 +244,18 @@ export const iapVerify = onCall(
         clientRequestId, platform: platformSafe, provider: providerOf(platform), productId,
       }) });
 
-      // iOS milestone: Google Play verification is NOT configured -> Android FAILS
-      // CLOSED here (before grantCredit), so it grants 0 credits and writes no
-      // processedPurchases. Re-enable with the Android milestone (androidEnabled=true
-      // + PLAY_SERVICE_ACCOUNT_JSON secret + verifyGoogle wired below).
-      const ANDROID_VERIFY_ENABLED = false;
+      // Android milestone ACTIVATED: Google Play verification is configured
+      // (PLAY_SERVICE_ACCOUNT_JSON secret + verifyGoogle). If the secret is
+      // missing/invalid at runtime, verifyGoogle returns play_bad_service_account
+      // (transient) so Android still FAILS CLOSED — 0 credits, no processedPurchases.
+      const ANDROID_VERIFY_ENABLED = true;
+      const verifiedProvider = providerOf(platform) ?? 'apple';
       let result: VerifyResult;
       const route = routePlatform(platform, ANDROID_VERIFY_ENABLED);
       if (route === 'apple') {
         result = await verifyApple(verificationData, productId, APPLE_SHARED_SECRET.value());
+      } else if (route === 'android') {
+        result = await verifyGoogle(productId, verificationData, PLAY_SERVICE_ACCOUNT_JSON.value(), ANDROID_PACKAGE_NAME.value());
       } else if (route === 'android_disabled') {
         emit({ level: 'warn', event: buildIapObsEvent('iap.verify.android_disabled', {
           clientRequestId, platform: platformSafe, provider: 'android', productId,
@@ -274,20 +279,20 @@ export const iapVerify = onCall(
         // client consumes it, no credit.
         if (result.transient) {
           emit({ level: 'warn', event: buildIapObsEvent('iap.verify.apple.transient_failure', {
-            clientRequestId, platform: platformSafe, provider: 'apple', productId,
+            clientRequestId, platform: platformSafe, provider: verifiedProvider, productId,
             resultClass: 'transient', errorCode: result.reason ?? null, creditDelta: 0, latencyMs: elapsed(),
           }) });
           throw new HttpsError('unavailable', `Doğrulama geçici olarak başarısız (retry): ${result.reason}`);
         }
         emit({ level: 'warn', event: buildIapObsEvent('iap.verify.apple.rejected', {
-          clientRequestId, platform: platformSafe, provider: 'apple', productId,
+          clientRequestId, platform: platformSafe, provider: verifiedProvider, productId,
           resultClass: 'rejected', errorCode: result.reason ?? null, creditDelta: 0, latencyMs: elapsed(),
         }) });
         throw new HttpsError('permission-denied', `Makbuz doğrulanamadı: ${result.reason}`);
       }
 
       emit({ level: 'info', event: buildIapObsEvent('iap.verify.apple.success', {
-        clientRequestId, platform: platformSafe, provider: 'apple', productId, resultClass: 'ok', latencyMs: elapsed(),
+        clientRequestId, platform: platformSafe, provider: verifiedProvider, productId, resultClass: 'ok', latencyMs: elapsed(),
       }) });
 
       // Idempotent, atomic grant. Key derives ONLY from store-authoritative identity
@@ -306,12 +311,12 @@ export const iapVerify = onCall(
       // Emit AFTER the Firestore transaction commits, reflecting the ACTUAL delta.
       if (outcome.granted) {
         emit({ level: 'info', event: buildIapObsEvent('iap.credit.granted', {
-          clientRequestId, platform: platformSafe, provider: 'apple', productId,
+          clientRequestId, platform: platformSafe, provider: verifiedProvider, productId,
           resultClass: 'ok', creditDelta: credit, replay: false, txCorrelation, latencyMs: elapsed(),
         }) });
       } else {
         emit({ level: 'info', event: buildIapObsEvent('iap.credit.replay', {
-          clientRequestId, platform: platformSafe, provider: 'apple', productId,
+          clientRequestId, platform: platformSafe, provider: verifiedProvider, productId,
           resultClass: 'ok', creditDelta: 0, replay: true, txCorrelation, latencyMs: elapsed(),
         }) });
       }

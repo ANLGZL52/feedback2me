@@ -65,3 +65,11 @@ ops-status/daily-digest-preview.md
 ops-status/digest-state.json
 ops-status/digest-delivery.json
 ops-status/incident-simulation.md
+
+# Signing / payment secrets — NEVER commit (Android keystore, Play/Apple SA keys)
+android/key.properties
+android/app/upload-keystore.jks
+play-sa.json
+play-service-account*.json
+*.p8
+feedbacktome-79655-*.json
