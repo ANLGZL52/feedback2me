@@ -67,7 +67,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
       await iapService.loadProducts();
       final storeAvailable = await iapService.isStoreAvailable;
       if (!mounted) return;
-      final credit = iapService.productById(IapProducts.premiumLinkSingle);
+      final credit = iapService.productById(IapProducts.premiumLinkSingleV2);
       setState(() {
         _loading = false;
         if (!storeAvailable) {
@@ -100,7 +100,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
     try {
       await iapService.loadProducts();
       if (!mounted) return;
-      final fresh = iapService.productById(IapProducts.premiumLinkSingle);
+      final fresh = iapService.productById(IapProducts.premiumLinkSingleV2);
       if (fresh == null) {
         setState(() {
           _purchasing = false;
@@ -170,7 +170,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
   Widget build(BuildContext context) {
     final uid = authService.uid;
     final oid = uid != null ? (effectiveDataOwnerId(uid) ?? uid) : null;
-    final credit = iapService.productById(IapProducts.premiumLinkSingle);
+    final credit = iapService.productById(IapProducts.premiumLinkSingleV2);
 
     return FeedbackScaffold(
       maxWidth: AppSpacing.maxWidthPremium,
@@ -328,7 +328,7 @@ class _PremiumScreenState extends State<PremiumScreen> {
         else
           Text(
             L10n.get(context, 'iapNotInStore')
-                .replaceAll('{label}', IapProducts.premiumLinkSingle),
+                .replaceAll('{label}', IapProducts.premiumLinkSingleV2),
             style: AppType.secondary.copyWith(color: AppColors.warning),
           ),
         const SizedBox(height: AppSpacing.sm),
