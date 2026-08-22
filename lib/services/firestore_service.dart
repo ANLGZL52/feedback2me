@@ -66,10 +66,45 @@ class FirestoreService implements AppDataBackend {
     if (u == null || u.uid != oid) {
       throw StateError('link_create_auth_mismatch');
     }
-    if (kIsWeb) {
-      return _createLinkWeb(oid, title: title);
+    final created = kIsWeb
+        ? await _createLinkWeb(oid, title: title)
+        : await _createLinkTransaction(oid, title: title);
+    if (created != null) {
+      // Yeni link oluşunca sahibin SÜRESİ DOLMUŞ (validUntil geçmiş) aktif
+      // linklerini kapat → ana ekran hep en güncel linki temiz gösterir, süresi
+      // geçen linkler "aktif" olarak takılı kalmaz. Sadece isActive değişir;
+      // paidLinkCredits'e DOKUNMAZ (R6). validUntil'siz (legacy) linkler "süresi
+      // dolmuş" sayılmaz → kapatılmaz. Yeni link'in validUntil'i gelecekte →
+      // exceptId ile ayrıca korunur. Best-effort: hata create'i etkilemez.
+      await _closeExpiredActiveLinks(oid, exceptId: created.id);
     }
-    return _createLinkTransaction(oid, title: title);
+    return created;
+  }
+
+  /// Sahibin SÜRESİ DOLMUŞ aktif linklerini (validUntil geçmiş) kapatır
+  /// (isActive=false). Kredi/entitlement'a DOKUNMAZ (R6). Legacy (validUntil==null)
+  /// linkler süresi dolmuş sayılmadığından kapatılmaz. [exceptId] her zaman atlanır.
+  Future<void> _closeExpiredActiveLinks(String ownerId,
+      {String? exceptId}) async {
+    try {
+      final snap = await _links
+          .where('ownerId', isEqualTo: ownerId)
+          .where('isActive', isEqualTo: true)
+          .get();
+      WriteBatch? batch;
+      var n = 0;
+      for (final d in snap.docs) {
+        if (d.id == exceptId) continue;
+        final link = FeedbackLink.fromMap(d.id, d.data());
+        if (link.isPastValidWindow) {
+          (batch ??= _db.batch()).update(d.reference, {'isActive': false});
+          n++;
+        }
+      }
+      if (batch != null && n > 0) await batch.commit();
+    } catch (_) {
+      // Temizlik best-effort; link oluşturma başarısını etkilemez.
+    }
   }
 
   /// Mobil / masaüstü: atomik transaction.
