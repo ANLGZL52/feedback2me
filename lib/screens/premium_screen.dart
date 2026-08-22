@@ -9,7 +9,9 @@ import '../app_state.dart';
 import '../config/iap_products.dart';
 import '../design_system/design_system.dart';
 import '../l10n/app_localizations.dart';
+import '../models/feedback_link.dart';
 import '../models/user_profile.dart';
+import '../widgets/link_validity_countdown.dart';
 import '../widgets/premium/premium_widgets.dart';
 
 /// Premium link kredisi satın alma ekranı: App Store / Google Play (IAP).
@@ -193,6 +195,9 @@ class _PremiumScreenState extends State<PremiumScreen> {
                       activePremium: p?.hasActivePremium ?? false,
                     ),
                     const SizedBox(height: AppSpacing.l),
+                    // Kullanıcı krediyle nereye link aldığını görsün: mevcut
+                    // linkleri tier + 24s geri sayım ile listeler.
+                    _yourLinks(context, oid),
                     _comparison(context, demoUsed: p?.freeDemoLinkUsed ?? false),
                   ],
                 );
@@ -230,6 +235,73 @@ class _PremiumScreenState extends State<PremiumScreen> {
         Text(L10n.get(context, 'premiumV2Subtitle'),
             style: AppType.secondary, textAlign: TextAlign.center),
       ],
+    );
+  }
+
+  /// "Linklerin": sahibin aktif linklerini tier + 24s geri sayım / durum ile
+  /// listeler. Kullanıcı krediyle nereye link aldığını ve kalan süreyi görür.
+  Widget _yourLinks(BuildContext context, String oid) {
+    return StreamBuilder<List<FeedbackLink>>(
+      stream: appData.linksForOwnerStream(oid),
+      builder: (context, snap) {
+        final links = snap.data ?? [];
+        if (links.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.s),
+              child: Text(L10n.get(context, 'premiumYourLinks'),
+                  style: AppType.sectionTitle),
+            ),
+            ...links.map((l) => Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.s),
+                  child: _linkTile(context, l),
+                )),
+            const SizedBox(height: AppSpacing.l),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _linkTile(BuildContext context, FeedbackLink link) {
+    final tier = switch (link.displayPlan) {
+      FeedbackLinkPlan.premium => L10n.get(context, 'homeLinkPremium'),
+      FeedbackLinkPlan.demo => L10n.get(context, 'homeLinkDemo'),
+      FeedbackLinkPlan.legacy => L10n.get(context, 'homeLinkLegacy'),
+    };
+    return FeedbackCard(
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(tier, style: AppType.bodyStrong),
+                const SizedBox(height: 2),
+                Text(link.shareUrl,
+                    style: AppType.caption,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+              ],
+            ),
+          ),
+          const SizedBox(width: AppSpacing.s),
+          // Süresi dolan → "Süresi doldu"; canlı premium/demo → 24s/10dk geri
+          // sayım; legacy (süresiz) → "Eski link".
+          if (link.isPastValidWindow)
+            FeedbackStatusBadge(
+                label: L10n.get(context, 'premiumLinkExpired'),
+                tone: BadgeTone.neutral)
+          else if (link.validUntil != null)
+            LinkValidityCountdown(validUntil: link.validUntil!, compact: true)
+          else
+            FeedbackStatusBadge(
+                label: L10n.get(context, 'homeLinkLegacy'),
+                tone: BadgeTone.warning),
+        ],
+      ),
     );
   }
 

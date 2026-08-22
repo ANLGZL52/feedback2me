@@ -1281,6 +1281,9 @@ class _ActiveLinkHomeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Legacy (süresiz/eski) link ile YENİ (premium/demo) linki görsel olarak
+    // ayır: kullanıcı 140 günlük eski linki "güncel aktif linkim" sanmasın.
+    final isLegacy = link.displayPlan == FeedbackLinkPlan.legacy;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -1294,8 +1297,12 @@ class _ActiveLinkHomeCard extends StatelessWidget {
               Row(
                 children: [
                   FeedbackStatusBadge(
-                    label: L10n.get(context, 'profileV2Active'),
-                    tone: BadgeTone.neutral,
+                    // Legacy → "Eski link" (uyarı tonu, dikkat çeker); yeni link
+                    // → "Aktif" (nötr). Böylece ayrım rozet düzeyinde görünür.
+                    label: isLegacy
+                        ? L10n.get(context, 'homeLinkLegacy')
+                        : L10n.get(context, 'profileV2Active'),
+                    tone: isLegacy ? BadgeTone.warning : BadgeTone.neutral,
                     dot: true,
                   ),
                   const Spacer(),
@@ -1308,7 +1315,10 @@ class _ActiveLinkHomeCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
-              Text(L10n.get(context, 'homeLinkActive'),
+              Text(
+                  isLegacy
+                      ? L10n.get(context, 'homeLegacyHeading')
+                      : L10n.get(context, 'homeLinkActive'),
                   style: AppType.cardTitle.copyWith(color: AppColors.onPrimary)),
               const SizedBox(height: 3),
               Text(
@@ -1328,6 +1338,16 @@ class _ActiveLinkHomeCard extends StatelessWidget {
                 style: AppType.caption
                     .copyWith(color: AppColors.onPrimary.withValues(alpha: 0.8)),
               ),
+              // Legacy link için açıklama: süresiz eski link olduğunu ve yeni
+              // premium link oluşturulabileceğini net söyler.
+              if (isLegacy) ...[
+                const SizedBox(height: 4),
+                Text(
+                  L10n.get(context, 'homeLegacyNote'),
+                  style: AppType.caption.copyWith(
+                      color: AppColors.onPrimary.withValues(alpha: 0.7)),
+                ),
+              ],
               const SizedBox(height: AppSpacing.m),
               StreamBuilder<List<FeedbackEntry>>(
                 stream: appData.feedbacksForLinkStream(link.id),
