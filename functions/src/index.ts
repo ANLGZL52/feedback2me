@@ -44,6 +44,7 @@ import {
   txCorrelationHash,
   safePlatform,
   type VerifyResult,
+  type IapObsEventType,
 } from './iap-core.js';
 
 // Guarded so both callables (aiSummary, iapVerify) can initialize the Admin app
@@ -250,6 +251,12 @@ export const iapVerify = onCall(
       // (transient) so Android still FAILS CLOSED — 0 credits, no processedPurchases.
       const ANDROID_VERIFY_ENABLED = true;
       const verifiedProvider = providerOf(platform) ?? 'apple';
+      // Provider-tagged verify-outcome event name so the log's event matches its
+      // `provider` field (an Android reject logs as iap.verify.android.rejected,
+      // not the historical apple.* name). Both provider variants exist in
+      // IapObsEventType with identical severity/semantics.
+      const verifyEvent = (outcome: 'success' | 'rejected' | 'transient_failure'): IapObsEventType =>
+        `iap.verify.${verifiedProvider}.${outcome}` as IapObsEventType;
       let result: VerifyResult;
       const route = routePlatform(platform, ANDROID_VERIFY_ENABLED);
       if (route === 'apple') {
@@ -278,20 +285,20 @@ export const iapVerify = onCall(
         // purchase queued and retries (no loss). Permanent reject -> 'permission-denied':
         // client consumes it, no credit.
         if (result.transient) {
-          emit({ level: 'warn', event: buildIapObsEvent('iap.verify.apple.transient_failure', {
+          emit({ level: 'warn', event: buildIapObsEvent(verifyEvent('transient_failure'), {
             clientRequestId, platform: platformSafe, provider: verifiedProvider, productId,
             resultClass: 'transient', errorCode: result.reason ?? null, creditDelta: 0, latencyMs: elapsed(),
           }) });
           throw new HttpsError('unavailable', `Doğrulama geçici olarak başarısız (retry): ${result.reason}`);
         }
-        emit({ level: 'warn', event: buildIapObsEvent('iap.verify.apple.rejected', {
+        emit({ level: 'warn', event: buildIapObsEvent(verifyEvent('rejected'), {
           clientRequestId, platform: platformSafe, provider: verifiedProvider, productId,
           resultClass: 'rejected', errorCode: result.reason ?? null, creditDelta: 0, latencyMs: elapsed(),
         }) });
         throw new HttpsError('permission-denied', `Makbuz doğrulanamadı: ${result.reason}`);
       }
 
-      emit({ level: 'info', event: buildIapObsEvent('iap.verify.apple.success', {
+      emit({ level: 'info', event: buildIapObsEvent(verifyEvent('success'), {
         clientRequestId, platform: platformSafe, provider: verifiedProvider, productId, resultClass: 'ok', latencyMs: elapsed(),
       }) });
 

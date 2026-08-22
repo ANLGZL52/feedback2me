@@ -98,12 +98,15 @@ purchases queued, so a fixed function re-verifies them (no loss).
 **Escalation:** owner — this is CRITICAL + release-blocking.
 
 ## APPLE_VERIFICATION_FAILURE_SPIKE  (IAP_VERIFY_FAILURE_ELEVATED / IAP_TRANSIENT_FAILURE_SUSTAINED / IAP_REJECTED_SPIKE)
-**What it means:** Apple is rejecting receipts (permanent) or failing transiently
-(shared-secret/outage) at an elevated rate.
-**How to verify:** inspect `iap.verify.apple.rejected/transient_failure` counts +
-`errorCode` (e.g. `apple_status_21004` = shared-secret mismatch → config).
-**First safe action:** for transient/21004, verify `APPLE_SHARED_SECRET`. For a
-permanent-reject spike, check whether a product/receipt-format change shipped.
+**What it means:** a store (Apple or Google Play) is rejecting receipts (permanent)
+or failing transiently (shared-secret/service-account/outage) at an elevated rate.
+**How to verify:** inspect `iap.verify.{apple,android}.rejected/transient_failure`
+counts + `errorCode` (e.g. `apple_status_21004` = Apple shared-secret mismatch;
+`play_http_401`/`play_http_403` = Play service-account not authorized → config).
+**First safe action:** for Apple transient/21004, verify `APPLE_SHARED_SECRET`; for
+`play_http_401/403`, verify the Play service account is linked + granted in Play
+Console and `PLAY_SERVICE_ACCOUNT_JSON` is current. For a permanent-reject spike,
+check whether a product/receipt-format change shipped.
 **What NOT to do:** do not disable verification to "fix" the rate.
 **Rollback/mitigation:** fix the secret/config; transient failures self-heal (client
 retries). **Escalation:** sustained CRITICAL rate → owner.

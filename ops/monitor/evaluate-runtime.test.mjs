@@ -65,6 +65,28 @@ describe('IAP metrics + money-safety invariants (pure)', () => {
     const evs = [iapEv('iap.credit.granted', { clientRequestId: 'a', creditDelta: 1, txCorrelation: 't:dup' }), iapEv('iap.credit.granted', { clientRequestId: 'b', creditDelta: 1, txCorrelation: 't:dup' })];
     assert.ok(detectMoneySafetyViolations(evs).some((v) => v.code === 'IAP_DUPLICATE_GRANT'));
   });
+  // Provider-agnostic: android.* verify outcomes are counted + policed identically
+  // to apple.* (an Android op must not escape the money-safety invariants).
+  test('android.success is counted as a verify success', () => {
+    const evs = [
+      iapEv('iap.verify.started', { clientRequestId: 'g', provider: 'android', platform: 'android' }),
+      iapEv('iap.verify.android.success', { clientRequestId: 'g', provider: 'android', platform: 'android', resultClass: 'ok' }),
+      iapEv('iap.credit.granted', { clientRequestId: 'g', provider: 'android', platform: 'android', creditDelta: 1, txCorrelation: 't:g' }),
+    ];
+    assert.equal(detectMoneySafetyViolations(evs).length, 0);
+    assert.equal(computeIapMetrics(evs).counts.success, 1);
+  });
+  test('A (android): android.success with no credit -> IAP_SUCCESS_WITHOUT_CREDIT', () => {
+    const evs = [iapEv('iap.verify.android.success', { clientRequestId: 'z', provider: 'android', platform: 'android' })];
+    assert.ok(detectMoneySafetyViolations(evs).some((v) => v.code === 'IAP_SUCCESS_WITHOUT_CREDIT'));
+  });
+  test('E (android): credit after android.rejected -> IAP_CREDIT_AFTER_FAILURE', () => {
+    const evs = [
+      iapEv('iap.verify.android.rejected', { clientRequestId: 'z', provider: 'android', platform: 'android' }),
+      iapEv('iap.credit.granted', { clientRequestId: 'z', provider: 'android', platform: 'android', creditDelta: 1, txCorrelation: 't:z' }),
+    ];
+    assert.ok(detectMoneySafetyViolations(evs).some((v) => v.code === 'IAP_CREDIT_AFTER_FAILURE'));
+  });
 });
 
 describe('evaluate() — health + alerts + release gate', () => {

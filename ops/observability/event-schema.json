@@ -69,6 +69,7 @@
       "gcp.function.execution", "gcp.function.error", "gcp.function.warning",
       "openai.request.completed", "openai.request.failed", "openai.rate_limited", "openai.timeout", "openai.fallback.required",
       "iap.verify.started", "iap.verify.apple.success", "iap.verify.apple.rejected", "iap.verify.apple.transient_failure",
+      "iap.verify.android.success", "iap.verify.android.rejected", "iap.verify.android.transient_failure",
       "iap.verify.android_disabled", "iap.credit.granted", "iap.credit.replay", "iap.verify.invalid_product", "iap.verify.error"
     ],
     "gcpFunctionNote": "source=gcp-functions events come from Google Cloud Logging (Logging v2 entries.list) for deployed Cloud Functions. Safe fields ONLY: service(function name)/region/severity/eventType/errorCode/gcpExecutionId/revision/resourceType. Raw textPayload/jsonPayload/stack are DROPPED after classification — NEVER srcIp / body / receipt / purchaseToken / JWT / email / secrets. errorCodes: FUNCTION_RUNTIME_ERROR/TIMEOUT/PERMISSION_DENIED/UNAVAILABLE/VALIDATION_ERROR. Requires (a) a deployed function and (b) a read-only GCP identity (WIF) -> GCP_ACCESS_TOKEN.",

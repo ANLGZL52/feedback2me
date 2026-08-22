@@ -204,9 +204,17 @@ export async function grantCredit(
 // ---------------------------------------------------------------------------
 export type IapObsEventType =
   | 'iap.verify.started'
+  // Verify outcomes are provider-tagged so a log's event name matches its
+  // `provider` field. The historical `apple.*` names predate Android
+  // verification; the `android.*` names were added with the Google Play path.
+  // Both carry the same severity/semantics — consumers MUST treat them per
+  // outcome (success/rejected/transient_failure), not per provider.
   | 'iap.verify.apple.success'
   | 'iap.verify.apple.rejected'
   | 'iap.verify.apple.transient_failure'
+  | 'iap.verify.android.success'
+  | 'iap.verify.android.rejected'
+  | 'iap.verify.android.transient_failure'
   | 'iap.verify.android_disabled'
   | 'iap.credit.granted'
   | 'iap.credit.replay'
@@ -231,6 +239,9 @@ const IAP_OBS_SEVERITY: Record<IapObsEventType, 'INFO' | 'WARNING' | 'ERROR'> = 
   'iap.verify.apple.success': 'INFO',
   'iap.verify.apple.rejected': 'WARNING',
   'iap.verify.apple.transient_failure': 'WARNING',
+  'iap.verify.android.success': 'INFO',
+  'iap.verify.android.rejected': 'WARNING',
+  'iap.verify.android.transient_failure': 'WARNING',
   'iap.verify.android_disabled': 'WARNING',
   'iap.credit.granted': 'INFO',
   'iap.credit.replay': 'INFO',

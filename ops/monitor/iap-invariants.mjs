@@ -4,9 +4,17 @@
 // allow-listed `iap` metadata object). NO network, NO secrets, NO PII.
 // Money-safety invariants (A–F) are CRITICAL regardless of sample size.
 
+// Verify outcomes are provider-tagged (apple.* predates Android; android.* was
+// added with the Google Play path). Invariants and metrics MUST treat them per
+// OUTCOME, not per provider — otherwise Android operations would escape the
+// money-safety checks below.
+const VERIFY_SUCCESS = ['iap.verify.apple.success', 'iap.verify.android.success'];
+const VERIFY_REJECTED = ['iap.verify.apple.rejected', 'iap.verify.android.rejected'];
+const VERIFY_TRANSIENT = ['iap.verify.apple.transient_failure', 'iap.verify.android.transient_failure'];
+
 const IAP_EVENTS = [
-  'iap.verify.started', 'iap.verify.apple.success', 'iap.verify.apple.rejected',
-  'iap.verify.apple.transient_failure', 'iap.verify.android_disabled',
+  'iap.verify.started', ...VERIFY_SUCCESS, ...VERIFY_REJECTED, ...VERIFY_TRANSIENT,
+  'iap.verify.android_disabled',
   'iap.credit.granted', 'iap.credit.replay', 'iap.verify.invalid_product', 'iap.verify.error',
 ];
 export const ALLOWED_IAP_PRODUCTS = ['premium_link_single_v2', 'premium_link_single'];
@@ -26,17 +34,18 @@ const rate = (n, d) => (d > 0 ? Number((n / d).toFixed(4)) : null);
 export function computeIapMetrics(events) {
   const iap = iapOnly(events);
   const c = (t) => iap.filter((e) => e.eventType === t).length;
+  const cAny = (types) => iap.filter((e) => types.includes(e.eventType)).length;
   const started = c('iap.verify.started');
-  const success = c('iap.verify.apple.success');
-  const rejected = c('iap.verify.apple.rejected');
-  const transientFailure = c('iap.verify.apple.transient_failure');
+  const success = cAny(VERIFY_SUCCESS);
+  const rejected = cAny(VERIFY_REJECTED);
+  const transientFailure = cAny(VERIFY_TRANSIENT);
   const error = c('iap.verify.error');
   const creditGranted = c('iap.credit.granted');
   const creditReplay = c('iap.credit.replay');
   const androidDisabled = c('iap.verify.android_disabled');
   const invalidProduct = c('iap.verify.invalid_product');
 
-  const verifyAttempts = success + rejected + transientFailure + error; // reached Apple verification
+  const verifyAttempts = success + rejected + transientFailure + error; // reached store verification (Apple or Google)
   const lat = iap
     .map((e) => (e.iap && typeof e.iap.latencyMs === 'number' ? e.iap.latencyMs : null))
     .filter((x) => x != null)
@@ -101,13 +110,13 @@ export function detectMoneySafetyViolations(events, allowedProducts = ALLOWED_IA
     byReq.get(id).add(e.eventType);
   }
   for (const [id, types] of byReq) {
-    const hasSuccess = types.has('iap.verify.apple.success');
+    const hasSuccess = VERIFY_SUCCESS.some((t) => types.has(t));
     const hasGrant = types.has('iap.credit.granted');
     const hasReplay = types.has('iap.credit.replay');
-    const hasFailure = types.has('iap.verify.apple.rejected') || types.has('iap.verify.apple.transient_failure') || types.has('iap.verify.error');
-    // A: Apple verification SUCCESS but no committed credit result (grant OR replay).
+    const hasFailure = VERIFY_REJECTED.some((t) => types.has(t)) || VERIFY_TRANSIENT.some((t) => types.has(t)) || types.has('iap.verify.error');
+    // A: verification SUCCESS but no committed credit result (grant OR replay).
     // (Verify + grant are emitted in the same request, so within one collection window.)
-    if (hasSuccess && !hasGrant && !hasReplay) push('IAP_SUCCESS_WITHOUT_CREDIT', 'Apple verification SUCCESS with no committed credit.granted/replay in the same operation', { clientRequestId: id });
+    if (hasSuccess && !hasGrant && !hasReplay) push('IAP_SUCCESS_WITHOUT_CREDIT', 'verification SUCCESS with no committed credit.granted/replay in the same operation', { clientRequestId: id });
     // E: a verification FAILURE yet a credit was granted for the same operation.
     if (hasFailure && hasGrant) push('IAP_CREDIT_AFTER_FAILURE', 'credit.granted in an operation that also emitted a verification FAILURE', { clientRequestId: id });
   }

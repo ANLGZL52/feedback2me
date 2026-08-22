@@ -249,6 +249,14 @@ test('IAP rejected: safe reason code surfaced, provider apple', () => {
   assert.equal(e.iap.resultClass, 'rejected');
 });
 
+test('IAP android.rejected: provider-tagged reject normalized (play_http_401)', () => {
+  const e = normalizeLogEntry(iapEntry({ ...grantPayload(), eventType: 'iap.verify.android.rejected', provider: 'android', platform: 'android', errorCode: 'play_http_401', creditDelta: 0, resultClass: 'rejected', severity: 'WARNING' }, { severity: 'WARNING' }));
+  assert.equal(e.eventType, 'iap.verify.android.rejected');
+  assert.equal(e.provider, 'android');
+  assert.equal(e.errorCode, 'play_http_401');
+  assert.equal(e.iap.creditDelta, 0);
+});
+
 test('IAP android_disabled: fail-closed event normalized', () => {
   const e = normalizeLogEntry(iapEntry({ ...grantPayload(), eventType: 'iap.verify.android_disabled', provider: 'android', platform: 'android', errorCode: 'ANDROID_VERIFICATION_NOT_CONFIGURED', creditDelta: 0, resultClass: 'disabled' }));
   assert.equal(e.eventType, 'iap.verify.android_disabled');

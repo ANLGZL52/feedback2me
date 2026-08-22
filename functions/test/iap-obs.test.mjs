@@ -53,6 +53,10 @@ describe('buildIapObsEvent — allow-list only, no PII/secret leakage', () => {
     assert.equal(buildIapObsEvent('iap.verify.apple.rejected', {}).severity, 'WARNING');
     assert.equal(buildIapObsEvent('iap.verify.android_disabled', {}).severity, 'WARNING');
     assert.equal(buildIapObsEvent('iap.verify.error', {}).severity, 'ERROR');
+    // Provider-tagged android verify outcomes mirror the apple.* severities.
+    assert.equal(buildIapObsEvent('iap.verify.android.success', {}).severity, 'INFO');
+    assert.equal(buildIapObsEvent('iap.verify.android.rejected', {}).severity, 'WARNING');
+    assert.equal(buildIapObsEvent('iap.verify.android.transient_failure', {}).severity, 'WARNING');
   });
 
   test('missing fields default to null (never undefined/crash)', () => {
