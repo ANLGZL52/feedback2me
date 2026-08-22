@@ -60,6 +60,20 @@ class FeedbackLink {
     return true;
   }
 
+  /// Sahibin arayüzü için "canlı" durum: kapatılmamış (isActive) VE süresi
+  /// dolmamış (validUntil geçmemiş). Ana ekran aktif-link kartı bunu kullanır;
+  /// yalnızca `isActive` bayrağına bakmak süresi dolmuş linki "aktif" gösterir.
+  bool get isLive => isActive && !isPastValidWindow;
+
+  /// validUntil'e göre kalan süre. Süre dolmuşsa veya validUntil yoksa
+  /// Duration.zero. Geri sayım gösterimi için (yalnızca istemci).
+  Duration get remaining {
+    final v = validUntil;
+    if (v == null) return Duration.zero;
+    final r = v.difference(DateTime.now());
+    return r.isNegative ? Duration.zero : r;
+  }
+
   static DateTime? _parseCreatedAt(dynamic raw) {
     if (raw == null) return null;
     if (raw is Timestamp) return raw.toDate();

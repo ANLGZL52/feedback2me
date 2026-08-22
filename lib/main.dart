@@ -1240,6 +1240,30 @@ Future<void> _shareLink(BuildContext context, String url) async {
   }
 }
 
+/// Göreli "oluşturuldu" zamanı (ör. "5 dk önce" / "5 min ago"). Yeni-eski link
+/// ayrımı için ana ekran aktif link kartında kullanılır.
+String _relativeAgo(BuildContext context, DateTime? t) {
+  if (t == null) return '';
+  final d = DateTime.now().difference(t);
+  final suffix = L10n.get(context, 'agoSuffix');
+  if (d.inMinutes < 1) return L10n.get(context, 'agoJustNow');
+  if (d.inMinutes < 60) return '${d.inMinutes} ${L10n.get(context, 'agoMin')} $suffix';
+  if (d.inHours < 24) return '${d.inHours} ${L10n.get(context, 'agoHour')} $suffix';
+  return '${d.inDays} ${L10n.get(context, 'agoDay')} $suffix';
+}
+
+/// Link tier etiketi: Premium / Demo / Eski (legacy = validUntil'sız kayıt).
+String _linkTierLabel(BuildContext context, FeedbackLink link) {
+  switch (link.displayPlan) {
+    case FeedbackLinkPlan.premium:
+      return L10n.get(context, 'homeLinkPremium');
+    case FeedbackLinkPlan.demo:
+      return L10n.get(context, 'homeLinkDemo');
+    case FeedbackLinkPlan.legacy:
+      return L10n.get(context, 'homeLinkLegacy');
+  }
+}
+
 /// Aktif link kartı: geri sayım + yorum sayısı + BÜYÜK "Paylaş" (asıl eylem) +
 /// tek satır canlı önizleme + "süre bitince özet" ipucu.
 class _ActiveLinkHomeCard extends StatelessWidget {
@@ -1294,6 +1318,16 @@ class _ActiveLinkHomeCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
+              const SizedBox(height: 6),
+              // Tier + oluşturulma zamanı: bu linkin YENİ mi (premium/demo, az
+              // önce) yoksa ESKİ mi (legacy/süresiz) olduğunu netleştirir.
+              Text(
+                link.createdAt != null
+                    ? '${_linkTierLabel(context, link)} · ${_relativeAgo(context, link.createdAt)}'
+                    : _linkTierLabel(context, link),
+                style: AppType.caption
+                    .copyWith(color: AppColors.onPrimary.withValues(alpha: 0.8)),
+              ),
               const SizedBox(height: AppSpacing.m),
               StreamBuilder<List<FeedbackEntry>>(
                 stream: appData.feedbacksForLinkStream(link.id),
@@ -1340,6 +1374,23 @@ class _ActiveLinkHomeCard extends StatelessWidget {
               ),
             ),
           ],
+        ),
+        // Kredi bakiyesi + "Yeni link 1 kredi harcanır" netliği: kullanıcı aktif
+        // link varken bile kredisini görsün ve yeni linkin krediyi tükettiğini bilsin.
+        StreamBuilder<UserProfile?>(
+          stream: appData.userProfileStream(ownerId),
+          builder: (context, snap) {
+            final credits = snap.data?.paidLinkCredits ?? 0;
+            if (credits <= 0) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.s),
+              child: Text(
+                '${L10n.get(context, 'homeCreditsLabel')}: $credits · ${L10n.get(context, 'homeNewLinkUsesCredit')}',
+                style: AppType.caption,
+                textAlign: TextAlign.center,
+              ),
+            );
+          },
         ),
         const SizedBox(height: AppSpacing.l),
         FeedbackCard(
