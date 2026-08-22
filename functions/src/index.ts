@@ -39,6 +39,7 @@ import {
   grantCredit,
   parseAppleReceipt,
   parseGooglePurchase,
+  playHttpFailure,
   routePlatform,
   buildIapObsEvent,
   txCorrelationHash,
@@ -183,7 +184,7 @@ async function verifyGoogle(productId: string, purchaseToken: string, serviceAcc
   } catch {
     return { ok: false, reason: 'play_network', transient: true };
   }
-  if (!res.ok) return { ok: false, reason: `play_http_${res.status}`, transient: res.status >= 500 };
+  if (!res.ok) return playHttpFailure(res.status);
   let data: any;
   try {
     data = (await res.json()) as any;

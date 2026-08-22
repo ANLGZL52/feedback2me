@@ -105,6 +105,20 @@ export function parseAppleReceipt(json: any, productId: string): VerifyResult {
  * - identity: orderId when present, else the store-verified purchaseToken
  *   (still store material, never a client-supplied value).
  */
+/**
+ * Map a non-OK androidpublisher HTTP status to a VerifyResult (PURE — no network).
+ * 401/403 = OUR service-account auth/permission problem (permission still
+ * propagating after a Play Console grant, or the SA is misconfigured) — NOT a
+ * verdict on the purchase. Classified TRANSIENT so the client keeps the paid
+ * purchase QUEUED and retries once access is granted, instead of consuming a real
+ * payment with no credit. 5xx = Play outage (transient). A bad purchase token
+ * surfaces as 400/404/410 → permanent reject (no infinite retry on junk tokens).
+ */
+export function playHttpFailure(status: number): VerifyResult {
+  const transient = status >= 500 || status === 401 || status === 403;
+  return { ok: false, reason: `play_http_${status}`, transient };
+}
+
 export function parseGooglePurchase(data: any, purchaseToken: string): VerifyResult {
   if (!data || typeof data !== 'object') {
     return { ok: false, reason: 'play_empty', transient: true };

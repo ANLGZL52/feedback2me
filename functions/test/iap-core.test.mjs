@@ -10,6 +10,7 @@ import {
   grantCredit,
   parseAppleReceipt,
   parseGooglePurchase,
+  playHttpFailure,
   routePlatform,
 } from '../lib/iap-core.js';
 
@@ -143,6 +144,27 @@ describe('parseGooglePurchase — purchase state + store identity', () => {
   test('malformed / empty response -> REJECT', () => {
     assert.equal(parseGooglePurchase(null, 'T').ok, false);
     assert.equal(parseGooglePurchase(undefined, 'T').ok, false);
+  });
+});
+
+describe('playHttpFailure — SA auth/permission errors are TRANSIENT (money-safety)', () => {
+  test('401/403 -> REJECT but TRANSIENT (permission propagating / SA misconfig, keep purchase queued)', () => {
+    for (const s of [401, 403]) {
+      const r = playHttpFailure(s);
+      assert.equal(r.ok, false, `status ${s}`);
+      assert.equal(r.transient, true, `status ${s} must be transient so a paid purchase is NOT consumed`);
+      assert.equal(r.reason, `play_http_${s}`);
+    }
+  });
+  test('5xx -> REJECT but TRANSIENT (Play outage)', () => {
+    for (const s of [500, 502, 503]) assert.equal(playHttpFailure(s).transient, true, `status ${s}`);
+  });
+  test('400/404/410 (bad purchase token) -> REJECT PERMANENT (no infinite retry on junk tokens)', () => {
+    for (const s of [400, 404, 410]) {
+      const r = playHttpFailure(s);
+      assert.equal(r.ok, false, `status ${s}`);
+      assert.equal(r.transient, false, `status ${s} must be permanent`);
+    }
   });
 });
 
