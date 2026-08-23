@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.4+28
+version: 1.0.4+29
 
 environment:
   sdk: ">=3.9.0 <4.0.0"
@@ -77,11 +77,12 @@ flutter_launcher_icons:
   min_sdk_android: 21
   # iOS/App Store icons must be fully opaque (no alpha) — flatten any transparency.
   remove_alpha_ios: true
-  # Design already fills the square with black rounded-rect corners; use it full-bleed
-  # as the adaptive foreground (inset 0). Background matches the design's black corners
-  # so no visible seam; on circle launchers only the decorative frame/ring corners trim
-  # (the F2M wordmark stays inside the safe zone).
-  adaptive_icon_background: "#000000"
+  # New brand icon: full-bleed #3557F6->#7357F6 gradient + white feedback bubble.
+  # Used full-bleed as the adaptive foreground (inset 0); the bubble sits inside the
+  # adaptive safe zone (~17-83%), so it is never clipped by any launcher mask. The
+  # foreground is fully opaque so the background never shows, but it is set to the
+  # brand blue (not black) to avoid any dark seam on odd masks.
+  adaptive_icon_background: "#3557F6"
   adaptive_icon_foreground: "assets/app_icon.png"
   adaptive_icon_foreground_inset: 0
 
