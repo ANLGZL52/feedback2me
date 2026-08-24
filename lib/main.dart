@@ -1044,16 +1044,27 @@ class _LoggedInHomeV2 extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.xl),
-        const _HowItWorksV2(),
+        _HowItWorksV2(uid: uid),
         const SizedBox(height: AppSpacing.m),
       ],
     );
   }
 }
 
-/// "Nasıl çalışır?" 4 adım (V2).
+/// "Nasıl çalışır?" 4 adım (V2). Adımlar tıklanabilir: owner akışı link
+/// oluşturmayla başladığı için her adım, misafirde girişe, girişliyken link
+/// oluşturma ekranına götürür (dokununca akışa başla).
 class _HowItWorksV2 extends StatelessWidget {
-  const _HowItWorksV2();
+  const _HowItWorksV2({this.uid});
+  final String? uid;
+
+  void _start(BuildContext context) {
+    final u = uid;
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) =>
+          u == null ? const LoginScreen() : CreateLinkScreenV2(uid: u),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1072,8 +1083,12 @@ class _HowItWorksV2 extends StatelessWidget {
           children: [
             for (var i = 0; i < steps.length; i++) ...[
               Expanded(
-                child: FeedbackStepItem(
-                    number: i + 1, icon: steps[i].$1, label: steps[i].$2),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  onTap: () => _start(context),
+                  child: FeedbackStepItem(
+                      number: i + 1, icon: steps[i].$1, label: steps[i].$2),
+                ),
               ),
             ],
           ],
