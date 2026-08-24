@@ -6,6 +6,7 @@
   "description": "Feedback2Me observability / control plane — app-independent health checks, journey propagation, incidents, release gate. Read-only, no production writes.",
   "scripts": {
     "ops:monitor": "node monitor/run.mjs",
+    "ops:errors": "node monitor/error-watch.mjs",
     "ops:sim": "node monitor/run.mjs --sim",
     "ops:preflight": "node monitor/preflight.mjs",
     "ops:release-check": "node monitor/release-check.mjs",
