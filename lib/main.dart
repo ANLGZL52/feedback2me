@@ -1202,6 +1202,7 @@ class _TierCard extends StatelessWidget {
               FeedbackStatusBadge(
                 label: priceLabel,
                 tone: onGrad ? BadgeTone.neutral : BadgeTone.primary,
+                onGradient: onGrad,
               ),
             ],
           ),
@@ -1297,12 +1298,14 @@ class _ActiveLinkHomeCard extends StatelessWidget {
               Row(
                 children: [
                   FeedbackStatusBadge(
-                    // Legacy → "Eski link" (uyarı tonu, dikkat çeker); yeni link
-                    // → "Aktif" (nötr). Böylece ayrım rozet düzeyinde görünür.
+                    // Legacy → "Eski link", yeni link → "Aktif". Ayrım metinle
+                    // (etiket + başlık + not) taşınır. Gradient kart üzerinde
+                    // rozet beyaz/yüksek-kontrast (gri tonlar okunmuyordu).
                     label: isLegacy
                         ? L10n.get(context, 'homeLinkLegacy')
                         : L10n.get(context, 'profileV2Active'),
                     tone: isLegacy ? BadgeTone.warning : BadgeTone.neutral,
+                    onGradient: true,
                     dot: true,
                   ),
                   const Spacer(),
