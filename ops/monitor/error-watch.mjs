@@ -12,20 +12,46 @@
 //   ERROR_WATCH_HOURS=6 node monitor/error-watch.mjs
 //   ERROR_WATCH_JSON=1 node monitor/error-watch.mjs   # sadece JSON çıktı
 //
+// ALARM (yeni hata -> Slack): dedup ile YALNIZCA yeni hata türlerinde bildirir.
+// Güvenli varsayılan DRY-RUN (gönderim YOK). ARM'lamak için:
+//   OPS_ERROR_ALERT_ENABLED=true OPS_ALERT_DRY_RUN=false \
+//   OPS_SLACK_WEBHOOK_URL=... node monitor/error-watch.mjs
+// Durum: ops-status/error-watch-state.json (alarm verilmiş anahtarlar).
+//
 // NOT: firebase CLI + geçerli oturum gerekir (functions:log erişimi). Erişim
 // yoksa "collector UNAVAILABLE" raporlar, çökme YAPMAZ. PII güvenli: yalnızca
 // severity + eventType + errorCode + fonksiyon adı + sayım tutulur; ham
 // receipt/token/uid gibi alanlar RAPORLANMAZ.
 // ---------------------------------------------------------------------------
 import { execFileSync } from 'node:child_process';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { slackDigestAdapter } from './slack-digest-adapter.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..');
 const OUT_DIR = join(REPO, 'ops-status');
 const OUT = join(OUT_DIR, 'error-watch.json');
+const STATE = join(OUT_DIR, 'error-watch-state.json'); // deduplama: alarm verilmiş hata anahtarları
+
+// Alarm (yeni hata → Slack). Güvenli varsayılan: DRY-RUN (gönderim YOK) —
+// yalnızca OPS_ERROR_ALERT_ENABLED=true + OPS_ALERT_DRY_RUN=false + webhook ile ARM'lanır.
+const ALERT_ENABLED = process.env.OPS_ERROR_ALERT_ENABLED === 'true';
+const ALERT_DRY_RUN = process.env.OPS_ALERT_DRY_RUN !== 'false'; // vars. true (güvenli)
+const SLACK_WEBHOOK = process.env.OPS_SLACK_WEBHOOK_URL || '';
+
+/** Bir raporun ERROR-şiddetli öğelerinin dedup anahtarları. */
+export function errorKeysOf(report) {
+  return (report.items || [])
+    .filter((i) => i.severity === 'ERROR')
+    .map((i) => `${i.service}|${i.event}|${i.code || ''}`);
+}
+/** Önceden alarm verilenlere göre YENİ hata anahtarları (saf; test edilebilir). */
+export function newErrorKeys(currentKeys, alertedKeys) {
+  const seen = new Set(alertedKeys || []);
+  return (currentKeys || []).filter((k) => !seen.has(k));
+}
 
 const HOURS = Number(process.env.ERROR_WATCH_HOURS || 24);
 const JSON_ONLY = process.env.ERROR_WATCH_JSON === '1';
@@ -34,7 +60,7 @@ const WINDOW_MS = HOURS * 3600 * 1000;
 
 // Bir log satırından HATA sınıfı çıkar (yoksa null = hata değil).
 // severity harfleri: D=debug I=info W=warning E=error N=notice(audit).
-function classify(sev, fn, msg) {
+export function classify(sev, fn, msg) {
   // 1) Yapısal observability event'i (buildIapObsEvent / buildObsEvent JSON'u)
   if (msg.startsWith('{')) {
     let ev;
@@ -85,7 +111,7 @@ function parseLine(line) {
   return { ts: Number.isNaN(ts) ? null : ts, sev: m[2], fn: m[3], msg: (m[4] || '').trim() };
 }
 
-function main() {
+async function main() {
   let lines, collectorOk = true, collectorError = null;
   try { lines = fetchLogs(); }
   catch (e) { collectorOk = false; collectorError = (e.message || String(e)).slice(0, 160); lines = []; }
@@ -125,6 +151,9 @@ function main() {
     })),
   };
 
+  // Yeni hataları alarm sistemine (Slack) bağla — dedup + güvenli DRY-RUN varsayılan.
+  report.alert = await maybeAlert(report);
+
   try { mkdirSync(OUT_DIR, { recursive: true }); writeFileSync(OUT, JSON.stringify(report, null, 2)); } catch { /* yoksay */ }
 
   if (JSON_ONLY) { console.log(JSON.stringify(report, null, 2)); }
@@ -132,6 +161,56 @@ function main() {
 
   // Önlem için: hata varsa 1, uyarı varsa 0 (kırmızı değil), collector yoksa 2.
   process.exit(status === 'ERRORS' ? 1 : status === 'UNAVAILABLE' ? 2 : 0);
+}
+
+// --- Alarm: YENİ hataları Slack'e bildir (dedup + guarded) --------------------
+function loadAlertedKeys() {
+  try { const s = JSON.parse(readFileSync(STATE, 'utf8')); return Array.isArray(s.alerted) ? s.alerted : []; }
+  catch { return []; }
+}
+function saveAlertedKeys(keys) {
+  try {
+    mkdirSync(OUT_DIR, { recursive: true });
+    writeFileSync(STATE, JSON.stringify({ alerted: keys, updatedAt: new Date(NOW).toISOString() }, null, 2));
+  } catch { /* yoksay */ }
+}
+function buildAlertText(report, newKeys) {
+  const byKey = new Map(report.items.map((i) => [`${i.service}|${i.event}|${i.code || ''}`, i]));
+  const lines = newKeys.map((k) => {
+    const i = byKey.get(k);
+    if (!i) return `• ${k}`;
+    return `• ${i.service} · ${i.event}${i.code ? ' [' + i.code + ']' : ''} ×${i.count}` +
+      `${i.lastSeen ? ' (son ' + i.lastSeen.slice(11, 16) + ')' : ''}`;
+  });
+  return [
+    `🔴 *Feedback2Me — YENİ hata* (son ${report.windowHours}s)`,
+    `${newKeys.length} yeni hata türü · toplam ${report.counts.errors} hata, ${report.counts.warnings} uyarı`,
+    ...lines,
+    `_Yalnızca operasyonel metadata — ham log/kullanıcı verisi yok. (ops/error-watch)_`,
+  ].join('\n');
+}
+async function maybeAlert(report) {
+  const current = errorKeysOf(report);
+  const alerted = loadAlertedKeys();
+  const fresh = newErrorKeys(current, alerted);
+  const armed = ALERT_ENABLED && !ALERT_DRY_RUN && !!SLACK_WEBHOOK;
+  const out = {
+    channel: 'slack', enabled: ALERT_ENABLED, dryRun: ALERT_DRY_RUN,
+    configured: !!SLACK_WEBHOOK, newErrors: fresh.length, sent: false, status: null, reason: null,
+  };
+  if (fresh.length === 0) {
+    if (armed) saveAlertedKeys(current); // kaybolan hatayı listeden düş (tekrarlarsa yeniden alarm)
+    return out;
+  }
+  if (!armed) {
+    out.reason = !SLACK_WEBHOOK ? 'not_configured' : ALERT_DRY_RUN ? 'dry_run' : 'disabled';
+    return out; // DRY-RUN: gönderme, alarm listesini değiştirme (ARM'lanınca ateşlesin)
+  }
+  const slack = slackDigestAdapter(SLACK_WEBHOOK);
+  const r = await slack.send(buildAlertText(report, fresh));
+  out.sent = !!r.ok; out.status = r.status;
+  if (r.ok) saveAlertedKeys(current); // gönderilenleri "bilinen" say → spam yok
+  return out;
 }
 
 function printHuman(r) {
@@ -156,8 +235,22 @@ function printHuman(r) {
       if (it.sample) console.log(`       ↳ ${it.sample}`);
     }
   }
+  const a = r.alert;
+  if (a) {
+    const msg = a.newErrors === 0
+      ? 'yeni hata yok'
+      : a.sent
+        ? `${a.newErrors} yeni hata → Slack'e gönderildi (HTTP ${a.status})`
+        : `${a.newErrors} yeni hata · ` + (a.reason === 'dry_run'
+          ? 'DRY-RUN (gönderilmedi — OPS_ERROR_ALERT_ENABLED=true + OPS_ALERT_DRY_RUN=false ile aç)'
+          : a.reason === 'not_configured' ? 'OPS_SLACK_WEBHOOK_URL yok'
+          : a.reason === 'disabled' ? 'kapalı' : (a.reason || ''));
+    console.log(`  alarm (Slack): ${msg}`);
+  }
   console.log(`  durum dosyası: ops-status/error-watch.json`);
   console.log(line);
 }
 
-main();
+// Yalnızca doğrudan çalıştırıldığında koş (import edildiğinde — testlerde — koşma).
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) main();
