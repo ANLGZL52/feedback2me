@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart' show Firebase;
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -69,6 +70,14 @@ void main() async {
   }
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    // İstemci crash/hata takibi (yalnız mobil): Flutter framework hataları + zone
+    // dışı async hatalar Crashlytics'e fatal olarak raporlanır. Web'de çalışmaz
+    // (main erken döner), o yüzden koşulsuz güvenli.
+    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterFatalError;
+    WidgetsBinding.instance.platformDispatcher.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    };
     initializeAppState();
     final prefs = await SharedPreferences.getInstance();
     L10n.setPrefs(prefs);
@@ -77,6 +86,11 @@ void main() async {
     unawaited(iapService.isStoreAvailable);
     runApp(_withDevicePreview(const FeedbackToMeApp()));
   } catch (e, st) {
+    // Açılış hatasını da raporla (Firebase init başarısızsa Crashlytics çalışmaz —
+    // best-effort, sessizce yut).
+    try {
+      FirebaseCrashlytics.instance.recordError(e, st, reason: 'boot', fatal: true);
+    } catch (_) {}
     runApp(_withDevicePreview(MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(

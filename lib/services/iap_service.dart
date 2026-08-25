@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart'
     show debugPrint, kIsWeb, defaultTargetPlatform, TargetPlatform, visibleForTesting;
 import 'package:in_app_purchase/in_app_purchase.dart';
@@ -132,12 +133,33 @@ class IapService {
       if (_products.isEmpty && notFoundProductIds.isNotEmpty) {
         lastLoadError = 'products_not_found';
       }
+      // Mağazadan ürün yüklenemediyse (kullanıcı "kredi yüklenemedi" görür) izle.
+      if (lastLoadError != null) {
+        _reportNonFatal('iap_load_failed:$lastLoadError',
+            {'notFound': notFoundProductIds.join(','), 'products': _products.length});
+      }
       return List.from(_products);
     } catch (e, st) {
       debugPrint('IAP loadProducts exception: $e\n$st');
       lastLoadError = 'load_exception';
+      _reportNonFatal('iap_load_exception', {'error': '$e'}, e, st);
       return [];
     }
+  }
+
+  /// Crashlytics'e ölümcül-olmayan hata bildir (yalnız mobil; best-effort).
+  void _reportNonFatal(String reason, Map<String, Object?> info,
+      [Object? error, StackTrace? st]) {
+    if (kIsWeb) return;
+    try {
+      FirebaseCrashlytics.instance.recordError(
+        error ?? reason,
+        st,
+        reason: reason,
+        information: info.entries.map((e) => '${e.key}=${e.value}').toList(),
+        fatal: false,
+      );
+    } catch (_) {}
   }
 
   void _listenToPurchases() {
